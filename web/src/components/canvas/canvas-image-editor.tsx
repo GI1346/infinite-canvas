@@ -100,7 +100,7 @@ export function CanvasImageEditor({ node, onClose, onSave, readCopiedImages }: P
     const active = layers.find((layer) => layer.id === activeId);
     const generating = Boolean(controllerRef.current);
     const fieldStyle: CSSProperties = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 8, padding: "6px 8px", minWidth: 0, width: "100%" };
-    const panelStyle: CSSProperties = { background: theme.node.panel, border: `1px solid ${theme.node.stroke}`, borderRadius: 14, padding: 14 };
+    const panelStyle: CSSProperties = { background: theme.node.panel, border: `1px solid ${theme.node.stroke}`, borderRadius: 16, padding: 14 };
     const canGenerate = Boolean(size && layers.some((layer) => layer.visible) && model && (mode !== "region" || rect?.width) && (prompt.trim() || mode === "expand" || mode === "angle"));
 
     useEffect(() => {
@@ -313,9 +313,9 @@ export function CanvasImageEditor({ node, onClose, onSave, readCopiedImages }: P
                             <div className="relative" style={viewport.contentStyle}>
                                 <div ref={viewport.stageRef} className="absolute select-none" style={{ ...viewport.stageStyle, cursor: viewport.isPanning || viewport.spacePressed || tool === "move" ? "grab" : "crosshair" }} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} onLostPointerCapture={(event) => { if (event.target === event.currentTarget) dragRef.current = null; }}>
                                     {preview && <img src={preview} alt="编辑工作区" draggable={false} className="pointer-events-none block h-full w-full" />}
-                                    {rect && size && mode === "region" && <div className="pointer-events-none absolute" style={{ left: `${rect.x / size.width * 100}%`, top: `${rect.y / size.height * 100}%`, width: `${rect.width / size.width * 100}%`, height: `${rect.height / size.height * 100}%`, border: "2px solid #2563eb", background: "rgba(37, 99, 235, 0.14)" }}>
+                                    {rect && size && mode === "region" && <div className="pointer-events-none absolute" style={{ left: `${rect.x / size.width * 100}%`, top: `${rect.y / size.height * 100}%`, width: `${rect.width / size.width * 100}%`, height: `${rect.height / size.height * 100}%`, border: `2px solid ${theme.canvas.selectionStroke}`, background: theme.canvas.selectionFill }}>
                                         <span className="absolute left-0 top-0 whitespace-nowrap px-1 text-xs" style={{ background: theme.node.panel, color: theme.node.text }}>{rect.width} × {rect.height}</span>
-                                        {[[false, false], [true, false], [false, true], [true, true]].map(([right, bottom]) => <button key={`${right}-${bottom}`} type="button" tabIndex={-1} aria-label={`调整选区${bottom ? "下" : "上"}${right ? "右" : "左"}角`} disabled={Boolean(busy) || tool !== "select"} onPointerDown={(event) => resizeSelection(event, right, bottom)} style={{ pointerEvents: "auto", position: "absolute", left: right ? "100%" : 0, top: bottom ? "100%" : 0, width: 14, height: 14, padding: 0, border: "2px solid #172554", borderRadius: "50%", background: "#2563eb", transform: "translate(-50%, -50%)", cursor: right === bottom ? "nwse-resize" : "nesw-resize" }} />)}
+                                        {[[false, false], [true, false], [false, true], [true, true]].map(([right, bottom]) => <button key={`${right}-${bottom}`} type="button" tabIndex={-1} aria-label={`调整选区${bottom ? "下" : "上"}${right ? "右" : "左"}角`} disabled={Boolean(busy) || tool !== "select"} onPointerDown={(event) => resizeSelection(event, right, bottom)} style={{ pointerEvents: "auto", position: "absolute", left: right ? "100%" : 0, top: bottom ? "100%" : 0, width: 14, height: 14, padding: 0, border: `2px solid ${theme.node.text}`, borderRadius: "50%", background: theme.canvas.selectionStroke, transform: "translate(-50%, -50%)", cursor: right === bottom ? "nwse-resize" : "nesw-resize" }} />)}
                                     </div>}
                                 </div>
                             </div>

@@ -83,7 +83,7 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
                 selectedImageModel,
                 defaults: { image: config.imageModel, video: config.videoModel, text: config.textModel, audio: config.audioModel },
                 nodeTypes: listNodeDefinitions().map((node) => ({ type: node.type, name: node.title, description: node.description || "", mode: node.useBuiltinPanel?.mode })),
-                note: "这里只提供模型配置、节点类型和用户主动选中的引用，不提供整张画布索引。read_assets/read_results 只能使用主动选中或本 Harness 创建、运行的节点，不能遍历画布；需要其他节点请用户先选择。模型 id 必须逐字使用。selectedImageModel 是用户在 Harness 选择的生图默认：未明确指定其他模型时省略工具 model，执行器会使用它；用户明确指定其他生图模型时，apply_workflow.nodes[].model 或 run_nodes.model 填真实完整ID。选中模型失效会报错，不会跨渠道回退。新节点会布局到当前视图中心。生成尺寸用 parameters.imageAspectRatio、imageResolution(1k/2k/4k/auto) 或精确 size(宽x高)，不是显示宽高。文本正文放 apply_workflow.nodes[].prompt；已有提示词须用 connections 连接到图片节点。run_nodes 才会实际生成。",
+                note: "这里只提供模型配置、节点类型和用户主动选中的引用，不提供整张画布索引。read_assets/read_results 只能使用主动选中或本 Harness 创建、运行的节点，不能遍历画布；需要其他节点请用户先选择。模型 id 必须逐字使用。selectedImageModel 是用户在 Harness 选择的生图默认：未明确指定其他模型时省略工具 model，执行器会使用它；用户明确指定其他生图模型时，apply_workflow.nodes[].model 或 run_nodes.model 填真实完整ID。选中模型失效会报错，不会跨渠道回退。新节点会布局到当前视图中心。生成尺寸用 parameters.imageAspectRatio、imageResolution(1k/2k/4k/auto) 或精确 size(宽x高)，不是显示宽高。文本正文放 apply_workflow.nodes[].prompt；已有提示词须用 connections 连接到图片节点。run_nodes 才会实际生成。图片质量档位：auto=自动、low=低、medium=中、high=高、xhigh=极高、max=最高。用户说“质量最高”必须设 quality=\"max\"，不得把 high 当作最高；不支持该档位时报告接口错误，不擅自降级或重试。",
             } };
         }
         let action = { tool: request.tool, args: request.args } as AssistantAction;
@@ -125,7 +125,7 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
         const imageModels = targets.filter((node) => imageIds.includes(node.id)).map((node) => ({ id: node.id, model: requireImageModel(model || node.metadata?.model || config.imageModel) }));
         const parameters = request.args.parameters;
         if (parameters !== undefined && (!parameters || typeof parameters !== "object" || Array.isArray(parameters))) throw new Error("parameters 必须是对象");
-        if (request.args.requirements !== undefined && typeof request.args.requirements !== "string") throw new Error("requirements 必须是用户的尺寸要求文字");
+        if (request.args.requirements !== undefined && typeof request.args.requirements !== "string") throw new Error("requirements 必须是用户的尺寸和质量要求文字");
         if (request.args.prompt !== undefined && typeof request.args.prompt !== "string") throw new Error("prompt 必须是文字");
         const explicit = explicitAssistantImageRequirements(typeof request.args.requirements === "string" ? request.args.requirements : "");
         // Validate every model before changing any parameters or making the first paid call.
@@ -144,7 +144,7 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
             const current = output || context.getSnapshot().nodes.find((item) => item.id === node.id);
             if (current) known.add(current.id);
             const outputModel = current?.metadata?.model;
-            outcomes.push({ id: current?.id || node.id, sourceNodeId: node.id, model: outputModel, modelLabel: outputModel ? modelOptionLabel(useConfigStore.getState().config, outputModel) : undefined, status: current?.metadata?.status || "idle", error: current?.metadata?.errorDetails, width: current?.metadata?.naturalWidth, height: current?.metadata?.naturalHeight, parameters: { size: current?.metadata?.size, imageResolution: current?.metadata?.imageResolution, imageAspectRatio: current?.metadata?.imageAspectRatio }, hasOutput: Boolean(current?.metadata?.storageKey || current?.metadata?.content || current?.metadata?.images?.some((image) => image.status === "success")), images: current?.metadata?.images?.map((image) => ({ id: image.id, status: image.status, error: image.errorDetails, width: image.naturalWidth, height: image.naturalHeight })) });
+            outcomes.push({ id: current?.id || node.id, sourceNodeId: node.id, model: outputModel, modelLabel: outputModel ? modelOptionLabel(useConfigStore.getState().config, outputModel) : undefined, status: current?.metadata?.status || "idle", error: current?.metadata?.errorDetails, width: current?.metadata?.naturalWidth, height: current?.metadata?.naturalHeight, parameters: { size: current?.metadata?.size, imageResolution: current?.metadata?.imageResolution, imageAspectRatio: current?.metadata?.imageAspectRatio, quality: current?.metadata?.quality }, hasOutput: Boolean(current?.metadata?.storageKey || current?.metadata?.content || current?.metadata?.images?.some((image) => image.status === "success")), images: current?.metadata?.images?.map((image) => ({ id: image.id, status: image.status, error: image.errorDetails, width: image.naturalWidth, height: image.naturalHeight })) });
         }
         return { value: { outcomes, note: "id 是实际产物节点 ID；sourceNodeId 是运行输入；model/modelLabel 是实际产物节点绑定的请求模型，不代表服务端底层模型身份已核验。以真实 status / width / height 判断结果，不能把请求参数当作实际像素。需要视觉验证时 read_assets，文本结果用 read_results。不要为了修正尺寸擅自再次付费生成。" } };
     } finally { if (mutate) busyProjects.delete(request.projectId); }

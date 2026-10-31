@@ -122,7 +122,7 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
 
 function TabButton({ label, active, theme, onClick }: { label: string; active: boolean; theme: CanvasTheme; onClick: () => void }) {
     return (
-        <button type="button" onClick={onClick} className="relative pb-1.5 text-sm font-semibold transition-opacity" style={{ color: theme.node.text, opacity: active ? 1 : 0.45 }}>
+        <button type="button" onClick={onClick} className="relative pb-1.5 text-sm font-semibold transition-opacity" style={{ color: active ? theme.toolbar.activeText : theme.node.muted, opacity: active ? 1 : 0.75 }}>
             {label}
             {active ? <motion.span layoutId="sidePanelTabIndicator" className="absolute inset-x-0 -bottom-px h-0.5 rounded-full" style={{ background: theme.toolbar.activeText }} transition={{ type: "spring", stiffness: 500, damping: 34 }} /> : null}
         </button>
@@ -273,7 +273,7 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, on
                                             if (!to || !to.closest("[data-node-item]")) onHoverNode(null);
                                         }}
                                         className="group relative flex min-w-0 flex-col rounded-lg p-1 text-left transition hover:bg-black/5 dark:hover:bg-white/5"
-                                        style={active ? { background: theme.toolbar.activeBg } : undefined}
+                                        style={active ? { background: theme.toolbar.activeBg, color: theme.toolbar.activeText } : undefined}
                                         title={selectMode ? undefined : t("canvas.sidePanel.focusNode")}
                                     >
                                         <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-md">
@@ -305,7 +305,7 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, on
                                     key={node.id}
                                     data-node-item
                                     className={cn("group relative flex items-center rounded-lg transition", depth && "ml-5", active ? "" : "hover:bg-black/5 dark:hover:bg-white/5")}
-                                    style={active ? { background: theme.toolbar.activeBg } : undefined}
+                                    style={active ? { background: theme.toolbar.activeBg, color: theme.toolbar.activeText } : undefined}
                                     onMouseEnter={() => onHoverNode(node.id)}
                                     onMouseLeave={(event) => {
                                         const to = event.relatedTarget as Element | null;
@@ -369,7 +369,7 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, on
 function CheckMark({ checked, theme }: { checked: boolean; theme: CanvasTheme }) {
     return (
         <span className="grid size-4 shrink-0 place-items-center rounded border transition" style={{ borderColor: checked ? theme.toolbar.activeText : theme.node.stroke, background: checked ? theme.toolbar.activeText : "transparent" }}>
-            {checked ? <Check className="size-3 text-white" /> : null}
+            {checked ? <Check className="size-3 text-white" style={{ color: theme.node.panel }} /> : null}
         </span>
     );
 }

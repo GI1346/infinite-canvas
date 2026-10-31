@@ -63,7 +63,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     return (
         <>
             <span ref={buttonRef} className="inline-flex min-w-0">
-                <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[180px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => updateOpen(!open)}>
+                <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[180px] !justify-start !rounded-full !px-2.5"} style={{ background: "transparent", color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => updateOpen(!open)}>
                     <span className="truncate">
                         {imageQualityLabel(quality)} · {imageSizeLabel(activeSize)} · {t("canvas.controls.images", { count })}
                     </span>
@@ -103,8 +103,8 @@ function ImageSettingsPortal({
         left: Math.max(margin, Math.min(window.innerWidth - width - margin, left)),
         ...(topPlacement ? { bottom: window.innerHeight - buttonRect.top + gap, maxHeight: Math.max(260, buttonRect.top - margin * 2) } : { top: buttonRect.bottom + gap, maxHeight: Math.max(260, window.innerHeight - buttonRect.bottom - margin * 2) }),
         background: theme.toolbar.panel,
-        borderRadius: 18,
-        boxShadow: "0 18px 54px rgba(28, 25, 23, 0.16)",
+        borderRadius: 16,
+        boxShadow: theme.toolbar.shadow,
         padding: 18,
         overflowY: "auto",
         color: theme.node.text,

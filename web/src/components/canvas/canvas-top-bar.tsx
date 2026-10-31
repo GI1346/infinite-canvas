@@ -87,7 +87,7 @@ export function CanvasTopBar({
                             type="button"
                             onClick={toggleSidePanel}
                             aria-label={sidePanelOpen ? t("canvas.collapsePanel") : t("canvas.expandPanel")}
-                            className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10"
+                            className="grid size-7 place-items-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/10"
                             style={{ color: theme.node.text }}
                         >
                             {sidePanelOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
@@ -112,7 +112,7 @@ export function CanvasTopBar({
                             ],
                         }}
                     >
-                        <button type="button" className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label={t("canvas.openMenu")}>
+                        <button type="button" className="grid size-7 place-items-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label={t("canvas.openMenu")}>
                             <Menu className="size-4" />
                         </button>
                     </Dropdown>
@@ -146,7 +146,7 @@ export function CanvasTopBar({
 
                 <div className="pointer-events-auto flex items-center gap-1.5">
                     <Tooltip title="打开 DeepSeek Harness（官方账号登录）">
-                        <button type="button" aria-label="打开 DeepSeek Harness" disabled={harnessOpening} className="grid size-8 place-items-center rounded-full transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10" onClick={async () => {
+                        <button type="button" aria-label="打开 DeepSeek Harness" disabled={harnessOpening} className="grid size-8 place-items-center rounded-lg transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10" onClick={async () => {
                             if (harnessOpening) return;
                             setHarnessOpening(true);
                             try { await openDeepSeekHarness(); }

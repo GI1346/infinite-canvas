@@ -203,9 +203,9 @@ export function CanvasNodeHoverToolbar({
     return (
         <>
             <div
-                className="absolute z-[70] flex h-12 -translate-x-1/2 -translate-y-full items-center overflow-x-auto rounded-[18px] border border-black/10 bg-white text-[15px] text-[#242529] shadow-[0_8px_28px_rgba(15,23,42,.12)]"
+                className="absolute z-[70] flex h-12 -translate-x-1/2 -translate-y-full items-center overflow-x-auto rounded-2xl border text-[15px]"
                 data-node-toolbar={node.id}
-                style={{ left, top, maxWidth: "calc(100% - 24px)", background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+                style={{ left, top, maxWidth: "calc(100% - 24px)", boxShadow: theme.toolbar.shadow, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 onMouseEnter={() => onKeep(node.id)}
                 onMouseLeave={() => {
                     if (!imageToolSettingsOpen) onLeave();
