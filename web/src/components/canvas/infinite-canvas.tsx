@@ -21,7 +21,9 @@ type InfiniteCanvasProps = {
 };
 
 export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = "lines", onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasContextMenu, onConnectionCutStart, isCuttingConnections = false, onDrop, children }: InfiniteCanvasProps) {
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const colorTheme = useThemeStore((state) => state.theme);
+    const theme = canvasThemes[colorTheme];
+    const background = useThemeStore((state) => state.canvasBackgrounds[colorTheme]) || theme.canvas.background;
     const panState = useRef({
         isPanning: false,
         startX: 0,
@@ -312,7 +314,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
         <div
             ref={containerRef}
             className="relative h-full w-full select-none overflow-clip"
-            style={{ background: theme.canvas.background, cursor }}
+            style={{ background, cursor }}
             onPointerDownCapture={handlePointerDown}
             onMouseDownCapture={(event) => { if (panState.current.isPanning || cuttingRef.current) { event.preventDefault(); event.stopPropagation(); } }}
             onClickCapture={(event) => { if (suppressClickRef.current) { event.preventDefault(); event.stopPropagation(); suppressClickRef.current = false; } }}

@@ -1,7 +1,6 @@
 import type { NavigateFunction } from "react-router-dom";
 
 import i18n from "@/i18n";
-import { fetchPrompts } from "@/services/api/prompts";
 import { uploadImage } from "@/services/image-storage";
 import { imageAspectOptions, imageQualityOptions, imageScaleOptions } from "@/components/image-settings-panel";
 import { videoResolutionOptions, videoSecondsRange, videoSizeOptions } from "@/components/video-settings-panel";
@@ -12,7 +11,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 
-// Execute site-level Agent tools in the browser, including canvas lists, workbench generation, prompt search, and asset operations.
+// Execute site-level Agent tools in the browser, including canvas lists, workbench generation and asset operations.
 // Their data lives locally in the browser through localforage and Zustand, so this module accesses the relevant stores directly.
 
 export const SITE_TOOL_NAMES = [
@@ -22,7 +21,6 @@ export const SITE_TOOL_NAMES = [
     "workbench_image_generate",
     "workbench_video_get_config",
     "workbench_video_generate",
-    "prompts_search",
     "assets_list",
     "assets_add",
 ] as const;
@@ -44,7 +42,6 @@ export const SITE_TOOL_LABELS: Record<SiteToolName, string> = {
     get workbench_image_generate() { return siteText("imageGenerate"); },
     get workbench_video_get_config() { return siteText("videoConfig"); },
     get workbench_video_generate() { return siteText("videoGenerate"); },
-    get prompts_search() { return siteText("promptSearch"); },
     get assets_list() { return siteText("assetList"); },
     get assets_add() { return siteText("assetAdd"); },
 };
@@ -68,8 +65,6 @@ export async function runSiteTool(name: SiteToolName, input: SiteToolInput, navi
             return getVideoConfig();
         case "workbench_video_generate":
             return runVideoWorkbench(input, navigate);
-        case "prompts_search":
-            return searchPrompts(input);
         case "assets_list":
             return listAssets(input);
         case "assets_add":
@@ -250,21 +245,6 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     navigate("/video");
     const taskId = useWorkbenchAgentStore.getState().dispatchVideo({ prompt, run });
     return { ok: true, navigated: "/video", prompt, run, taskId, applied, note: siteText(run ? "videoGenerationStarted" : "videoConfigApplied") };
-}
-
-async function searchPrompts(input: SiteToolInput) {
-    const page = Math.max(1, Math.floor(Number(input.page)) || 1);
-    const pageSize = Math.max(1, Math.min(50, Math.floor(Number(input.pageSize)) || 20));
-    const tags = Array.isArray(input.tags) ? input.tags.filter((tag): tag is string => typeof tag === "string") : [];
-    const result = await fetchPrompts({ keyword: String(input.keyword || ""), category: String(input.category || i18n.t("common.all")), tag: tags, page, pageSize });
-    return {
-        total: result.total,
-        page,
-        pageSize,
-        categories: result.categories,
-        tags: result.tags.slice(0, 60),
-        items: result.items.map((prompt) => ({ id: prompt.id, title: prompt.title, prompt: prompt.prompt, category: prompt.category, tags: prompt.tags, coverUrl: prompt.coverUrl, githubUrl: prompt.githubUrl })),
-    };
 }
 
 function listAssets(input: SiteToolInput) {

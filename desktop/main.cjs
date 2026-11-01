@@ -1,5 +1,6 @@
-const { app, BrowserWindow, dialog, shell, ipcMain, session } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, session, net } = require('electron');
 const http = require('node:http');
+const { createNetworkProxy } = require('./network.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -54,8 +55,10 @@ else {
   } catch (error) { dialog.showErrorBox('存储初始化失败', String(error.message || error)); app.exit(1); }
   app.on('second-instance', () => { const win = BrowserWindow.getAllWindows()[0]; if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(async () => {
+    const network = createNetworkProxy({ origin, token: crypto.randomBytes(24).toString('hex'), fetch: (url, options) => net.fetch(url, options), version: app.getVersion() });
     // Stable loopback origin preserves IndexedDB/localforage across restarts and upgrades.
     server = http.createServer((req, res) => {
+      if (network.handle(req, res)) return;
       try {
         const name = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname);
         if (name === '/__storage') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); return res.end('<!doctype html><meta charset="utf-8"><title>BlinkFlow</title><p>正在整理本地存储…</p>'); }
@@ -73,6 +76,10 @@ else {
     const trusted = (event) => {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || new URL(event.senderFrame.url).origin !== origin) throw new Error('无效的存储操作来源');
     };
+    ipcMain.on('network:info', (event) => {
+      try { trusted(event); event.returnValue = { proxyUrl: network.proxyUrl }; }
+      catch { event.returnValue = null; }
+    });
     let harnessSelection = null;
     const currentHarnessModels = () => harnessModels?.projectId === harnessProjectId ? harnessModels : null;
     const publishHarnessModels = () => { if (harnessWindow && !harnessWindow.isDestroyed()) harnessWindow.webContents.send('harness:models-changed', currentHarnessModels()); };

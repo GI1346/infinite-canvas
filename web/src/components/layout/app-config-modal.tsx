@@ -9,7 +9,6 @@ import { videoResolutionOptions } from "@/components/video-settings-panel";
 import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
 import { ConfigProtocolCenter } from "@/components/layout/config-protocol-center";
 import { ConfigLocalProxy } from "@/components/layout/config-local-proxy";
-import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
 import { useCallProtocolStore } from "@/stores/use-call-protocol-store";
 import { relayTaskBase } from "@/services/api/relay-tasks";
@@ -288,11 +287,6 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                 </Form.Item>
                             </Form>
                         ),
-                    },
-                    {
-                        key: "prompt-sources",
-                        label: t("config.tabs.promptSources"),
-                        children: <ConfigPromptSources />,
                     },
                     {
                         key: "webdav",

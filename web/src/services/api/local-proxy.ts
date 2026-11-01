@@ -5,7 +5,7 @@ import { normalizeLocalProxyUrl } from "@/stores/use-config-store";
 export async function testLocalProxy(proxyUrl: string) {
     const base = normalizeLocalProxyUrl(proxyUrl);
     if (!base) throw new Error(i18n.t("config.proxy.missingUrl"));
-    const response = await fetch(`${base}/`, { cache: "no-store" });
+    const response = await fetch(`${base}/`, { cache: "no-store" }).catch(() => { throw new Error(i18n.t("config.proxy.unreachable")); });
     const data = response.ok ? ((await response.json().catch(() => null)) as { proxy?: string; version?: string } | null) : null;
     if (!data?.proxy) throw new Error(i18n.t("config.proxy.unreachable"));
     return `${data.proxy} v${data.version || "?"}`;

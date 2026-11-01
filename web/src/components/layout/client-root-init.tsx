@@ -4,7 +4,6 @@ import { App } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { useConfigStore } from "@/stores/use-config-store";
-import { usePromptSourceScheduler } from "@/hooks/use-prompt-source-scheduler";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const { message } = App.useApp();
@@ -13,7 +12,6 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const importChannelCredentials = useConfigStore((state) => state.importChannelCredentials);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
 
-    usePromptSourceScheduler();
 
     useEffect(() => {
         if (handledConfigParams.current) return;

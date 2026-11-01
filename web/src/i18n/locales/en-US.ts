@@ -326,6 +326,7 @@ export default {
         },
     },
     navigation: {
+        gallery: "Image library",
         canvas: "My Canvases",
         image: "Image Studio",
         video: "Video Studio",

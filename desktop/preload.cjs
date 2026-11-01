@@ -1,4 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const network = ipcRenderer.sendSync('network:info');
+if (network) contextBridge.exposeInMainWorld('blinkflowNetwork', network);
 contextBridge.exposeInMainWorld('blinkflowStorage', {
   info: () => ipcRenderer.invoke('storage:info'),
   open: () => ipcRenderer.invoke('storage:open'),

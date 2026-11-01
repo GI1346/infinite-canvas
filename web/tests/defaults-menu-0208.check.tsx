@@ -31,7 +31,7 @@ async function main() {
     assert.equal(document.documentElement.classList.contains("dark"), true, "pre-React script retains saved dark choice");
     localStorage.removeItem("infinite-canvas:theme_store"); document.documentElement.classList.remove("dark");
     assert.equal(useThemeStore.getState().theme, "light");
-    assert.equal(canvasThemes[useThemeStore.getState().theme].canvas.background, "#ffffff");
+    assert.equal(canvasThemes[useThemeStore.getState().theme].canvas.background, "#f5f8fc");
     assert.equal(defaultConfig.canvasImageCount, "1");
     assert.equal(defaultConfig.count, "1");
     assert.equal(inferMediaScale(defaultConfig.size), "2k");
@@ -74,7 +74,7 @@ async function main() {
 
     created = [];
     await act(async () => root.render(<CanvasToolbar selectedCount={0} canvasTool="select" canUndo={false} canRedo={false} backgroundMode="lines" showImageInfo={false} onAddImage={no} onAddVideo={() => created.push("video")} onAddAudio={() => created.push("audio")} onAddText={no} onAddConfig={no} onAddGroup={no} onAddExtensionNode={(type) => created.push(type)} onUndo={no} onRedo={no} onUpload={no} onDelete={no} onClear={no} onCanvasToolChange={no} onBackgroundModeChange={no} onShowImageInfoChange={no} onFocusSelected={no} />));
-    const nodeButtons = [...host.querySelectorAll("[data-canvas-bottom-toolbar] button")].filter(button => labels.includes(button.getAttribute("aria-label") || ""));
+    const nodeButtons = [...host.querySelectorAll("[data-canvas-left-toolbar] button")].filter(button => labels.includes(button.getAttribute("aria-label") || ""));
     assert.deepEqual(nodeButtons.map(button => button.getAttribute("aria-label")), labels);
     await click(nodeButtons[2]); await click(nodeButtons[3]); await click(nodeButtons[5]); await click(nodeButtons[7]);
     assert.deepEqual(created, ["dxos:table", "dxos:llm", "video", "audio"]);

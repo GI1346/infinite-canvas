@@ -251,7 +251,7 @@ async function workflowTests() {
                 assert.equal(requests.length, 0);
                 const start = { ...ui.state().viewport }; await fire(control, space("keydown")); await fire(control, pointer("pointerdown", { clientX: 100, clientY: 100 })); await fire(window, pointer("pointermove", { clientX: 150, clientY: 130 })); await act(async () => { await tick(25); }); await fire(window, pointer("pointerup")); await fire(control, mouse()); await fire(control, space("keyup"));
                 assert.equal(ui.state().viewport.x, start.x + 50); assert.equal(ui.state().viewport.y, start.y + 30); assert.equal(ui.drags(), 0); assert.equal(requests.length, 0);
-                const scale = ui.state().viewport.k, wheel = await fire(control, new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100, clientX: 150, clientY: 130 })); assert.ok(wheel.defaultPrevented); assert.ok(ui.state().viewport.k > scale); assert.deepEqual(ui.host().getNode("llm")!.position, position);
+                const scale = ui.state().viewport.k, wheel = await fire(control, new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100, clientX: 150, clientY: 130 })); assert.ok(wheel.defaultPrevented); await act(async () => { await tick(40); }); assert.ok(ui.state().viewport.k > scale); assert.deepEqual(ui.host().getNode("llm")!.position, position);
             }
             const prompt = label(ui.el, "LLM 提示词") as unknown as HTMLTextAreaElement; prompt.focus(); const typedSpace = await fire(prompt, space("keydown")); assert.equal(typedSpace.defaultPrevented, false); await value(prompt, "分析 要求"); assert.equal(ui.host().getNode("llm")!.metadata!.prompt, "分析 要求");
         } finally { await ui.close(); }

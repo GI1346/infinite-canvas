@@ -56,8 +56,8 @@ async function main(){
  const saved=JSON.parse(localStorage.getItem('blinkflow:canvas-assistant-layout')!);assert.equal(saved.inputHeight,190);assert.equal(localStorage.getItem('blinkflow:canvas-assistant-sidebar-width'),'510');
  const history=label('Agent 历史回读条数') as HTMLSelectElement;assert.deepEqual([...history.options].map(o=>Number(o.value)),[3,5,10,20,50,100,150,200]);assert.equal(history.value,'20');
  await change(()=>state().setContextWindow(200));assert.equal(history.value,'200');
- await click(label('收起 Agent'));assert.equal(sidebar.style.width,'0px');assert(document.querySelector('[data-assistant-orb]'));
- await click(label('打开 Agent'));assert.equal(sidebar.style.width,'510px');assert.equal(history.value,'200');
+ await click(label('收起 Agent'));assert.equal(sidebar.style.width,'0px');assert(!document.querySelector('[data-assistant-orb]'),'floating orb stays removed');
+ await change(()=>state().setOpen(true));assert.equal(sidebar.style.width,'510px');assert.equal(history.value,'200');
  await click(label('全屏编辑 Agent 输入'));const enlarged=document.querySelector<HTMLElement>('[data-assistant-editor]')!;const before=parseFloat(enlarged.style.width);await drag(enlarged.querySelector<HTMLElement>('[data-assistant-resize="e"]')!,100,0);assert.equal(parseFloat(enlarged.style.width),before+100);
  await drag(enlarged.querySelector('header')!,60,30);assert.equal(parseFloat(enlarged.style.left),100);assert.equal(parseFloat(enlarged.style.top),100);
  await click(label('关闭 Agent 大窗口编辑'));await click(label('全屏编辑 Agent 输入'));assert.equal(parseFloat(document.querySelector<HTMLElement>('[data-assistant-editor]')!.style.width),before+100);await click(label('关闭 Agent 大窗口编辑'));

@@ -82,8 +82,8 @@ export function CanvasTopBar({
 
     return (
         <>
-            <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-16 items-center justify-between pl-1 pr-4">
-                <div className="pointer-events-auto flex min-w-0 items-center gap-2">
+            <div className="pointer-events-auto absolute left-1/2 top-2 z-50 flex h-12 w-max max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-3 rounded-2xl border px-3 shadow-sm" data-canvas-overlay data-canvas-no-zoom data-canvas-top-toolbar style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}>
+                <div className="pointer-events-auto flex min-w-[120px] shrink-0 items-center gap-1">
                     <Tooltip title={sidePanelOpen ? t("canvas.collapsePanel") : t("canvas.expandPanel")}>
                         <button
                             type="button"
@@ -130,13 +130,13 @@ export function CanvasTopBar({
                                     if (event.key === "Enter") onFinishTitleEditing();
                                     if (event.key === "Escape") onCancelTitleEditing();
                                 }}
-                                className="max-w-[280px] bg-transparent p-0 text-left text-lg font-semibold tracking-normal outline-none"
+                                className="max-w-[150px] bg-transparent p-0 text-left text-sm font-medium tracking-normal outline-none"
                                 style={{ color: theme.node.text }}
                             />
                         ) : (
                             <button
                                 type="button"
-                                className="max-w-[280px] truncate border-b border-dashed border-transparent text-left text-lg font-semibold tracking-normal transition hover:border-current"
+                                className="max-w-[150px] truncate border-b border-dashed border-transparent text-left text-sm font-medium tracking-normal transition hover:border-current"
                                 onDoubleClick={onStartTitleEditing}
                                 title={t("canvas.renameHint")}
                             >
@@ -146,7 +146,7 @@ export function CanvasTopBar({
                     </div>
                 </div>
 
-                <div className="pointer-events-auto flex items-center gap-1.5">
+                <div className="thin-scrollbar pointer-events-auto flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap [&>*]:shrink-0">
                     <Tooltip title={agentOpen ? "收起 Agent" : "打开 Agent"}>
                         <button type="button" aria-label={agentOpen ? "收起 Agent" : "打开 Agent"} aria-expanded={agentOpen} className="grid size-8 place-items-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} onClick={() => useCanvasAssistantStore.getState().setOpen(!agentOpen)}><Bot className="size-5" /></button>
                     </Tooltip>
@@ -159,6 +159,9 @@ export function CanvasTopBar({
                             finally { setHarnessOpening(false); }
                         }}><img src="/icons/deepseek.svg" alt="" className="size-5" /></button>
                     </Tooltip>
+                    <Tooltip title={t("canvas.undo")}><Button type="text" aria-label={t("canvas.undo")} disabled={!canUndo} icon={<Undo2 className="size-4" />} onClick={onUndo} /></Tooltip>
+                    <Tooltip title={t("canvas.redo")}><Button type="text" aria-label={t("canvas.redo")} disabled={!canRedo} icon={<Redo2 className="size-4" />} onClick={onRedo} /></Tooltip>
+                    <Tooltip title={t("canvas.home")}><Button type="text" aria-label={t("canvas.home")} icon={<Home className="size-4" />} onClick={onHome} /></Tooltip>
                     <Button type="text" onClick={onOpenGrid}>宫格布局</Button>
                     <Button type="text" onClick={onOpenTasks}>异步任务</Button>
                     <Button type="text" onClick={() => setLogsOpen(true)}>日志</Button>

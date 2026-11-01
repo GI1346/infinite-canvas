@@ -326,7 +326,8 @@ export default {
         },
     },
     navigation: {
-        canvas: "我的画布",
+        gallery: "图片库",
+        canvas: "文件",
         image: "生图工作台",
         video: "视频创作台",
         prompts: "提示词库",

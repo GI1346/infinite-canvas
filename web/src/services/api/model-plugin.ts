@@ -4,6 +4,7 @@ import { useCallProtocolStore } from "@/stores/use-call-protocol-store";
 import { PROTOCOL_SCRIPT_PREFIX } from "@/lib/canvas-call-protocol";
 
 import i18n from "@/i18n";
+import { desktopProxyUrl } from "@/lib/desktop-network";
 import { buildApiUrl, withLocalProxy, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 type RequestOptions = { signal?: AbortSignal };
@@ -145,6 +146,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
         "sleep",
         "signal",
         "onDelta",
+        "fetch",
         `"use strict"; return (async () => {\n${script}\n})();`,
     ) as (...fnArgs: unknown[]) => Promise<T>;
     try {
@@ -166,6 +168,19 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
             (ms: number) => sleep(ms, args.signal),
             args.signal,
             args.onDelta,
+            (async (input: RequestInfo | URL, init?: RequestInit) => {
+                if (!desktopProxyUrl()) return fetch(input, init);
+                if (!(input instanceof Request)) return fetch(withLocalProxy(String(input)), init);
+                const request = new Request(input, init);
+                // A Request body is a stream; materialize it to avoid Chromium requiring HTTP/2 for loopback uploads.
+                const body = ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer();
+                return fetch(withLocalProxy(request.url), {
+                    method: request.method, headers: request.headers, body, signal: request.signal,
+                    cache: request.cache, credentials: request.credentials, integrity: request.integrity,
+                    keepalive: request.keepalive, mode: request.mode, redirect: request.redirect,
+                    referrer: request.referrer, referrerPolicy: request.referrerPolicy,
+                });
+            }) as typeof fetch,
         );
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") throw error;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { assistantContextMessages, normalizeAssistantContextWindow } from "../src/lib/canvas/assistant-context-window";
-import { assistantGraphIndex, executeAssistantTool } from "../src/services/api/canvas-assistant";
+import { executeAssistantTool } from "../src/services/api/canvas-assistant";
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/lib/canvas/canvas-agent-ops";
 import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nodes";
 import { useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
@@ -54,10 +54,9 @@ async function main() {
     ], connections: [], selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 } };
     const context: CanvasAssistantContext = { snapshot, getSnapshot: () => snapshot, applyOps: (ops) => snapshot = applyCanvasAgentOps(snapshot, ops), runNode: async () => { throw Error("no paid generation in this test"); } };
     const config = { ...defaultConfig }, signal = new AbortController().signal;
-    assert(!JSON.stringify(assistantGraphIndex(snapshot)).includes("EXACT_BODY"));
-    const index = await executeAssistantTool({ tool: "read_canvas", args: {} }, context, config, [], signal);
-    assert(!JSON.stringify(index.value).includes("UNRELATED_FULL_BODY"));
-    const detail = await executeAssistantTool({ tool: "read_canvas", args: { nodeIds: ["target"] } }, context, config, [], signal);
+    await assert.rejects(() => executeAssistantTool({ tool: "read_canvas" as any, args: {} }, context, config, [], signal));
+    await assert.rejects(() => executeAssistantTool({ tool: "read_assets", args: { nodeIds: ["unrelated"] } }, context, config, [], signal, ["target"]), /主动添加/);
+    const detail = await executeAssistantTool({ tool: "read_assets", args: { nodeIds: ["target"] } }, context, config, [], signal, ["target"]);
     assert(JSON.stringify(detail.value).includes("TARGET_EXACT_BODY")); assert(!JSON.stringify(detail.value).includes("UNRELATED_FULL_BODY"));
     const created = await executeAssistantTool({ tool: "apply_workflow", args: { nodes: [{ key: "new", type: "text", prompt: "NEW_BODY" }], connections: [] } }, context, config, [], signal);
     assert.equal((created.value as any).nodes.length, 1); assert.equal((created.value as any).canvas, undefined);
@@ -69,7 +68,7 @@ async function main() {
 
     const state = () => useCanvasAssistantStore.getState(), current = () => state().sessions.find((session) => session.id === state().currentId)!;
     const model = encodeChannelModel("stub", "chat");
-    useConfigStore.setState({ config: { ...defaultConfig, proxyEnabled: false, textModel: model, models: [model], channels: [{ id: "stub", name: "stub-only", baseUrl: "https://stub-only.test", apiKey: "stub-not-a-real-key", apiFormat: "openai", models: [{ name: "chat", capability: "text", script: relayChatScript }] }] } });
+    useConfigStore.setState({ config: { ...defaultConfig, proxyEnabled: false, textModel: model, models: [model], channels: [{ id: "stub", name: "stub-only", baseUrl: "https://stub-only.test", apiKey: "test-readback-key", apiFormat: "openai", models: [{ name: "chat", capability: "text", script: relayChatScript }] }] } });
     const originalFetch = globalThis.fetch, calls: any[] = [];
     globalThis.fetch = (async (_url, options) => {
         const body = JSON.parse(String(options?.body)); calls.push(body);
@@ -78,15 +77,15 @@ async function main() {
     try {
         await state().clearHistory(); state().setContext(context); await new Promise((resolve) => setTimeout(resolve, 25));
         state().setContextWindow(200); state().setDraft("原样正文\n第二行"); await state().send();
-        assert.equal(calls.length, 1); assert(calls[0].messages[0].content.includes("当前画布结构索引"));
+        assert.equal(calls.length, 1); assert(!calls[0].messages[0].content.includes("当前画布结构索引"));
         assert(!JSON.stringify(calls[0].messages).includes("UNRELATED_FULL_BODY"));
         assert(!current().transcript.some((message) => JSON.stringify(message).includes("当前画布：")));
         const messagesBefore = current().messages.length;
         state().setDraft("下一轮"); await state().send();
         assert.equal(current().messages.length, messagesBefore + 2, "complete local conversation retained");
-        assert.equal((JSON.stringify(calls[1].messages).match(/当前画布结构索引/g) || []).length, 1);
+        assert.equal((JSON.stringify(calls[1].messages).match(/当前画布结构索引/g) || []).length, 0);
         assert.equal(current().contextWindow, 200);
     } finally { globalThis.fetch = originalFetch; }
-    console.log("PASS request-only history cleanup, 3/200 windows, exact current text/images, targeted node reads, delta tools, single live index and full stored history");
+    console.log("PASS request-only history cleanup, 3/200 windows, exact current text/images, targeted node reads, delta tools, no whole-canvas index and full stored history");
 }
 main().then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1); });

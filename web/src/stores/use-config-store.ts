@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { desktopProxyUrl } from "@/lib/desktop-network";
 import { useCallProtocolStore } from "@/stores/use-call-protocol-store";
 
 export type ApiCallFormat = "openai" | "gemini";
@@ -69,7 +70,7 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "protocols" | "local-proxy" | "preferences" | "prompt-sources" | "webdav" | "local-storage";
+export type ConfigTabKey = "channels" | "protocols" | "local-proxy" | "preferences" | "webdav" | "local-storage";
 
 export type ChannelCredentialsImportResult = {
     status: "created" | "updated" | "missing-base-url" | "invalid-base-url";
@@ -524,6 +525,8 @@ export function normalizeLocalProxyUrl(value: string) {
 
 /** Prefix an outgoing request with the local forwarding proxy so the browser is not blocked by CORS. */
 export function withLocalProxy(url: string) {
+    const desktop = desktopProxyUrl();
+    if (desktop && /^https?:\/\//i.test(url)) return url.startsWith(`${desktop}/`) ? url : `${desktop}/${url}`;
     const { proxyEnabled, proxyUrl } = useConfigStore.getState().config;
     if (!proxyEnabled || !/^https?:\/\//i.test(url)) return url;
     const base = normalizeLocalProxyUrl(proxyUrl);
