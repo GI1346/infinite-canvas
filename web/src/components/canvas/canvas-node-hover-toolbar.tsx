@@ -1,3 +1,4 @@
+import { useAddImagesToHarness } from "@/services/api/deepseek-harness";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { App, Modal, Segmented, Tooltip } from "antd";
 import { Bot, Scan, Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video } from "lucide-react";
@@ -99,6 +100,7 @@ export function CanvasNodeHoverToolbar({
     const { message } = App.useApp();
     const { t } = useTranslation();
     const copyText = useCopyText();
+    const addToHarness = useAddImagesToHarness();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
     useEffect(() => {
@@ -153,6 +155,7 @@ export function CanvasNodeHoverToolbar({
 
     const baseToolbarTools: ToolbarTool[] = [
         { id: "addToAgent", title: "添加到 Agent", label: "添加到 Agent", icon: <Bot className="size-4" />, onClick: () => onAddToAgent(node) },
+        ...(isImage || node.type === CanvasNodeType.Group ? [{ id: "addToHarness", title: "添加到 Harness", label: "添加到 Harness", icon: <img src="/icons/deepseek.svg" alt="" className="size-4" />, onClick: () => addToHarness([node.id]) }] : []),
         { id: "info", title: t("canvas.nodeToolbar.infoTitle"), label: t("canvas.nodeToolbar.info"), icon: <Info className="size-4" />, onClick: () => onInfo(node) },
         ...(node.type === CanvasNodeType.Group && onUngroup ? [{ id: "ungroup", title: t("canvas.nodeToolbar.ungroupTitle"), label: t("canvas.nodeToolbar.ungroup"), icon: <Ungroup className="size-4" />, onClick: () => onUngroup(node) }] : []),
         ...(node.type === CanvasNodeType.Group && onBatchDownload ? [{ id: "batchDownload", title: "批量下载图片（选择目录）", label: batchDownloading ? "打包中…" : "批量下载", icon: <Download className="size-4" />, onClick: () => onBatchDownload(node), disabled: batchDownloading }] : []),
@@ -173,9 +176,9 @@ export function CanvasNodeHoverToolbar({
         ...(isAudio ? [{ id: "uploadAudio", title: t(hasAudio ? "canvas.nodeToolbar.replaceAudio" : "canvas.nodeToolbar.uploadAudio"), label: t(hasAudio ? "canvas.nodeToolbar.replaceAudio" : "canvas.nodeToolbar.uploadAudio"), icon: <Music2 className="size-4" />, onClick: () => onUpload(node) }] : []),
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
-    const pinnedIds = ["editor", "paint", "crop", "split", "extract", "addToAgent"];
+    const pinnedIds = ["editor", "paint", "crop", "split", "extract", "addToAgent", "addToHarness"];
     const pinnedTools = imageTools.filter((tool) => pinnedIds.includes(tool.id)).sort((a, b) => pinnedIds.indexOf(a.id) - pinnedIds.indexOf(b.id));
-    const toolbarTools = hasImage ? [...pinnedTools, { id: "extract", title: "提取选区", label: "提取选区", icon: <Scan className="size-4" />, onClick: () => onExtractSelection(node) }, baseToolbarTools[0], ...[...baseToolbarTools, ...nodeToolbarTools].filter((tool) => !pinnedIds.includes(tool.id) && quickImageToolIdSet.has(tool.id as ImageQuickToolId))] : [...baseToolbarTools, ...nodeToolbarTools, ...extraTools];
+    const toolbarTools = hasImage ? [...pinnedTools, { id: "extract", title: "提取选区", label: "提取选区", icon: <Scan className="size-4" />, onClick: () => onExtractSelection(node) }, ...baseToolbarTools.filter((tool) => tool.id === "addToAgent" || tool.id === "addToHarness"), ...[...baseToolbarTools, ...nodeToolbarTools].filter((tool) => !pinnedIds.includes(tool.id) && quickImageToolIdSet.has(tool.id as ImageQuickToolId))] : [...baseToolbarTools, ...nodeToolbarTools, ...extraTools];
     const selectableImageToolbarTools = [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => tool.id !== "retry" && !pinnedIds.includes(tool.id)) as ImageToolbarSettingsTool[];
 
     const closeImageToolSettings = () => {

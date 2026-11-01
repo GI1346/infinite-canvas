@@ -7,6 +7,10 @@ import type { CanvasAssistantContext } from "@/stores/use-canvas-assistant-store
 import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
 import { useHarnessModelStore } from "@/stores/use-harness-model-store";
 
+import { buildCanvasResourceReferences, getGroupResourceNodes, resolveCanvasReferenceImages } from "@/lib/canvas/canvas-resource-references";
+import { App } from "antd";
+import { recordDiagnostic } from "@/services/diagnostics";
+
 export type HarnessModelsState = { projectId: string; selectedImageModel: string; channels: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> };
 export type HarnessCanvasRequest = { id: string; projectId: string; tool: string; args: Record<string, unknown>; imageModel?: string };
 export type HarnessCanvasResponse = AssistantToolResult | { error: string };
@@ -14,6 +18,8 @@ declare global {
     interface Window {
         blinkflowHarness?: {
             open: (options: { projectId: string; models: HarnessModelsState }) => Promise<{ url: string }>;
+            addReferences: (options: { projectId: string; files: Array<{ nodeId: string; name: string; dataUrl: string }> }) => Promise<string>;
+            publishSelection: (state: { projectId: string; nodes: Array<{ id: string; title: string; type: string }> } | null) => void;
             publishModels: (state: HarnessModelsState | null) => void;
             onImageModel: (handler: (selection: { projectId: string; imageModel: string }) => void) => () => void;
             onTool: (handler: (request: HarnessCanvasRequest) => void) => () => void;
@@ -148,4 +154,48 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
         }
         return { value: { outcomes, note: "id 是实际产物节点 ID；sourceNodeId 是运行输入；model/modelLabel 是实际产物节点绑定的请求模型，不代表服务端底层模型身份已核验。以真实 status / width / height 判断结果，不能把请求参数当作实际像素。需要视觉验证时 read_assets，文本结果用 read_results。不要为了修正尺寸擅自再次付费生成。" } };
     } finally { if (mutate) busyProjects.delete(request.projectId); }
+}
+
+/** Add only the user's explicit image selection to the current Harness draft. */
+export async function addImagesToDeepSeekHarness(nodeIds: string[]) {
+    const context = useCanvasAssistantStore.getState().context;
+    if (!context || !window.blinkflowHarness) throw new Error("请从桌面画布打开 Harness");
+    const snapshot = context.getSnapshot();
+    const selected = snapshot.nodes.filter((node) => nodeIds.includes(node.id));
+    const nodes = [...new Map(selected.flatMap((node) => node.type === "group" ? getGroupResourceNodes(node.id, snapshot.nodes) : [node]).map((node) => [node.id, node])).values()];
+    const references = buildCanvasResourceReferences(nodes).filter((item) => item.kind === "image");
+    if (!references.length) throw new Error("请选择有内容的图片，空白节点不能作为参考图");
+    const images = await resolveCanvasReferenceImages(references, nodes);
+    const assertCurrent = () => { if (useCanvasAssistantStore.getState().context?.getSnapshot().projectId !== snapshot.projectId) throw new Error("画布已切换，请重新选择图片"); };
+    assertCurrent();
+    await openDeepSeekHarness();
+    assertCurrent();
+    await window.blinkflowHarness.addReferences({ projectId: snapshot.projectId, files: images.map((image, index) => ({ nodeId: references[index].nodeId, name: references[index].title + " [" + references[index].nodeId + "]", dataUrl: image.dataUrl })) });
+    const known = createdNodes.get(snapshot.projectId) || new Set<string>();
+    references.forEach((item) => known.add(item.nodeId));
+    createdNodes.set(snapshot.projectId, known);
+}
+
+export function useAddImagesToHarness() {
+    const { message } = App.useApp();
+    return (nodeIds: string[]) => { void addImagesToDeepSeekHarness(nodeIds).then(() => message.success("图片已添加到 Harness，请在对话输入框确认后发送")).catch((error) => { recordDiagnostic("添加图片到 Harness", error); message.error(error instanceof Error ? error.message : "添加到 Harness 失败"); }); };
+}
+
+/** Publish only deliberately selected node identities, never the full canvas or image bytes. */
+export function harnessSelectionState() {
+    const snapshot = useCanvasAssistantStore.getState().context?.getSnapshot();
+    return snapshot ? { projectId: snapshot.projectId, nodes: snapshot.nodes.filter((node) => snapshot.selectedNodeIds.includes(node.id)).map((node) => ({ id: node.id, title: node.title || node.id, type: node.type })) } : null;
+}
+
+export async function resolveHarnessReference(request: HarnessCanvasRequest, signal: AbortSignal): Promise<AssistantToolResult> {
+    const context = useCanvasAssistantStore.getState().context, id = request.args.nodeId;
+    const assertCurrent = () => { if (signal.aborted || !context || context.getSnapshot().projectId !== request.projectId || useCanvasAssistantStore.getState().context?.getSnapshot().projectId !== request.projectId) throw new Error("画布已切换，请重新引用节点"); };
+    assertCurrent();
+    const snapshot = context!.getSnapshot(), known = createdNodes.get(request.projectId) || new Set<string>();
+    if (typeof id !== "string" || !snapshot.selectedNodeIds.includes(id) && !known.has(id)) throw new Error("请先框选要引用的节点");
+    const node = snapshot.nodes.find((node) => node.id === id);
+    if (!node) throw new Error("引用节点已删除");
+    const reference = buildCanvasResourceReferences([node])[0];
+    assertCurrent(); known.add(id); createdNodes.set(request.projectId, known);
+    return { value: { id, title: node.title || id, type: node.type, text: reference?.text || "", hasImage: reference?.kind === "image" } };
 }

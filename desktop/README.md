@@ -4,7 +4,7 @@ BlinkFlow 保留开源画布的多维表格、并发生成和自定义中转协�
 
 ## 下载与升级
 
-从 [本仓库 Releases](https://github.com/GI1346/infinite-canvas-dxos/releases) 下载实际已发布的 `BlinkFlow-Setup-<版本>-x64.exe`。当前发布版本为 **0.20.33**，包含 Agent / Harness 最高图像质量映射修复、冷白 / 深蓝灰 UI、LLM 连接输入预览、紧凑并发宫格、右侧 Agent、官方 DeepSeek Harness 和独立图像编辑工作区。附件发布状态以 Releases 为准；构建与包体核对不等于所有真实渠道和交互均已验收。历史版本记录保留在本文后部。
+从 [本仓库 Releases](https://github.com/GI1346/infinite-canvas-dxos/releases) 下载实际已发布的 `BlinkFlow-Setup-<版本>-x64.exe`。当前发布版本为 **0.20.34**，包含框选节点 @ 筛选、添加图片到 Harness、顶部固定 Agent 入口、参考图拖动排序、新建图片显示尺度修复、Agent / Harness 最高图像质量映射修复、冷白 / 深蓝灰 UI、LLM 连接输入预览、紧凑并发宫格、右侧 Agent、官方 DeepSeek Harness 和独立图像编辑工作区。附件发布状态以 Releases 为准；构建与包体核对不等于所有真实渠道和交互均已验收。历史版本记录保留在本文后部。
 
 应用 ID、稳定本机地址 `http://127.0.0.1:17456` 和数据键保持不变。新版桌面存储代码将数据统一置于**安装时选择的程序目录**下的 `BlinkFlowData`，不是下载的安装包所在目录。首次启动复制并逐文件校验旧 `%APPDATA%/Infinite Canvas DXOS` 桌面数据；完成标记写入后不再重复迁移。原目录不删除，也不提供清理旧目录按钮。请先退出旧版再启动新版。纯浏览器版的数据不会自动转入桌面版。
 

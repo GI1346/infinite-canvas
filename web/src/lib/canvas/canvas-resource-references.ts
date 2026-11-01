@@ -20,7 +20,13 @@ export type CanvasResourceReference = {
 };
 
 export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true);
+    return labelResourceNodes(orderReferenceNodes(getMentionResourceNodes(node.id, nodes, connections), node.metadata?.referenceNodeOrder), true);
+}
+
+// Unknown/deleted IDs are ignored; newly connected references keep their original order.
+export function orderReferenceNodes<T extends { id: string }>(nodes: T[], order: string[] = []): T[] {
+    const rank = new Map(order.map((id, index) => [id, index]));
+    return [...nodes].sort((a, b) => (rank.get(a.id) ?? order.length) - (rank.get(b.id) ?? order.length));
 }
 
 export function buildCanvasResourceReferences(nodes: CanvasNodeData[]) {

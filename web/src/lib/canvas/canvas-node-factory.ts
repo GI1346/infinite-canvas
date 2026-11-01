@@ -9,6 +9,8 @@ import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, ty
 
 export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
     const spec = getNodeSpec(type);
+    const initialMetadata = { ...spec.metadata, ...(type === CanvasNodeType.Image ? useCanvasImageSettingsStore.getState().settings : undefined), ...metadata };
+    const dimensions = type === CanvasNodeType.Image ? nodeSizeFromRatio(initialMetadata.size || "", spec.width, spec.height) || spec : spec;
     const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     return {
@@ -16,12 +18,12 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
         type,
         title: spec.title,
         position: {
-            x: position.x - spec.width / 2,
-            y: position.y - spec.height / 2,
+            x: position.x - dimensions.width / 2,
+            y: position.y - dimensions.height / 2,
         },
-        width: spec.width,
-        height: spec.height,
-        metadata: { ...spec.metadata, ...(type === CanvasNodeType.Image ? useCanvasImageSettingsStore.getState().settings : undefined), ...metadata },
+        width: dimensions.width,
+        height: dimensions.height,
+        metadata: initialMetadata,
     };
 }
 

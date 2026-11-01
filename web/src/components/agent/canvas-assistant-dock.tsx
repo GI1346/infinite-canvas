@@ -6,7 +6,7 @@ import { ASSISTANT_CONTEXT_WINDOWS, normalizeAssistantContextWindow } from "@/li
 import { CanvasAssistantSkills } from "@/components/agent/canvas-assistant-skills";
 import { CanvasAssistantGenerationMode } from "@/components/agent/canvas-assistant-generation-mode";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { anchorAssistantDock, clampAssistantDock, clampAssistantWindow, moveAssistantDock, resizeAssistantWindow, type AssistantResizeDirection, type AssistantWindow, type AssistantDockLayout } from "@/lib/canvas/assistant-dock-layout";
+import { anchorAssistantDock, clampAssistantDock, clampAssistantWindow, resizeAssistantWindow, type AssistantResizeDirection, type AssistantWindow, type AssistantDockLayout } from "@/lib/canvas/assistant-dock-layout";
 import { useNodeRegistryVersion } from "@/lib/canvas/node-registry";
 import { modelOptionLabel, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
 import { useCanvasAssistantStore, type CanvasAssistantMessage } from "@/stores/use-canvas-assistant-store";
@@ -63,7 +63,7 @@ export function CanvasAssistantDock() {
     const [editorLayout, setEditorLayout] = useState(initialEditorLayout), editorLayoutRef = useRef(editorLayout);
     editorLayoutRef.current = editorLayout;
     const expandedTextarea = useRef<PromptChipInputHandle>(null);
-    const textarea = useRef<PromptChipInputHandle>(null), end = useRef<HTMLDivElement>(null), currentLayout = useRef(layout), moved = useRef(false), dragCleanup = useRef<(() => void) | null>(null);
+    const textarea = useRef<PromptChipInputHandle>(null), end = useRef<HTMLDivElement>(null), currentLayout = useRef(layout), dragCleanup = useRef<(() => void) | null>(null);
     const session = store.sessions.find((item) => item.id === store.currentId), snapshot = store.context?.snapshot;
     currentLayout.current = layout;
     const imageModels = selectableModelsByCapability(config, "image"), videoModels = selectableModelsByCapability(config, "video"), textModels = selectableModelsByCapability(config, "text");
@@ -104,25 +104,6 @@ export function CanvasAssistantDock() {
         store.setModel(textModels.includes(config.textModel) ? config.textModel : textModels[0]);
     }, [session?.id, session?.model, textModels.join("\u0000"), config.textModel]);
 
-    const drag = (event: ReactPointerEvent<HTMLElement>) => {
-        if (event.button !== 0) return;
-        event.preventDefault(); event.stopPropagation(); dragCleanup.current?.();
-        const start = { x: event.clientX, y: event.clientY, layout: currentLayout.current };
-        moved.current = false;
-        const onMove = (next: PointerEvent) => {
-            const dx = next.clientX - start.x, dy = next.clientY - start.y;
-            if (Math.hypot(dx, dy) > 4) moved.current = true;
-            const nextLayout = moveAssistantDock(start.layout, dx, dy, "orb", viewport());
-            // Pointer-up may precede React's next render, so persist the actual final drag.
-            currentLayout.current = nextLayout;
-            setLayout(nextLayout);
-        };
-        const finish = () => {
-            window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", finish); dragCleanup.current = null;
-            try { localStorage.setItem(layoutKey, JSON.stringify(currentLayout.current)); } catch { /* Layout persistence is optional. */ }
-        };
-        dragCleanup.current = finish; window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", finish);
-    };
     const resizeWindow = (event: ReactPointerEvent<HTMLElement>, target: "sidebar" | "editor" | "input" | "editor-move", direction: AssistantResizeDirection = "se") => {
         if (event.button !== 0 || target === "editor-move" && (event.target as Element).closest("button")) return;
         event.preventDefault(); event.stopPropagation(); dragCleanup.current?.();
@@ -159,7 +140,6 @@ export function CanvasAssistantDock() {
                     {((!message.draft && message.references?.length) || message.models?.length) ? <div className="mt-1 flex flex-wrap gap-1" style={{ color: theme.node.muted }}>{!message.draft && message.references?.map((id) => <span key={id} className="rounded border px-1" style={{ borderColor: theme.node.stroke }}>@{nodeLabel(id)}</span>)}{message.models?.map((id) => <span key={id} className="rounded border px-1" style={{ borderColor: theme.node.stroke }}><Box className="mr-1 inline" size={11} />{modelLabel(id)}</span>)}</div> : null}
                 </article>;
     return <div data-canvas-overlay data-canvas-no-zoom data-canvas-assistant className="relative h-full shrink-0" style={{ width: store.open ? width : 0, zIndex: 240 }} onPointerDown={stop} onMouseDown={stop} onDoubleClick={stop} onContextMenu={stop} onKeyDown={stop} onKeyUp={stop} onWheel={stop}>
-        {!store.open && <button type="button" data-assistant-orb aria-label="打开 Agent" title="Agent（可拖动）" className="fixed flex h-14 w-14 cursor-grab flex-col items-center justify-center rounded-full active:cursor-grabbing" style={{ zIndex: 240, left: layout.orbX, top: layout.orbY, background: theme.toolbar.panel, color: theme.node.text, border: `1px solid ${theme.toolbar.border}`, boxShadow: theme.toolbar.shadow, touchAction: "none" }} onPointerDown={drag} onClick={() => { if (!moved.current) store.setOpen(true); moved.current = false; }}><Bot size={21} /><span className="text-[9px]">Agent</span></button>}
         <section data-assistant-panel data-canvas-overlay data-canvas-no-zoom role="dialog" aria-label="Agent 右侧面板" style={{ ...panelStyle, display: store.open ? "flex" : "none" }} className="flex-col">
             <header data-assistant-header className="flex shrink-0 items-center gap-1 border-b px-3 py-2" style={{ borderColor: theme.node.stroke }}>
                 <Bot size={17} /><strong className="mr-auto text-sm">Agent</strong>
@@ -191,7 +171,7 @@ export function CanvasAssistantDock() {
                 <label className="mb-2 flex items-center gap-2 text-xs" style={{ color: theme.node.muted }}>对话模型<select data-assistant-chat-model aria-label="Agent 对话模型" disabled={session?.running} className="min-w-0 flex-1" style={inputStyle} value={session?.model || ""} onChange={(event) => store.setModel(event.target.value)}><option value="">请选择对话模型</option>{textModels.map((id) => <option key={id} value={id}>{modelLabel(id)}</option>)}</select></label>
                 <div className="relative rounded-2xl border p-2" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
                     {session?.models.length ? <div data-assistant-chips className="mb-2 flex max-h-28 flex-wrap gap-1 overflow-auto">{session.models.map((id) => <span key={id} className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs" style={{ borderColor: theme.node.stroke }}><Box size={12} /><span className="max-w-64 truncate" title={modelLabel(id)}>{modelLabel(id)}</span><button type="button" title="移除模型引用" aria-label={`移除模型 ${modelLabel(id)}`} onClick={() => store.toggleModel(id)}><X size={12} /></button></span>)}</div> : null}
-                    <CanvasPromptChipInput key={session?.id} inputRef={textarea} ariaLabel="Agent 消息" placeholder="描述需求，@ 节点或图片 / 视频模型" className="w-full bg-transparent text-xs leading-6" style={{ height: Math.min(layout.inputHeight ?? 80, Math.max(80, panelHeight - 280)) }} onSelectionChange={store.setDraftSelection} getSelection={store.getDraftSelection} value={draft} references={references} readOnly={readOnly} showReferenceTitle imageHoverPreview onReferenceSelect={selectReference} onChange={store.setDraft} onSubmit={() => void store.send()} />
+                    <CanvasPromptChipInput key={session?.id} inputRef={textarea} ariaLabel="Agent 消息" placeholder="描述需求，@ 节点或图片 / 视频模型" className="w-full bg-transparent text-xs leading-6" style={{ height: Math.min(layout.inputHeight ?? 80, Math.max(80, panelHeight - 280)) }} onSelectionChange={store.setDraftSelection} getSelection={store.getDraftSelection} value={draft} references={references} mentionNodeIds={snapshot?.selectedNodeIds} readOnly={readOnly} showReferenceTitle imageHoverPreview onReferenceSelect={selectReference} onChange={store.setDraft} onSubmit={() => void store.send()} />
                     <div className="flex items-center gap-1 border-t pt-1" style={{ borderColor: theme.node.stroke }}>
                         <button type="button" className={button} aria-label="添加选中节点到 Agent" title="添加选中节点" disabled={!snapshot?.selectedNodeIds.length} onClick={() => store.addReferences(snapshot?.selectedNodeIds || [])}><Plus size={15} /></button>
                         <button type="button" data-assistant-mention className={button} aria-label="引用节点或模型" title="@ 节点 / 模型" disabled={readOnly} onClick={() => textarea.current?.openMention()}><AtSign size={16} /></button>
@@ -213,7 +193,7 @@ export function CanvasAssistantDock() {
         {expanded && store.open && session && <section data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore data-assistant-editor role="dialog" aria-label="Agent 大窗口编辑" className="fixed flex flex-col rounded-2xl border p-3 shadow-2xl" style={{ ...editorLayout, left: editorLayout.x, top: editorLayout.y, position: "fixed", zIndex: 260, boxShadow: theme.toolbar.shadow, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }}>
             <header className="mb-2 flex shrink-0 cursor-grab items-center gap-2" style={{ touchAction: "none" }} onPointerDown={(event) => resizeWindow(event, "editor-move")}><strong className="mr-auto text-sm">Agent 大窗口编辑</strong><button type="button" className={button} aria-label="关闭 Agent 大窗口编辑" onClick={closeEditor}><X size={16} /></button></header>
             <p className="mb-2 shrink-0 text-xs" style={{ color: theme.node.muted }}>{session.running || session.pending ? "任务进行中，仅查看当前输入。" : "修改实时保留；可在窗口外选择画布图片，再添加到光标处。"}</p>
-            <CanvasPromptChipInput key={session.id} inputRef={expandedTextarea} onEscape={closeEditor} ariaLabel="Agent 全屏输入文字" containerClassName="min-h-0 flex-1 flex flex-col" className="thin-scrollbar min-h-0 w-full flex-1 rounded-xl border p-3 text-base leading-7" style={{ background: "transparent", borderColor: theme.node.stroke, color: theme.node.text }} value={draft} references={references} readOnly={readOnly} showReferenceTitle imageHoverPreview onReferenceSelect={selectReference} onChange={store.setDraft} onSelectionChange={store.setDraftSelection} getSelection={store.getDraftSelection} placeholder="在这里查看和编辑完整输入文字，@ 引用节点或模型" />
+            <CanvasPromptChipInput key={session.id} inputRef={expandedTextarea} onEscape={closeEditor} ariaLabel="Agent 全屏输入文字" containerClassName="min-h-0 flex-1 flex flex-col" className="thin-scrollbar min-h-0 w-full flex-1 rounded-xl border p-3 text-base leading-7" style={{ background: "transparent", borderColor: theme.node.stroke, color: theme.node.text }} value={draft} references={references} mentionNodeIds={snapshot?.selectedNodeIds} readOnly={readOnly} showReferenceTitle imageHoverPreview onReferenceSelect={selectReference} onChange={store.setDraft} onSelectionChange={store.setDraftSelection} getSelection={store.getDraftSelection} placeholder="在这里查看和编辑完整输入文字，@ 引用节点或模型" />
             <footer className="mt-2 flex shrink-0 justify-end"><button type="button" className={button} onClick={closeEditor}>完成编辑</button></footer>
             <ResizeHandles label="Agent 大窗口编辑" onResize={(event, direction) => resizeWindow(event, "editor", direction)} />
         </section>}

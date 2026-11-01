@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { executeHarnessCanvasTool, harnessModelsState } from "@/services/api/deepseek-harness";
+import { executeHarnessCanvasTool, harnessModelsState, harnessSelectionState, resolveHarnessReference } from "@/services/api/deepseek-harness";
 import { recordDiagnostic } from "@/services/diagnostics";
 import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -10,7 +10,11 @@ export function useDeepSeekHarness() {
     useEffect(() => {
         const harness = window.blinkflowHarness;
         if (!harness) return;
-        let lastModels = "";
+        let lastModels = "", lastSelection = "";
+        const publishSelection = () => {
+            const state = harnessSelectionState(), serialized = JSON.stringify(state);
+            if (serialized !== lastSelection) { lastSelection = serialized; harness.publishSelection(state); }
+        };
         const publishModels = () => {
             const state = harnessModelsState(), serialized = JSON.stringify(state);
             if (serialized !== lastModels) { lastModels = serialized; harness.publishModels(state.projectId ? state : null); }
@@ -31,7 +35,7 @@ export function useDeepSeekHarness() {
                 try {
                     const context = useCanvasAssistantStore.getState().context;
                     if (!context || context.getSnapshot().projectId !== request.projectId) throw new DOMException("此 Harness 绑定的画布已关闭，请从当前画布重新打开", "AbortError");
-                    harness.respond(request.id, await executeHarnessCanvasTool(request, controller.signal));
+                    harness.respond(request.id, await (request.tool === "resolve_reference" ? resolveHarnessReference(request, controller.signal) : executeHarnessCanvasTool(request, controller.signal)));
                 } catch (error) {
                     if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) recordDiagnostic("DeepSeek Harness 画布工具", error, { projectId: request.projectId });
                     harness.respond(request.id, { error: error instanceof Error ? error.message : String(error) });
@@ -41,6 +45,7 @@ export function useDeepSeekHarness() {
         const cancel = harness.onCancel?.((id) => requests.get(id)?.controller.abort());
         let lastProjectId = useCanvasAssistantStore.getState().context?.getSnapshot().projectId;
         const contextChanged = useCanvasAssistantStore.subscribe((state) => {
+            publishSelection();
             const projectId = state.context?.getSnapshot().projectId;
             if (projectId !== lastProjectId) { lastProjectId = projectId; publishModels(); }
             for (const [id, request] of requests) if (request.projectId !== projectId) {

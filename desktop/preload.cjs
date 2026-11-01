@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('blinkflowDownloads', { saveImages: (files) => i
 
 contextBridge.exposeInMainWorld('blinkflowHarness', {
   open: (options) => ipcRenderer.invoke('harness:open', options),
+  addReferences: (options) => ipcRenderer.invoke('harness:references-add', options),
+  publishSelection: (state) => ipcRenderer.send('harness:selection', state),
   publishModels: (state) => ipcRenderer.send('harness:models', state),
   onImageModel: (handler) => { const listener = (_event, value) => handler(value); ipcRenderer.on('harness:image-model', listener); return () => ipcRenderer.removeListener('harness:image-model', listener); },
   onTool: (handler) => { const listener = (_event, request) => handler(request); ipcRenderer.on('harness:tool', listener); return () => ipcRenderer.removeListener('harness:tool', listener); },

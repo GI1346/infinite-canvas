@@ -1,7 +1,7 @@
 import { CanvasLogsModal } from "./canvas-logs-modal";
 import { CanvasWheelSensitivity } from "./canvas-wheel-sensitivity";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Download, Eraser, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
+import { Bot, BookOpen, Download, Eraser, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
 import { App, Button, Dropdown, Modal, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +12,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { DOCS_URL } from "@/constant/env";
 import { openDeepSeekHarness } from "@/services/api/deepseek-harness";
 import { recordDiagnostic } from "@/services/diagnostics";
+import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
 
 export function CanvasTopBar({
     title,
@@ -67,6 +68,7 @@ export function CanvasTopBar({
     const [harnessOpening, setHarnessOpening] = useState(false);
     const { message } = App.useApp();
     const sidePanelOpen = useCanvasSidePanelStore((state) => state.panelOpen);
+    const agentOpen = useCanvasAssistantStore((state) => state.open);
     const toggleSidePanel = useCanvasSidePanelStore((state) => state.togglePanel);
 
     useEffect(() => {
@@ -145,6 +147,9 @@ export function CanvasTopBar({
                 </div>
 
                 <div className="pointer-events-auto flex items-center gap-1.5">
+                    <Tooltip title={agentOpen ? "收起 Agent" : "打开 Agent"}>
+                        <button type="button" aria-label={agentOpen ? "收起 Agent" : "打开 Agent"} aria-expanded={agentOpen} className="grid size-8 place-items-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} onClick={() => useCanvasAssistantStore.getState().setOpen(!agentOpen)}><Bot className="size-5" /></button>
+                    </Tooltip>
                     <Tooltip title="打开 DeepSeek Harness（官方账号登录）">
                         <button type="button" aria-label="打开 DeepSeek Harness" disabled={harnessOpening} className="grid size-8 place-items-center rounded-lg transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10" onClick={async () => {
                             if (harnessOpening) return;

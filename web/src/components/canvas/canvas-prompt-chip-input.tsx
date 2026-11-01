@@ -15,6 +15,7 @@ import type { AssistantDraftSelection } from "@/lib/canvas/assistant-inline-refe
 type Props = {
     value: string;
     references: CanvasResourceReference[];
+    mentionNodeIds?: string[];
     onChange: (value: string) => void;
     onSubmit?: () => void;
     onEscape?: () => void;
@@ -44,7 +45,7 @@ type Token =
 
 // Prompt-panel contentEditable input: @ references embed thumbnail chips instead of plain label text.
 // Serialization converts chips back to reference labels so the generated value matches the former textarea semantics.
-export function CanvasPromptChipInput({ value, references, onChange, onSubmit, onEscape, className, style, placeholder, inputRef, readOnly, ariaLabel, showReferenceTitle, containerClassName, onReferenceSelect, imageHoverPreview, onSelectionChange, getSelection }: Props) {
+export function CanvasPromptChipInput({ value, references, mentionNodeIds, onChange, onSubmit, onEscape, className, style, placeholder, inputRef, readOnly, ariaLabel, showReferenceTitle, containerClassName, onReferenceSelect, imageHoverPreview, onSelectionChange, getSelection }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -92,9 +93,10 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, o
     const candidates = useMemo(() => {
         if (!mention) return [];
         const query = mention.query.trim().toLowerCase();
-        if (!query) return activeReferences;
-        return activeReferences.filter((item) => `${item.label} ${item.mentionLabel || ""} ${item.title} ${item.kind} ${item.text || ""}`.toLowerCase().includes(query));
-    }, [mention, activeReferences]);
+        const available = mentionNodeIds?.length ? activeReferences.filter((item) => !item.id.startsWith("model:") && mentionNodeIds.includes(item.nodeId)) : activeReferences;
+        if (!query) return available;
+        return available.filter((item) => `${item.label} ${item.mentionLabel || ""} ${item.title} ${item.kind} ${item.text || ""}`.toLowerCase().includes(query));
+    }, [mention, activeReferences, mentionNodeIds]);
 
     // Rebuild the DOM from value when unfocused, or when a focused value is an external change rather than an emitted echo.
     useEffect(() => {

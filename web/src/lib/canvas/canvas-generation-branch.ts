@@ -16,6 +16,7 @@ export function createGenerationBranch(source: CanvasNodeData | undefined, nodes
         seconds: config.videoSeconds, vquality: config.vquality, generateAudio: config.videoGenerateAudio,
         watermark: config.videoWatermark, videoMode: config.videoMode,
         audioVoice: config.audioVoice, audioFormat: config.audioFormat, audioSpeed: config.audioSpeed, audioInstructions: config.audioInstructions,
+        referenceNodeOrder: old.referenceNodeOrder ? [...old.referenceNodeOrder] : undefined,
         generationType: old.generationType, references: old.references ? [...old.references] : undefined,
         cropContext: old.cropContext ? structuredClone(old.cropContext) : undefined,
         freeResize: old.freeResize, imageSizeManual: old.imageSizeManual,

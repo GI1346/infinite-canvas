@@ -1,3 +1,4 @@
+import { useAddImagesToHarness } from "@/services/api/deepseek-harness";
 import type { ReactNode } from "react";
 import { Bot, Download, Group, Ungroup } from "lucide-react";
 import { Tooltip } from "antd";
@@ -36,6 +37,7 @@ export function CanvasSelectionToolbar({
     downloading?: boolean;
 }) {
     const { t } = useTranslation();
+    const addToHarness = useAddImagesToHarness();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     if (nodes.length < 2) return null;
 
@@ -72,6 +74,7 @@ export function CanvasSelectionToolbar({
                     onPointerDown={(event) => event.stopPropagation()}
                 >
                     <SelectionAction title="添加到 Agent" label="添加到 Agent" icon={<Bot className="size-4" />} onClick={onAddToAgent} />
+                    <SelectionAction title="添加选中的图片到 Harness" label="添加到 Harness" icon={<img src="/icons/deepseek.svg" alt="" className="size-4" />} onClick={() => addToHarness(nodes.map((node) => node.id))} />
                     <SelectionAction title="宫格布局" label="宫格布局" icon={<Group className="size-4" />} onClick={onGrid} />
                     {onDownload && nodes.some((node) => node.type === "image" || node.type === "group") ? <SelectionAction title="批量下载图片（选择目录）" label={downloading ? "打包中…" : "批量下载"} icon={<Download className="size-4" />} onClick={onDownload} disabled={downloading} /> : null}
                     {canGroup ? <SelectionAction title={t("canvas.nodeToolbar.groupTitle")} label={t("canvas.nodeToolbar.group")} icon={<Group className="size-4" />} onClick={onGroup} /> : null}

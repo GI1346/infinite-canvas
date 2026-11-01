@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { startHarness } = require('./harness-host.cjs');
+const harnessReferences = require('./harness-references.cjs').createHarnessReferences();
 const { prepareStorage, writeJson, resetFile } = require('./storage.cjs');
 const { snapshotApi, restoreApi } = require('./storage-renderer.cjs');
 const legacy = path.join(app.getPath('appData'), 'Infinite Canvas DXOS');
@@ -72,6 +73,7 @@ else {
     const trusted = (event) => {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || new URL(event.senderFrame.url).origin !== origin) throw new Error('无效的存储操作来源');
     };
+    let harnessSelection = null;
     const currentHarnessModels = () => harnessModels?.projectId === harnessProjectId ? harnessModels : null;
     const publishHarnessModels = () => { if (harnessWindow && !harnessWindow.isDestroyed()) harnessWindow.webContents.send('harness:models-changed', currentHarnessModels()); };
     const trustedHarness = (event) => {
@@ -80,6 +82,24 @@ else {
     ipcMain.on('harness:models', (event, state) => {
       try { trusted(event); harnessModels = state === null ? null : cleanHarnessModels(state); publishHarnessModels(); }
       catch { /* Reject an invalid or unrelated renderer without exposing configuration. */ }
+    });
+    ipcMain.on('harness:selection', (event, state) => {
+      try {
+        trusted(event);
+        if (state !== null && (!state || typeof state.projectId !== 'string' || !Array.isArray(state.nodes) || state.nodes.some(node => !node || typeof node.id !== 'string' || typeof node.title !== 'string' || typeof node.type !== 'string'))) return;
+        harnessSelection = state === null ? null : { projectId: state.projectId, nodes: state.nodes.map(({ id, title, type }) => ({ id, title, type })) };
+        if (harnessWindow && !harnessWindow.isDestroyed()) harnessWindow.webContents.send('harness:selection-changed');
+      } catch { /* Ignore unrelated renderers. */ }
+    });
+    ipcMain.handle('harness:selection-get', (event) => { trustedHarness(event); return currentHarnessModels() && harnessSelection?.projectId === harnessProjectId ? harnessSelection : null; });
+    ipcMain.handle('harness:reference-resolve', (event, nodeId, projectId) => {
+      trustedHarness(event);
+      if (!currentHarnessModels() || projectId !== harnessProjectId || typeof nodeId !== 'string') throw new Error('画布已切换，请重新框选节点');
+      const id = crypto.randomUUID();
+      return new Promise((resolve) => {
+        harnessRequests.set(id, { finish: (value) => { harnessRequests.delete(id); resolve(value); } });
+        win.webContents.send('harness:tool', { id, projectId: harnessProjectId, tool: 'resolve_reference', args: { nodeId } });
+      });
     });
     ipcMain.handle('harness:models-get', (event) => { trustedHarness(event); return currentHarnessModels(); });
     ipcMain.handle('harness:model-select', (event, imageModel) => {
@@ -172,6 +192,15 @@ else {
       try { return await harnessOpening; }
       finally { harnessOpening = null; }
     });
+    ipcMain.handle('harness:references-add', (event, options) => {
+      trusted(event);
+      if (!options || options.projectId !== harnessProjectId || harnessModels?.projectId !== options.projectId || !harnessWindow || harnessWindow.isDestroyed()) throw new Error('画布已切换，请重新添加到 Harness');
+      const id = harnessReferences.add(options.projectId, options.files);
+      harnessWindow.webContents.send('harness:references-changed');
+      return id;
+    });
+    ipcMain.handle('harness:references-get', (event) => { trustedHarness(event); return currentHarnessModels() ? harnessReferences.get(harnessProjectId) : []; });
+    ipcMain.handle('harness:references-ack', (event, id) => { trustedHarness(event); if (currentHarnessModels() && typeof id === 'string') harnessReferences.ack(harnessProjectId, id); });
     ipcMain.on('harness:response', (event, id, result) => {
       try { trusted(event); } catch { return; }
       if (typeof id !== 'string' || !result || typeof result !== 'object') return;

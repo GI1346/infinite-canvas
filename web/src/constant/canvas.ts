@@ -1,4 +1,5 @@
 import i18n from "@/i18n";
+import { IMAGE_NODE_MAX_EDGE } from "@/lib/canvas/canvas-node-size";
 import { CanvasNodeType } from "@/types/canvas";
 import type { CanvasNodeMetadata } from "@/types/canvas";
 import { getNodeSpec as getRegistryNodeSpec } from "@/lib/canvas/node-registry";
@@ -11,7 +12,7 @@ type CanvasNodeSpec = {
 };
 
 export const NODE_DEFAULT_SIZE = {
-    [CanvasNodeType.Image]: { width: 340, height: 240, get title() { return i18n.t("canvas.nodeTypes.image"); } },
+    [CanvasNodeType.Image]: { width: IMAGE_NODE_MAX_EDGE, height: IMAGE_NODE_MAX_EDGE, get title() { return i18n.t("canvas.nodeTypes.image"); } },
     [CanvasNodeType.Text]: { width: 340, height: 240, get title() { return i18n.t("canvas.nodeTypes.text"); } },
     [CanvasNodeType.Config]: { width: 340, height: 240, get title() { return i18n.t("canvas.nodeTypes.config"); } },
     [CanvasNodeType.Video]: { width: 420, height: 236, get title() { return i18n.t("canvas.nodeTypes.video"); } },
@@ -21,7 +22,7 @@ export const NODE_DEFAULT_SIZE = {
 
 export const NODE_SPECS = {
     [CanvasNodeType.Image]: {
-        width: 340, height: 240, get title() { return NODE_DEFAULT_SIZE[CanvasNodeType.Image].title; },
+        width: IMAGE_NODE_MAX_EDGE, height: IMAGE_NODE_MAX_EDGE, get title() { return NODE_DEFAULT_SIZE[CanvasNodeType.Image].title; },
         metadata: { content: "", status: "idle" },
     },
     [CanvasNodeType.Text]: {

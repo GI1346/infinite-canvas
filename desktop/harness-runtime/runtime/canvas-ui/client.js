@@ -111,9 +111,121 @@ window.__ModuleLoader__.load({
           h('div', { className: 'bfcui-info' }, '仅选择画布生图模型，不改变 DeepSeek 对话模型。'),
           error ? h('div', { className: 'bfcui-info bfcui-error', role: 'alert' }, error) : null), document.body) : null);
     }
+
+    const imported = new Set();
+    function CanvasImageReferences({ addImages, restrictMentions }) {
+      const [error, setError] = React.useState('');
+      React.useEffect(() => restrictMentions(), [restrictMentions]);
+      React.useEffect(() => {
+        const api = window.blinkflowHarnessReferences;
+        if (!api) return;
+        let active = true;
+        const receive = async () => {
+          try {
+            const batches = await api.get();
+            if (!active) return;
+            for (const batch of batches) {
+              if (imported.has(batch.id)) { await api.ack(batch.id); continue; }
+              const files = batch.files.map((image) => {
+                const split = image.dataUrl.indexOf(','), binary = atob(image.dataUrl.slice(split + 1));
+                const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+                return new File([bytes], image.name, { type: image.dataUrl.slice(5, image.dataUrl.indexOf(';')) });
+              });
+              addImages(files);
+              imported.add(batch.id);
+              setError('');
+              await api.ack(batch.id);
+              if (!active) return;
+            }
+          } catch (reason) { if (active) setError(String(reason?.message || reason)); }
+        };
+        const off = api.onChange(receive);
+        window.addEventListener('blinkflow-retry-references', receive);
+        void receive();
+        return () => { active = false; off(); window.removeEventListener('blinkflow-retry-references', receive); };
+      }, [addImages]);
+      return error ? h('div', { role: 'alert', className: 'bfcui-info bfcui-error' }, error, h('button', { type: 'button', className: 'bfcui-button', onClick: () => window.dispatchEvent(new Event('blinkflow-retry-references')) }, '重试添加')) : null;
+    }
     return {
-      inject: ['slots'],
-      apply(ctx) { ctx.slots.inject('shell.bottom', () => ctx.slots.register({ name: 'shell.bottom' }, ImageModelPicker)); },
+      inject: ['slots', 'sessions', 'conversation', 'inputTriggers'],
+      apply(ctx) {
+        const api = window.blinkflowHarnessReferences;
+        const sourceName = 'blinkflow-canvas-nodes', picked = new Map();
+        ctx.effect(() => ctx.inputTriggers.registerSource({
+          trigger: '@', name: sourceName, order: -1,
+          async candidates(_session, { query, signal }) {
+            const selection = await api.selection();
+            if (signal.aborted) return [];
+            const search = query.toLowerCase();
+            return (selection?.nodes || []).filter(node => (node.title + ' ' + node.id + ' ' + node.type).toLowerCase().includes(search)).map(node => ({ name: node.id, label: node.title, description: node.type, icon: 'file', section: '画布框选节点', value: JSON.stringify({ projectId: selection.projectId, id: node.id, title: node.title }) }));
+          },
+          onPick({ candidate }) {
+            const node = JSON.parse(candidate.value), request = api.resolve(node.id, node.projectId);
+            picked.set(candidate.value, request); void request.catch(() => {});
+            return { insert: { source: sourceName, ref: candidate.value, label: candidate.label, appearance: 'file', clipboardText: '@' + candidate.label } }; },
+          codec: {
+            clipboardText(ref) { return '@' + JSON.parse(ref).title; },
+            async serialize(ref, signal) {
+              const node = JSON.parse(ref);
+              await picked.get(ref);
+              const result = await api.resolve(node.id, node.projectId);
+              signal.throwIfAborted();
+              if (result.error) throw new Error(result.error);
+              return JSON.stringify({ canvasReference: result.value, ...(result.value?.hasImage ? { instruction: '用户主动引用的图片节点；需要理解图片或作为生图参考时调用 canvas_read_assets，nodeIds 使用此处 id。不可声称已看过未读取的图片。' } : {}) });
+            },
+          },
+        }));
+        ctx.slots.inject('shell.bottom', () => ctx.slots.register({ name: 'shell.bottom' }, ImageModelPicker));
+        ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+          name: 'conversation.input.dock', id: 'blinkflow-canvas-references',
+          inject: (sessionId) => {
+            const binding = ctx.sessions.binding(sessionId);
+            return { restrictMentions: () => {
+              const controller = ctx.inputTriggers.sessionOf(binding.ctx);
+              let selected = true, active = true, revision = 0;
+              const hidden = new Map();
+              const filter = () => {
+                const menu = controller.menu.getSnapshot();
+                if (menu.hit?.trigger !== '@') return;
+                if (!selected) {
+                  if (hidden.size) {
+                    const groups = [...menu.groups, ...[...hidden.values()].filter(group => !menu.groups.some(item => item.source === group.source))];
+                    hidden.clear(); controller.menu.set({ ...menu, groups });
+                  }
+                  return;
+                }
+                const others = menu.groups.filter(group => group.source !== sourceName);
+                if (!others.length) return;
+                others.forEach(group => hidden.set(group.source, group));
+                const groups = menu.groups.filter(group => group.source === sourceName);
+                controller.menu.set({ ...menu, groups, highlight: menu.highlight?.source === sourceName ? menu.highlight : null });
+              };
+              const offMenu = controller.menu.subscribe(filter);
+              const refresh = async () => {
+                const current = ++revision;
+                try {
+                  const selection = await api.selection();
+                  if (!active || current !== revision) return;
+                  selected = Boolean(selection?.nodes.length);
+                  filter(); controller.refreshOpenMenu();
+                } catch (reason) { if (active) ctx.conversation.input.for(binding.ctx).notify('error', String(reason?.message || reason)); }
+              };
+              const offSelection = api.onSelection(refresh); void refresh();
+              return () => { active = false; offMenu(); offSelection(); };
+            }, addImages: (files) => {
+              if (!binding || ctx.sessions.binding(sessionId) !== binding) throw new Error('当前 Harness 会话不可用，请重新打开会话');
+              const conversation = ctx.conversation;
+              const input = conversation.input.for(binding.ctx);
+              const drafts = conversation.createDrafts(sessionId, files);
+              if (!input.addAttachments(drafts.map((draft) => draft.id))) {
+                conversation.releaseDraftAttachments(drafts);
+                throw new Error('对话正在提交，图片仍保留待添加，请提交结束后重新打开会话');
+              }
+              input.focus();
+            } };
+          },
+        }, CanvasImageReferences));
+      },
     };
   },
 });
