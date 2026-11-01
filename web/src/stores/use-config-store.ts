@@ -25,7 +25,6 @@ export type ModelChannel = {
     apiKey: string;
     apiFormat: ApiCallFormat;
     protocolId?: string;
-    imageTaskBaseUrl?: string;
     models: ChannelModel[];
 };
 
@@ -80,31 +79,16 @@ export type ChannelCredentialsImportResult = {
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
-export const RELAY_IMAGE_NAME = "65535 绘画（独立密钥）";
-export const RELAY_IMAGE_URL = "https://sub-proxy-us.65535.space";
-export const RELAY_TEXT_URL = "https://api2-cn.65535.space";
-export const RELAY_TASK_URL = "https://task-api-1-cn.65535.space";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 export const LOCAL_PROXY_PACKAGE = "@basketikun/canvas-proxy";
 export const DEFAULT_LOCAL_PROXY_URL = "http://127.0.0.1:23210";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
-    baseUrl: RELAY_IMAGE_URL,
+    baseUrl: OPENAI_BASE_URL,
     apiKey: "",
     apiFormat: "openai",
-    channels: [
-        {
-            id: "default",
-            name: RELAY_IMAGE_NAME,
-            baseUrl: RELAY_IMAGE_URL,
-            apiKey: "",
-            apiFormat: "openai",
-            imageTaskBaseUrl: RELAY_TASK_URL,
-            models: [],
-        },
-        { id: "relay-text", name: "65535 对话（独立密钥）", baseUrl: RELAY_TEXT_URL, apiKey: "", apiFormat: "openai", models: [] },
-    ],
+    channels: [{ id: "default", name: "默认渠道", baseUrl: OPENAI_BASE_URL, apiKey: "", apiFormat: "openai", models: [] }],
     model: "",
     imageModel: "",
     videoModel: "",
@@ -333,7 +317,6 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         apiFormat,
         models: normalizeChannelModels(channel?.models),
         ...(channel?.protocolId?.trim() ? { protocolId: channel.protocolId.trim() } : {}),
-        ...(channel?.imageTaskBaseUrl !== undefined ? { imageTaskBaseUrl: channel.imageTaskBaseUrl.trim() } : {}),
     };
 }
 
@@ -483,16 +466,6 @@ function normalizeChannels(config: AiConfig) {
                 models: normalizeChannelModels([config.model, config.imageModel, config.videoModel, config.textModel, config.audioModel].map(modelOptionName)),
             }),
         );
-    }
-    // Add relay presets without copying keys between providers or replacing existing configurations.
-    for (const preset of defaultConfig.channels) {
-        const existing = channels.find((c) => normalizedBaseUrlKey(c.baseUrl) === normalizedBaseUrlKey(preset.baseUrl));
-        if (existing) {
-            // Update only the old built-in labels; keep user names, credentials and bindings.
-            if (preset.baseUrl === RELAY_IMAGE_URL && ["", "默认渠道", "Default channel", "65535 生图（独立密钥）"].includes(existing.name)) existing.name = RELAY_IMAGE_NAME;
-            if (preset.imageTaskBaseUrl && existing.imageTaskBaseUrl === undefined && !existing.protocolId) existing.imageTaskBaseUrl = preset.imageTaskBaseUrl;
-        }
-        else channels.push(createModelChannel({ ...preset, id: preset.id === "default" ? "relay-image" : preset.id }));
     }
     return channels;
 }

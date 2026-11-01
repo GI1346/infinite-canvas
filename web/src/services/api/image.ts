@@ -1,9 +1,8 @@
 import axios from "axios";
 
 import i18n from "@/i18n";
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig, type ModelChannel, type ChannelModel, guessCapability, resolveModelChannel, RELAY_TEXT_URL } from "@/stores/use-config-store";
+import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig, type ModelChannel, type ChannelModel, guessCapability } from "@/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
-import { requestRelayImage, relayTaskBase } from "./relay-tasks";
 import { deepseekAgentChatScript, relayChatScript } from "./relay-chat";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -697,9 +696,6 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const script = resolveModelScript(config, config.model || config.imageModel);
-    if (!script && relayTaskBase(resolveModelChannel(config, config.model || config.imageModel))) {
-        return (await requestRelayImage(config, prompt, [], options?.signal)).map((dataUrl) => ({ id: nanoid(), dataUrl }));
-    }
     if (script) {
         const quality = normalizeQuality(config.quality);
         const requestSize = resolveRequestSize(config.size);
@@ -761,10 +757,6 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
     const script = resolveModelScript(config, config.model || config.imageModel);
-    if (!script && relayTaskBase(resolveModelChannel(config, config.model || config.imageModel))) {
-        const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
-        return (await requestRelayImage(config, requestPrompt, refs, options?.signal)).map((dataUrl) => ({ id: nanoid(), dataUrl }));
-    }
     if (script) {
         const quality = normalizeQuality(config.quality);
         const requestSize = resolveRequestSize(config.size);
@@ -893,23 +885,19 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
 
 export async function fetchChannelModelDetails(channel: ModelChannel): Promise<ChannelModel[]> {
     if (channel.apiFormat === "gemini") return (await fetchChannelModels(channel)).map((name) => ({ name, capability: guessCapability(name) }));
-    const response = await axios.get(buildApiUrl(relayTaskBase(channel) || channel.baseUrl, "/models"), { headers: { Authorization: `Bearer ${channel.apiKey.trim()}` } });
-    if (!Array.isArray(response.data?.data)) throw new Error("模型接口未返回 data 数组，请检查地址和密钥");
-    const relayText = channel.baseUrl.trim().replace(/\/v1\/?$/i, "").replace(/\/$/, "") === RELAY_TEXT_URL;
-    const pricingBase = relayTaskBase(channel) || (relayText ? channel.baseUrl : undefined);
-    let pricing: Array<{ id: string; endpoints?: string[]; tags?: string[] }> = [];
-    if (pricingBase) {
-        const result = await axios.get(buildApiUrl(pricingBase, "/pricing"), { headers: { Authorization: `Bearer ${channel.apiKey.trim()}` } });
-        pricing = Array.isArray(result.data?.data) ? result.data.data : Array.isArray(result.data) ? result.data : [];
+    try {
+        const response = await axios.get(buildApiUrl(channel.baseUrl, "/models"), { headers: { Authorization: `Bearer ${channel.apiKey.trim()}` } });
+        if (!Array.isArray(response.data?.data)) throw new Error("模型接口未返回 data 数组，请检查地址和密钥");
+        return response.data.data.filter((m: { id?: string }) => typeof m.id === "string" && m.id.trim()).map((m: { id: string; capabilities?: string[] }) => {
+            const kinds = m.capabilities || [];
+            const existing = channel.models.find((model) => model.name === m.id);
+            const capability = kinds.includes("image") ? "image" : kinds.includes("video") ? "video" : kinds.includes("audio") ? "audio" : existing?.capability || guessCapability(m.id);
+            const script = existing?.script;
+            return { name: m.id, capability, ...(script ? { script } : {}), ...(existing?.protocolId ? { protocolId: existing.protocolId } : {}) } as ChannelModel;
+        }).sort((a: ChannelModel, b: ChannelModel) => a.name.localeCompare(b.name));
+    } catch (error) {
+        throw new Error(readAxiosError(error, apiText("modelReadFailed")));
     }
-    return response.data.data.filter((m: { id?: string }) => typeof m.id === "string" && m.id.trim()).map((m: { id: string; capabilities?: string[] }) => {
-        const price = pricing.find((p) => p.id === m.id);
-        const kinds = [...(m.capabilities || []), ...(price?.endpoints || []), ...(price?.tags || [])];
-        const capability = kinds.includes("image") ? "image" : kinds.includes("video") ? "video" : kinds.includes("audio") ? "audio" : guessCapability(m.id);
-        const existing = channel.models.find((model) => model.name === m.id);
-        const script = existing?.script || (!existing?.protocolId && !channel.protocolId && relayText && capability === "text" && price?.endpoints?.includes("openai") && !price.endpoints.includes("responses") ? relayChatScript : undefined);
-        return { name: m.id, capability, ...(script ? { script } : {}), ...(existing?.protocolId ? { protocolId: existing.protocolId } : {}) } as ChannelModel;
-    }).sort((a: ChannelModel, b: ChannelModel) => a.name.localeCompare(b.name));
 }
 
 export async function fetchChannelModels(channel: ModelChannel) {

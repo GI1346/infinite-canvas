@@ -33,7 +33,6 @@ export function CanvasTopBar({
     onOpenPlugins,
     onOpenCleanup,
     onOpenGrid,
-    onOpenTasks,
     onUndo,
     onRedo,
 }: {
@@ -55,7 +54,6 @@ export function CanvasTopBar({
     onOpenPlugins: () => void;
     onOpenCleanup: () => void;
     onOpenGrid: () => void;
-    onOpenTasks: () => void;
     onUndo: () => void;
     onRedo: () => void;
 }) {
@@ -163,7 +161,6 @@ export function CanvasTopBar({
                     <Tooltip title={t("canvas.redo")}><Button type="text" aria-label={t("canvas.redo")} disabled={!canRedo} icon={<Redo2 className="size-4" />} onClick={onRedo} /></Tooltip>
                     <Tooltip title={t("canvas.home")}><Button type="text" aria-label={t("canvas.home")} icon={<Home className="size-4" />} onClick={onHome} /></Tooltip>
                     <Button type="text" onClick={onOpenGrid}>宫格布局</Button>
-                    <Button type="text" onClick={onOpenTasks}>异步任务</Button>
                     <Button type="text" onClick={() => setLogsOpen(true)}>日志</Button>
                     <Button type="text" icon={<Eraser className="size-4" />} onClick={onOpenCleanup}>清理</Button>
                     <UserStatusActions variant="canvas" onOpenShortcuts={() => setShortcutsOpen(true)} onOpenPlugins={onOpenPlugins} />

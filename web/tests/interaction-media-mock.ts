@@ -7,3 +7,5 @@ export function getImagePreviewRevision() { return 0; }
 
 export async function getImageBlob(_key: string): Promise<Blob | null> { return null; }
 export async function fetchImageBlob(url: string): Promise<Blob> { return (await fetch(url)).blob(); }
+
+export async function imageToDataUrl(image: { dataUrl: string }) { return image.dataUrl; }

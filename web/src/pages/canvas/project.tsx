@@ -91,7 +91,6 @@ import { CanvasTopBar } from "@/components/canvas/canvas-top-bar";
 import { arrangeGrid } from "@/lib/canvas/canvas-grid-layout";
 import { canvasDownloadMimeType, canvasDownloadName } from "@/lib/canvas/canvas-download-name";
 import { useCanvasImageDownload } from "@/hooks/use-canvas-image-download";
-import { CanvasRelayTasksModal } from "@/components/canvas/canvas-relay-tasks-modal";
 import { InputNumber } from "antd";
 import { recordDiagnostic } from "@/services/diagnostics";
 import { CanvasCleanupModal } from "@/components/canvas/canvas-cleanup-modal";
@@ -290,7 +289,6 @@ function InfiniteCanvasPage() {
     const [dialogNodeId, setDialogNodeId] = useState<string | null>(null);
     const [infoNodeId, setInfoNodeId] = useState<string | null>(null);
     const [pluginManagerOpen, setPluginManagerOpen] = useState(false);
-    const [tasksOpen, setTasksOpen] = useState(false);
     const [gridOpen, setGridOpen] = useState(false);
     const [gridColumns, setGridColumns] = useState(2);
     const [gridGap, setGridGap] = useState(48);
@@ -3536,7 +3534,6 @@ function InfiniteCanvasPage() {
                     onOpenPlugins={() => setPluginManagerOpen(true)}
                     onOpenCleanup={() => setCleanupOpen(true)}
                     onOpenGrid={() => setGridOpen(true)}
-                    onOpenTasks={() => setTasksOpen(true)}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                 />
@@ -3805,18 +3802,6 @@ function InfiniteCanvasPage() {
                 <Modal title="宫格布局" open={gridOpen} onCancel={() => setGridOpen(false)} okText="排列选中节点" okButtonProps={{ disabled: selectedNodeIds.size < 2 }} onOk={() => { setNodes((current) => arrangeGrid(current, selectedNodeIds, gridColumns, gridGap)); setGridOpen(false); }}>
                     <p className="mb-4">先框选两个或以上节点；保留图片比例、分组内容和全部连线。</p><div className="flex gap-4"><label>列数 <InputNumber min={1} value={gridColumns} onChange={(v) => setGridColumns(v || 1)} /></label><label>间距 <InputNumber min={0} value={gridGap} onChange={(v) => setGridGap(v ?? 0)} /></label></div>
                 </Modal>
-                <CanvasRelayTasksModal open={tasksOpen} onClose={() => setTasksOpen(false)} onImages={async (urls, title) => {
-                    const images = await Promise.all(urls.map((url) => uploadImage(url)));
-                    const p = { x: -viewportRef.current.x / viewportRef.current.k + 80, y: -viewportRef.current.y / viewportRef.current.k + 100 };
-                    let x = p.x;
-                    const imported = images.map((image, i) => {
-                        const size = fitNodeSize(image.width, image.height);
-                        const node = { id: nanoid(), type: CanvasNodeType.Image, title: title + (images.length > 1 ? `-${i + 1}` : ""), position: { x, y: p.y }, ...size, metadata: imageMetadata(image) };
-                        x += size.width + 30;
-                        return node;
-                    });
-                    setNodes((prev) => [...prev, ...imported]);
-                }} />
                 <CanvasCleanupModal open={cleanupOpen} projectId={projectId} onClose={() => setCleanupOpen(false)} beforeOperation={() => {
                     const busy = nodesRef.current.some((n) => n.metadata?.status === "loading") || runningTableBatches.size > 0 || isLocalFusionRunning();
                     const agent = useCanvasAssistantStore.getState();

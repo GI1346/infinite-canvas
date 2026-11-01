@@ -7,7 +7,6 @@ import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/lib/canvas
 import { buildGenerationConfig } from "../src/lib/canvas/canvas-generation-helpers";
 import { assistantImageParameters, explicitAssistantImageRequirements } from "../src/lib/canvas/assistant-image-parameters";
 import { assistantGraphSummary, executeAssistantTool, assistantSystemPrompt, type AssistantAction } from "../src/services/api/canvas-assistant";
-import { relayImageInput } from "../src/services/api/relay-tasks";
 import { relayChatScript } from "../src/services/api/relay-chat";
 import { useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore, type AiConfig } from "../src/stores/use-config-store";
@@ -52,8 +51,8 @@ async function main() {
     const f = fixture("edits"), tool = (action: AssistantAction) => executeAssistantTool(action, f.context, config, [], signal);
     await tool({ tool: "apply_workflow", args: { nodes: [{ key: "first", type: "image", parameters: { imageAspectRatio: "9:16", imageResolution: "4K" } }], connections: [] } });
     const first = f.context.getSnapshot().nodes.at(-1)!;
-    const payload = relayImageInput(buildGenerationConfig(config, first, "image"), "test", []);
-    assert.equal(payload.input.size, "2160x3840"); assert.equal(payload.input.resolution, "4k");
+    const payload = buildGenerationConfig(config, first, "image");
+    assert.equal(payload.size, "2160x3840"); assert.equal(payload.imageResolution, "4k");
     await tool({ tool: "update_nodes", args: { nodeIds: [first.id], parameters: { imageAspectRatio: "2:3", imageResolution: "2k" } } });
     assert.equal(f.context.getSnapshot().nodes.at(-1)?.metadata?.size, "1360x2048");
     assert.equal((assistantGraphSummary(f.context.getSnapshot()).nodes.at(-1) as any).parameters.size, "1360x2048");
@@ -65,7 +64,7 @@ async function main() {
     assert.deepEqual(explicitAssistantImageRequirements("一只小狗，无文字，比例2:3，2K。"), { imageAspectRatio: "2:3", imageResolution: "2k" });
     assert.deepEqual(explicitAssistantImageRequirements("5张1:1主图，9张9:16详情"), {});
     assert.deepEqual(explicitAssistantImageRequirements("不要1:1，不用2k，使用9:16、4k"), { imageAspectRatio: "9:16", imageResolution: "4k" });
-    console.log("PASS first tool ratio/resolution -> actual async request size; conflicts atomic; mixed layouts not overridden.");
+    console.log("PASS first tool ratio/resolution -> generation request size; conflicts atomic; mixed layouts not overridden.");
 
     const edit = (args: Record<string, unknown>) => tool({ tool: "edit_canvas", args });
     await edit({ action: "update", nodes: [{ id: "a", title: "重命名", x: 60, width: 240, model: otherId, prompt: "改过的提示词" }] });

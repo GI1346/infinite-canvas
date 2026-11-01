@@ -11,7 +11,6 @@ import { ConfigProtocolCenter } from "@/components/layout/config-protocol-center
 import { ConfigLocalProxy } from "@/components/layout/config-local-proxy";
 import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
 import { useCallProtocolStore } from "@/stores/use-call-protocol-store";
-import { relayTaskBase } from "@/services/api/relay-tasks";
 import type { AppLocale } from "@/i18n";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
@@ -204,7 +203,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                             <div className="min-w-0">
                                                 <div className="truncate text-sm font-semibold">{channel.name || t("config.channels.unnamed")}</div>
                                                 <div className="mt-1 truncate text-xs text-stone-500">
-                                                    {channel.protocolId ? protocols.find((protocol) => protocol.id === channel.protocolId)?.label || `缺失：${channel.protocolId}` : relayTaskBase(channel) ? "65535 原生异步任务" : channel.apiFormat === "gemini" ? "Gemini" : "OpenAI"} · {t("config.channels.modelCount", { count: channel.models.length })} · {channel.baseUrl || t("config.channels.missingUrl")}
+                                                    {channel.protocolId ? protocols.find((protocol) => protocol.id === channel.protocolId)?.label || `缺失：${channel.protocolId}` : channel.apiFormat === "gemini" ? "Gemini" : "OpenAI"} · {t("config.channels.modelCount", { count: channel.models.length })} · {channel.baseUrl || t("config.channels.missingUrl")}
                                                 </div>
                                             </div>
                                             <div className="flex shrink-0 gap-2">

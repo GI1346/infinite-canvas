@@ -6,14 +6,13 @@ import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nod
 import { assistantSystemPrompt } from "../src/services/api/canvas-assistant";
 import { executeHarnessCanvasTool } from "../src/services/api/deepseek-harness";
 import { requestGeneration } from "../src/services/api/image";
-import { relayImageInput } from "../src/services/api/relay-tasks";
 import { relayChatScript } from "../src/services/api/relay-chat";
 import { useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore } from "../src/stores/use-config-store";
 
 const imageModel = encodeChannelModel("fixture-image", "gpt-image-2.5-sunburst"), textModel = encodeChannelModel("fixture-text", "chat");
 const config = { ...defaultConfig, proxyEnabled: false, imageModel, textModel, models: [imageModel, textModel], channels: [
-    { id: "fixture-image", name: "fixture-image", baseUrl: "https://offline-image.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, imageTaskBaseUrl: "", models: [{ name: "gpt-image-2.5-sunburst", capability: "image" as const }] },
+    { id: "fixture-image", name: "fixture-image", baseUrl: "https://offline-image.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: [{ name: "gpt-image-2.5-sunburst", capability: "image" as const }] },
     { id: "fixture-text", name: "fixture-text", baseUrl: "https://offline-text.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: [{ name: "chat", capability: "text" as const, script: relayChatScript }] },
 ] };
 const cases: Array<[string, string | undefined]> = [
@@ -79,10 +78,9 @@ async function main() {
         const start = outgoing.length, result = await call(requirements, "high");
         assert.equal(outgoing.length, start + 1); assert.equal(outgoing.at(-1)!.quality, expected);
         assert.equal((result.value as any).outcomes[0].parameters.quality, expected, "Harness returns actual quality");
-        assert.equal(relayImageInput({ ...config, quality: expected }, "rabbit", []).input.quality, expected, "Native task JSON preserves quality");
     }
     const before = outgoing.length; await call("生成图片", "low"); assert.equal(outgoing.at(-1)!.quality, "low"); assert.equal(outgoing.length, before + 1);
     await state().clearHistory();
-    console.log("PASS " + cases.length + " parsing cases; Agent manual/auto + Harness first-call JSON max/xhigh/high, actual quality feedback, native relay payload, preserved dimensions/defaults/unrelated nodes; all requests intercepted, no paid API used.");
+    console.log("PASS " + cases.length + " parsing cases; Agent manual/auto + Harness first-call JSON max/xhigh/high, actual quality feedback, preserved dimensions/defaults/unrelated nodes; all requests intercepted, no paid API used.");
 }
 main().then(() => { globalThis.fetch = oldFetch; axios.defaults.adapter = oldAdapter; process.exit(0); }).catch(error => { console.error(error); globalThis.fetch = oldFetch; axios.defaults.adapter = oldAdapter; process.exit(1); });

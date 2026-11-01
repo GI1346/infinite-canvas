@@ -3,9 +3,8 @@ import { ListPlus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, RELAY_TASK_URL, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { useCallProtocolStore } from "@/stores/use-call-protocol-store";
-import { relayTaskBase } from "@/services/api/relay-tasks";
 import { ModelScriptEditor } from "./model-script-editor";
 import { ModelSelectModal } from "./model-select-modal";
 
@@ -28,21 +27,19 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
     const protocolOptions = [
         { label: "OpenAI", value: "openai" },
         { label: "Gemini", value: "gemini" },
-        { label: "65535 原生异步任务", value: "relay-native" },
         ...(draft.protocolId && !protocols.some((protocol) => protocol.id === draft.protocolId) ? [{ label: `缺失：${draft.protocolId}`, value: `protocol:${draft.protocolId}` }] : []),
         ...protocols.map((protocol) => ({ label: `${protocol.label}（${t(`config.channelEditor.capabilities.${protocol.capability}`)}）`, value: `protocol:${protocol.id}` })),
     ];
-    const selectedProtocol = draft.protocolId ? `protocol:${draft.protocolId}` : relayTaskBase(draft) ? "relay-native" : draft.apiFormat;
+    const selectedProtocol = draft.protocolId ? `protocol:${draft.protocolId}` : draft.apiFormat;
 
     const patch = (value: Partial<ModelChannel>) => setDraft((current) => (current ? { ...current, ...value } : current));
     const setModels = (models: ChannelModel[]) => patch({ models });
 
     const changeProtocol = (value: string) => {
-        if (value.startsWith("protocol:")) { patch({ protocolId: value.slice("protocol:".length), apiFormat: "openai", imageTaskBaseUrl: "" }); return; }
-        if (value === "relay-native") { patch({ protocolId: undefined, apiFormat: "openai", imageTaskBaseUrl: draft.imageTaskBaseUrl || RELAY_TASK_URL }); return; }
+        if (value.startsWith("protocol:")) { patch({ protocolId: value.slice("protocol:".length), apiFormat: "openai" }); return; }
         const apiFormat = value as ApiCallFormat;
         const baseUrl = !draft.baseUrl.trim() || draft.baseUrl.trim() === defaultBaseUrlForApiFormat(draft.apiFormat) ? defaultBaseUrlForApiFormat(apiFormat) : draft.baseUrl;
-        patch({ apiFormat, baseUrl, protocolId: undefined, imageTaskBaseUrl: "" });
+        patch({ apiFormat, baseUrl, protocolId: undefined });
     };
 
     const applySelection = (names: string[], fetchedModels: ChannelModel[] = []) => {
@@ -98,7 +95,6 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
             </div>
 
             <p className="mt-3 text-xs opacity-60">渠道协议是模型默认调用方式；模型单独绑定的协议或脚本优先。自定义协议仅用于同能力模型，其他能力请单独绑定。</p>
-            {selectedProtocol === "relay-native" && <label className="mt-4 block"><span className="mb-1 block text-sm font-medium">原生异步生图任务地址（使用当前生图渠道的独立密钥）</span><Input aria-label="原生异步任务地址" value={draft.imageTaskBaseUrl || ""} placeholder={RELAY_TASK_URL} onChange={(event) => patch({ imageTaskBaseUrl: event.target.value })} /></label>}
             <div className="mt-6 mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <div className="text-sm font-semibold">{t("config.channelEditor.models")}</div>

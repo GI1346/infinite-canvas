@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App, ConfigProvider } from "antd";
 import { ChannelEditorDrawer } from "../src/components/layout/channel-editor-drawer";
 import { AppConfigPanel } from "../src/components/layout/app-config-modal";
-import { defaultConfig, createModelChannel, RELAY_IMAGE_URL, useConfigStore, type ModelChannel } from "../src/stores/use-config-store";
+import { defaultConfig, createModelChannel, useConfigStore, type ModelChannel } from "../src/stores/use-config-store";
 import { useCallProtocolStore } from "../src/stores/use-call-protocol-store";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
@@ -26,23 +26,22 @@ async function main() {
         { format: "canvas-call/v1", id: "custom-image", label: "我的异步生图", capability: "image", script: "return [];" },
         { format: "canvas-call/v1", id: "custom-text", label: "我的聊天协议", capability: "text", script: "return 'text';" },
     ] });
-    const channel = createModelChannel({ ...defaultConfig.channels[0], models: [{ name: "image-default", capability: "image" }, { name: "model-override", capability: "image", protocolId: "custom-image" }] });
+    const channel = createModelChannel({ ...defaultConfig.channels[0], baseUrl: "https://relay.invalid", apiKey: "synthetic-channel-key", models: [{ name: "image-default", capability: "image" }, { name: "model-override", capability: "image", protocolId: "custom-image" }] });
     await render(channel);
-    assert(document.querySelector('[aria-label="原生异步任务地址"]'));
-    assert(document.querySelector('[aria-label="渠道调用协议"]')?.closest(".ant-select")?.textContent?.includes("65535 原生异步任务"));
+    assert(!document.querySelector('[aria-label="原生异步任务地址"]'));
+    assert(document.querySelector('[aria-label="渠道调用协议"]')?.closest(".ant-select")?.textContent?.includes("OpenAI"));
     await select("渠道调用协议", "我的异步生图（生图）");
     assert(!document.querySelector('[aria-label="原生异步任务地址"]'));
-    const custom = await save(); assert.equal(custom.protocolId, "custom-image"); assert.equal(custom.imageTaskBaseUrl, ""); assert.equal(custom.baseUrl, RELAY_IMAGE_URL); assert.equal(custom.apiKey, "");
+    const custom = await save(); assert.equal(custom.protocolId, "custom-image"); assert.equal(custom.baseUrl, channel.baseUrl); assert.equal(custom.apiKey, channel.apiKey);
     assert.equal(custom.models[0].protocolId, undefined); assert.equal(custom.models[1].protocolId, "custom-image");
     console.log("PASS: channel dropdown lists custom protocols, saves channel inheritance and preserves model override");
     await select("渠道调用协议", "OpenAI");
-    const openai = await save(); assert.equal(openai.protocolId, undefined); assert.equal(openai.imageTaskBaseUrl, "");
+    const openai = await save(); assert.equal(openai.protocolId, undefined); assert.equal(openai.baseUrl, channel.baseUrl); assert.equal(openai.apiKey, channel.apiKey);
     assert(!document.querySelector('[aria-label="原生异步任务地址"]'));
     console.log("PASS: choosing OpenAI explicitly disables preset native-task routing without modifying models or credentials");
-    await select("渠道调用协议", "65535 原生异步任务");
-    assert(document.querySelector('[aria-label="原生异步任务地址"]'));
-    const native = await save(); assert.equal(native.protocolId, undefined); assert.equal(native.imageTaskBaseUrl, "https://task-api-1-cn.65535.space");
-    console.log("PASS: choosing native tasks restores task endpoint while preserving independent key");
+    await fire(document.querySelector('[aria-label="渠道调用协议"]')!.closest(".ant-select")!, "mousedown");
+    assert(![...document.querySelectorAll('.ant-select-item-option')].some((option) => option.textContent?.includes("65535")));
+    console.log("PASS: built-in native-task protocol and second URL are absent");
     await render({ ...channel, protocolId: "removed-protocol" });
     assert(document.querySelector('[aria-label="渠道调用协议"]')?.closest(".ant-select")?.textContent?.includes("缺失：removed-protocol"));
     console.log("PASS: deleted channel protocol remains visibly missing, no silent default replacement");
@@ -51,8 +50,8 @@ async function main() {
         root.render(<ConfigProvider><App><AppConfigPanel /></App></ConfigProvider>); await tick();
     });
     const text = host.textContent || "";
-    assert(text.includes("65535 原生异步任务")); assert(text.includes("我的异步生图")); assert(text.includes("缺失：removed"));
-    console.log("PASS: channel list shows native/custom/missing protocol labels rather than misleading OpenAI");
+    assert(!text.includes("65535 原生异步任务")); assert(text.includes("OpenAI")); assert(text.includes("我的异步生图")); assert(text.includes("缺失：removed"));
+    console.log("PASS: channel list shows standard/custom/missing protocol labels rather than misleading OpenAI");
     await act(async () => root.unmount()); host.remove();
 }
 main().then(() => process.exit(0)).catch(async (error) => { console.error(error); await act(async () => root.unmount()); host.remove(); process.exit(1); });
