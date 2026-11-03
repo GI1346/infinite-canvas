@@ -210,6 +210,25 @@ async function main() {
                 await down(port, { clientX: 500, clientY: 400, altKey: true }); assert.deepEqual(h.state.connecting, { nodeId: "table", handleType: "target", portId: "input-3", sourceNodeIds: undefined }); assert.equal(h.state.isNodeDragging, false); assert.equal(h.state.nodes.length, 1);
             } finally { await h.close(); }
         });
+        await test("CodeMirror 和 role=textbox 的子元素按键不会删除、复制或撤销画布节点", async () => {
+            const a = node("a"), h = await mount({nodes: [a], selected: ["a"]}), invoked: string[] = [];
+            (globalThis as any).__dragShortcut = (name: string) => invoked.push(name);
+            try {
+                for (const kind of ["cm-editor", "textbox", "plaintext-only"]) {
+                    const editor = document.createElement("div"), child = document.createElement("span");
+                    if (kind === "cm-editor") editor.className = kind;
+                    else if (kind === "textbox") editor.setAttribute("role", kind);
+                    else editor.setAttribute("contenteditable", kind);
+                    editor.append(child); document.body.append(editor);
+                    for (const options of [{key: "Delete"}, {key: "Backspace"}, {key: "z", ctrlKey: true}, {key: "c", ctrlKey: true}, {key: "a", ctrlKey: true}]) {
+                        const event = new KeyboardEvent("keydown", {bubbles: true, cancelable: true, ...options});
+                        await fire(child, event); assert.equal(event.defaultPrevented, false);
+                    }
+                    editor.remove();
+                }
+                assert.deepEqual(invoked, []); assert.deepEqual(h.state.nodes, [a]);
+            } finally { delete (globalThis as any).__dragShortcut; await h.close(); }
+        });
         console.log(`Alt drag UI: ${passed}/${passed} passed (actual project AST handlers/effects + React DOM CanvasNode/InfiniteCanvas; no browser physical gesture, no API)`);
     } finally { globalThis.fetch = originalFetch; }
 }

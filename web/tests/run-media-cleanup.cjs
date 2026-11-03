@@ -1,0 +1,9 @@
+const path = require("node:path");
+const fs = require("node:fs");
+const { buildSync } = require("esbuild");
+const { execFileSync } = require("node:child_process");
+process.chdir(path.resolve(__dirname, ".."));
+fs.mkdirSync(".checks", { recursive: true });
+const outfile = path.resolve(".checks/media-cleanup.mjs");
+buildSync({ entryPoints: [path.resolve("tests/media-cleanup.check.ts")], bundle: true, platform: "node", format: "esm", packages: "external", outfile });
+execFileSync(process.execPath, ["--require", path.resolve("tests/indexeddb-storage.cjs"), outfile], { stdio: "inherit" });

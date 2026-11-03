@@ -57,8 +57,12 @@ function setup() {
     };
     const start = callback("startGenerationRequest", scope), finish = callback("finishGenerationRequest", scope); Object.assign(scope, { startGenerationRequest: start, finishGenerationRequest: finish });
     const video = callback("completeVideoNodeTask", scope); scope.completeVideoNodeTask = video;
+    Object.assign(scope, { projectId: "project-a", chatSessions: [], cleanupCanvasFiles: () => {}, deselectCanvas: () => {}, setClearConfirmOpen: () => {}, sourceNodeReferenceImages: () => [], recordDiagnostic: () => {}, hasResumableVideoTask: () => false });
+    for (const name of ["setHoveredNodeId", "setToolbarNodeId", "setInfoNodeId", "setImageEditorNodeId", "setPaintNodeId", "setExtractNodeId", "setCropNodeId", "setMaskEditNodeId", "setAngleNodeId", "setPreviewNodeId", "setReferencePickerNodeId", "setContextMenu"]) scope[name] = () => {};
+    scope.stopGenerationByRunningId = callback("stopGenerationByRunningId", scope);
+    const remove = callback("deleteNodes", scope), clear = callback("clearCanvas", scope), retry = callback("handleRetryNode", scope);
     const run = callback("handleGenerateNode", scope), effect = compile(lifecycle!.getText(tree), scope); let cleanup = effect();
-    return { run, start, finish, video, calls, alerts, graph: () => nodesRef.current, requests: generationRequestsRef, owners: generationOwnersRef, project: generationProjectRef, nodesRef,
+    return { run, start, finish, video, remove, clear, retry, calls, alerts, graph: () => nodesRef.current, requests: generationRequestsRef, owners: generationOwnersRef, project: generationProjectRef, nodesRef,
         running: () => running, uploads: () => uploadCalls, storedAudio: () => storeAudioCalls, storedVideo: () => storeVideoCalls,
         image: (fn: typeof imageRequest) => { imageRequest = fn; }, text: (fn: typeof textRequest) => { textRequest = fn; }, audio: (fn: typeof audioRequest) => { audioRequest = fn; }, createVideo: (fn: typeof videoCreate) => { videoCreate = fn; }, waitVideo: (fn: typeof videoWait) => { videoWait = fn; },
         navigate: () => { generationProjectRef.current = { id: "project-b", alive: true }; cleanup(); cleanup = effect(); nodesRef.current = [node("new-project-node")]; }, dispose: () => cleanup(), queue: () => { queued = true; }, flush: () => { queued = false; while (queue.length) queue.shift()!(); } };
@@ -103,6 +107,58 @@ async function main() {
         await test("actual audio/video transports ignore abort without persistence or stale result import; video ID retained", async () => {
             const app = setup(), audio = deferred<string>(), audioAbort = new AbortController(); app.audio(async (_config, _prompt, options) => { app.calls.push({ kind: "audio", signal: options.signal }); return audio.promise; }); const audioRun = app.run("source", "audio", "audio", audioAbort.signal); await tick(); audioAbort.abort(); audio.resolve("old audio"); await audioRun; assert.equal(app.storedAudio(), 0); app.dispose();
             const video = setup(), pending = deferred<string>(), videoAbort = new AbortController(); video.waitVideo(() => pending.promise); const videoRun = video.run("source", "video", "video", videoAbort.signal); await tick(); const output = video.graph().find((item) => item.type === "video")!; assert.equal(output.metadata?.videoTaskId, "server-video-task"); videoAbort.abort(); const before = JSON.stringify(video.graph()); pending.resolve("old video"); await videoRun; assert.equal(video.storedVideo(), 0); assert.equal(JSON.stringify(video.graph()), before); assert.equal(video.graph().find((item) => item.id === output.id)?.metadata?.videoTaskId, "server-video-task"); video.dispose();
+        });
+        await test("actual delete aborts origin and output requests; ignored late result cannot resurrect deleted nodes", async () => {
+            for (const target of ["origin", "output"]) {
+                const app = setup(), pending = deferred<Array<{ dataUrl: string }>>();
+                app.image(async (_config, _prompt, options) => { app.calls.push({kind: "image", signal: options.signal}); return pending.promise; });
+                const run = app.run("source", "image", "draw"); await tick();
+                const output = app.graph().find((item) => item.type === "image")!;
+                app.remove(new Set([target === "origin" ? "source" : output.id]));
+                assert(app.calls[0].signal.aborted); assert.equal(app.requests.current.size, 0); assert.equal(app.running(), null);
+                const before = JSON.stringify(app.graph()); pending.resolve([{dataUrl: "late"}]); await run;
+                assert.equal(JSON.stringify(app.graph()), before); assert.equal(app.uploads(), 0); app.dispose();
+            }
+        });
+        await test("actual delete then undo preserves user's restored node against late generation", async () => {
+            const app = setup(), pending = deferred<string>();
+            app.text(async (_config, _messages, _onText, options) => { app.calls.push({kind: "text", signal: options.signal}); return pending.promise; });
+            const run = app.run("source", "text", "draw"); await tick(); app.remove(new Set(["source"]));
+            app.nodesRef.current = [{...node(), metadata: {content: "restored user edit"}}];
+            pending.resolve("stale generated text"); await run;
+            assert.equal(app.graph()[0].metadata?.content, "restored user edit"); app.dispose();
+        });
+        await test("actual retry text stream/result/finally are isolated after project navigation", async () => {
+            const app = setup(), pending = deferred<string>(); let stream!: (text: string) => void;
+            app.nodesRef.current = [{...node(), metadata: {prompt: "retry"}}];
+            app.text(async (_config, _messages, onText, options) => { stream = onText; app.calls.push({kind: "text", signal: options.signal}); return pending.promise; });
+            const run = app.retry(app.graph()[0]); await tick(); app.navigate(); stream("late stream"); pending.resolve("late answer"); await run;
+            assert.deepEqual(app.graph().map((item) => item.id), ["new-project-node"]); assert.equal(app.alerts.length, 0); app.dispose();
+        });
+        await test("actual retry late finally and result preserve a newer retry of the same node", async () => {
+            const app = setup(), old = deferred<string>(), next = deferred<string>(); let calls = 0;
+            app.nodesRef.current = [{...node(), metadata: {prompt: "retry"}}];
+            app.text(async (_config, _messages, _onText, options) => { app.calls.push({kind: "text", signal: options.signal}); return ++calls === 1 ? old.promise : next.promise; });
+            const oldRun = app.retry(app.graph()[0]); await tick(); const newRun = app.retry(app.graph()[0]); await tick();
+            const owner = app.requests.current.get("source").controller;
+            old.resolve("stale"); await oldRun; assert.equal(app.running(), "source"); assert.equal(app.requests.current.get("source").controller, owner);
+            next.resolve("current"); await newRun; assert.equal(app.graph()[0].metadata?.content, "current"); assert.equal(app.running(), null); app.dispose();
+        });
+        await test("actual retry image/audio ignore transport abort without storing stale output", async () => {
+            const image = setup(), pending = deferred<Array<{dataUrl: string}>>();
+            image.nodesRef.current = [{...node("source", "image"), metadata: {prompt: "retry"}}];
+            image.image(async () => pending.promise); const run = image.retry(image.graph()[0]); await tick(); image.navigate(); pending.resolve([{dataUrl: "late"}]); await run;
+            assert.equal(image.uploads(), 0); assert.deepEqual(image.graph().map((item) => item.id), ["new-project-node"]); image.dispose();
+            const audio = setup(), result = deferred<string>(); audio.nodesRef.current = [{...node("source", "audio"), metadata: {prompt: "retry"}}];
+            audio.audio(async () => result.promise); const audioRun = audio.retry(audio.graph()[0]); await tick(); audio.remove(new Set(["source"])); result.resolve("late"); await audioRun;
+            assert.equal(audio.storedAudio(), 0); assert.equal(audio.graph().length, 0); audio.dispose();
+        });
+        await test("actual clear canvas cancels in-flight generation and ignores its late output", async () => {
+            const app = setup(), pending = deferred<Array<{dataUrl: string}>>();
+            app.image(async (_config, _prompt, options) => { app.calls.push({kind: "image", signal: options.signal}); return pending.promise; });
+            const run = app.run("source", "image", "draw"); await tick(); app.clear();
+            assert(app.calls[0].signal.aborted); assert.equal(app.requests.current.size, 0);
+            pending.resolve([{dataUrl: "late"}]); await run; assert.equal(app.graph().length, 0); assert.equal(app.uploads(), 0); app.dispose();
         });
         console.log(`Native generation actual callbacks: ${passed}/${passed} passed (AST-extracted production callbacks/effect; mocked transport/persistence, no network).`);
     } finally { globalThis.fetch = originalFetch; }

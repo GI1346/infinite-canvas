@@ -13,7 +13,7 @@ function productionHarness() {
     const ast = ts.createSourceFile("project.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     const page = ast.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "InfiniteCanvasPage");
     if (!page?.body) throw new Error("Production InfiniteCanvasPage not found");
-    const names = new Set(`containerRef historyRef lastHistoryRef historyCommitTimerRef applyingHistoryRef historyPausedRef rafRef nodeDraggingRef dragRef nodes connections chatSessions activeChatId viewport selectedNodeIds selectedConnectionId hoveredNodeId connectingParams connectionTargetNodeId pendingConnectionCreate mouseWorld selectionBox contextMenu nodeCreatePosition backgroundMode showImageInfo projectLoaded toolbarNodeId dialogNodeId infoNodeId paintNodeId cropNodeId maskEditNodeId isNodeDragging dropTargetGroupId historyState nodesRef connectionsRef selectedNodeIdsRef viewportRef connectingParamsRef connectionTargetNodeIdRef selectionBoxRef pendingConnectionCreateRef createHistoryEntry screenToCanvas setConnecting applyHistory undoCanvas redoCanvas handleCanvasMouseDown selectNodeByEvent pendingSelectionRef handleNodeSelectCapture handleNodeMouseDown prepareNodeDrag finishNodeDrag handleGlobalMouseMove handleGlobalPointerMove handleGlobalMouseUp handleConnectStart`.split(" "));
+    const names = new Set(`containerRef historyRef lastHistoryRef historyCommitTimerRef applyingHistoryRef historyPausedRef rafRef nodeDraggingRef dragRef nodes connections chatSessions activeChatId viewport selectedNodeIds selectedConnectionId hoveredNodeId connectingParams connectionTargetNodeId pendingConnectionCreate mouseWorld selectionBox contextMenu nodeCreatePosition backgroundMode showImageInfo loadedProjectId projectLoaded toolbarNodeId dialogNodeId infoNodeId paintNodeId cropNodeId maskEditNodeId isNodeDragging dropTargetGroupId historyState nodesRef connectionsRef selectedNodeIdsRef viewportRef connectingParamsRef connectionTargetNodeIdRef selectionBoxRef pendingConnectionCreateRef createHistoryEntry screenToCanvas setConnecting applyHistory undoCanvas redoCanvas handleCanvasMouseDown selectNodeByEvent pendingSelectionRef handleNodeSelectCapture handleNodeMouseDown prepareNodeDrag finishNodeDrag handleGlobalMouseMove handleGlobalPointerMove handleGlobalMouseUp handleConnectStart`.split(" "));
     const statements = [];
     let copied = 0, effects = 0;
     for (const statement of page.body.statements) {
@@ -46,14 +46,14 @@ const shortcut = (name) => () => globalThis.__dragShortcut?.(name);
 const copySelectedNodes = shortcut("copy"), deleteConnection = shortcut("deleteConnection"), deleteNodes = shortcut("deleteNodes"), groupSelection = shortcut("group"), pasteCopiedNodes = shortcut("paste"), pasteSystemClipboard = shortcut("systemPaste"), ungroupSelection = shortcut("ungroup");
 const getConnectionDropTarget = () => ({ nodeId: null, isNearNode: false });
 export function ProjectDragHarness({ seed, expose }) {
- const initialized = useRef(false), focusNodeRef = useRef(no);
+ const projectId = "test-project", initialized = useRef(false), focusNodeRef = useRef(no);
  ${statements.join("\n")}
  useLayoutEffect(() => {
   if (initialized.current) return;
   initialized.current = true;
   setNodes(seed.nodes); setConnections(seed.connections); setViewport(seed.viewport); setSelectedNodeIds(new Set(seed.selected || []));
   lastHistoryRef.current = { nodes: seed.nodes, connections: seed.connections, chatSessions, activeChatId, backgroundMode, showImageInfo };
-  setProjectLoaded(true);
+  setLoadedProjectId(projectId);
  }, []);
  const pluginHost = { getNode: (id) => nodesRef.current.find(n => n.id === id) || null, getNodes: () => nodesRef.current, getConnections: () => connectionsRef.current, getUpstream: () => [], getDownstream: () => [], updateNode: no, updateMetadata: no, applyOps: no, openPanel: no, closePanel: no, ai: { listModels: () => [], defaultModel: () => "", generateText: () => { throw Error("Unexpected AI"); }, generateImage: () => { throw Error("Unexpected AI"); }, generateVideo: () => { throw Error("Unexpected AI"); } } };
  useLayoutEffect(() => expose({ nodes, connections, selected: selectedNodeIds, viewport, history: historyRef.current, last: lastHistoryRef.current, drag: dragRef.current, container: containerRef.current, connecting: connectingParams, selectionBox, isNodeDragging, updateOriginal: (id, patch) => setNodes(items => items.map(item => item.id === id ? { ...item, metadata: { ...item.metadata, ...patch } } : item)) }), [nodes, connections, selectedNodeIds, viewport, isNodeDragging, selectionBox, connectingParams, historyState]);
@@ -65,7 +65,7 @@ export function ProjectDragHarness({ seed, expose }) {
 }
 (async () => {
     const outfile = path.resolve(".checks/drag-copy-ui.cjs");
-    await build({ entryPoints: ["tests/drag-copy-ui.check.tsx"], bundle: true, platform: "node", format: "cjs", packages: "external", outfile,
+    await build({ entryPoints: [path.resolve("tests/drag-copy-ui.check.tsx")], bundle: true, platform: "node", format: "cjs", packages: "external", outfile,
         alias: { "@/services/image-storage": path.resolve("tests/interaction-media-mock.ts"), "@/services/file-storage": path.resolve("tests/interaction-media-mock.ts") },
         plugins: [{ name: "production-project-drag", setup(build) {
             build.onResolve({ filter: /^project-drag-harness$/ }, () => ({ path: "production-project-drag", namespace: "production-project" }));

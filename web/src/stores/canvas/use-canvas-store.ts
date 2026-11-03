@@ -26,8 +26,11 @@ export type CanvasDeletedProject = {
     deletedAt: string;
 };
 
+type CanvasProjectPatch = Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>;
+
 type CanvasStore = {
     hydrated: boolean;
+    hydrationError: string | null;
     projects: CanvasProject[];
     deletedProjects: CanvasDeletedProject[];
     createProject: (title?: string) => string;
@@ -36,24 +39,38 @@ type CanvasStore = {
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[], deletedProjects?: CanvasDeletedProject[]) => void;
-    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
+    updateProject: (id: string, patch: CanvasProjectPatch | ((current: CanvasProject) => CanvasProjectPatch)) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
 const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
 type PersistedCanvasState = Pick<CanvasStore, "projects" | "deletedProjects">;
+let canvasStorageReady = false;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
 
 const canvasStorage: PersistStorage<CanvasStore> = {
     getItem: async (name) => {
+        canvasStorageReady = false;
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = null;
         const value = await localForageStorage.getItem(name);
-        if (!value) return null;
+        if (!value) {
+            queuedPersistState = null;
+            canvasStorageReady = true;
+            return null;
+        }
         const parsed = JSON.parse(value) as StorageValue<CanvasStore>;
-        queuedPersistState = parsed.state as PersistedCanvasState;
+        const state = parsed?.state;
+        if ((parsed.version !== undefined && parsed.version !== 0) || !state || !Array.isArray(state.projects) || !Array.isArray(state.deletedProjects) || state.projects.some((project) => !project || typeof project.id !== "string" || typeof project.title !== "string" || !Array.isArray(project.nodes) || !Array.isArray(project.connections) || !Array.isArray(project.chatSessions))) {
+            throw new Error("画布存储格式无效或版本不受支持");
+        }
+        queuedPersistState = state;
+        canvasStorageReady = true;
         return parsed;
     },
     setItem: (name, value) => {
+        if (!canvasStorageReady) return;
         const nextState = value.state as PersistedCanvasState;
         if (queuedPersistState && queuedPersistState.projects === nextState.projects && queuedPersistState.deletedProjects === nextState.deletedProjects) return;
         queuedPersistState = nextState;
@@ -70,6 +87,7 @@ export const useCanvasStore = create<CanvasStore>()(
     persist(
         (set, get) => ({
             hydrated: false,
+            hydrationError: null,
             projects: [],
             deletedProjects: [],
             createProject: (title = i18n.t("canvas.project.untitled")) => {
@@ -127,7 +145,7 @@ export const useCanvasStore = create<CanvasStore>()(
             replaceProjects: (projects, deletedProjects = []) => set({ projects, deletedProjects }),
             updateProject: (id, patch) =>
                 set((state) => ({
-                    projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
+                    projects: state.projects.map((project) => (project.id === id ? { ...project, ...(typeof patch === "function" ? patch(project) : patch), updatedAt: new Date().toISOString() } : project)),
                 })),
         }),
         {
@@ -138,8 +156,8 @@ export const useCanvasStore = create<CanvasStore>()(
                     projects: state.projects,
                     deletedProjects: state.deletedProjects,
                 }) as StorageValue<CanvasStore>["state"],
-            onRehydrateStorage: () => () => {
-                useCanvasStore.setState({ hydrated: true });
+            onRehydrateStorage: () => (_state, error) => {
+                useCanvasStore.setState({ hydrated: !error, hydrationError: error ? "画布数据读取失败，已停止保存以保护原数据。请保留本地数据并重试。" : null });
             },
         },
     ),
@@ -147,6 +165,7 @@ export const useCanvasStore = create<CanvasStore>()(
 
 // Cleanup must finish the debounce before its atomic storage transaction and reload.
 export async function flushCanvasStorage() {
+    if (!canvasStorageReady) throw new Error("画布数据尚未成功读取，不能覆盖原数据");
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = null;
     const { projects, deletedProjects } = useCanvasStore.getState();
