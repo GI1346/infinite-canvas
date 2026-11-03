@@ -107,9 +107,9 @@ node node_modules/typescript/bin/tsc --noEmit --incremental false
 
 另用已有 Bun 运行 canvas-cleanup.check.ts 和 cleanup-storage.check.ts 两项隔离 IndexedDB 回归。生成回调 14 组、拖动 / 输入 React DOM 14 组通过；新增恢复、存储、媒体和代理专项也通过。测试读取实际生产回调 / effect 或直接调用实际模块，不访问付费接口。
 
-源码交付范围为修复分支与 PR；未执行生产构建、安装器打包、替换现有应用、真实服务商生成或 main 合并。回归输出和构建中间文件仅在 D:\Codex；测试依赖复用本机已有安装，没有下载安装新依赖。
+修复已通过 PR #1 合并进 main；后续按用户要求制作 0.20.37 Windows x64 安装包，生产构建及 NSIS 打包通过，附件以对应 GitHub Release 为准。保留 v0.20.36 源码标签及旧 EXE 作为回退基线；升级试用前退出程序并备份安装目录中的 BlinkFlowData。未替换现有应用或执行真实服务商生成。回归输出和构建中间文件仅在 D:\Codex，复用已有打包依赖。
 
-CHANGELOG Unreleased 和 progress/pending-test.mdx 记录实际改动；progress/todo.mdx 保留仍待确定的代理策略。正式功能文档不提前标为人工验收完成。
+CHANGELOG v0.20.37 和 progress/pending-test.mdx 记录实际改动，保留空的 Unreleased；progress/todo.mdx 保留仍待确定的代理策略。正式功能文档不提前标为人工验收完成。
 
 ## 已检索的成熟实现
 
