@@ -5,6 +5,8 @@ description: Planned follow-up work
 
 # TODO
 
+- 画布恢复、重试归属、节点删除取消、视频历史保护与代理断流修复已完成，实际验收项见 [Pending Tests](/docs/progress/pending-test)。代理请求体内存控制与完整目标 / 来源访问策略仍需另行确定，保留合法本机服务；不采用用户已否决的 60 秒总超时，也不把仅检查 hostname 的补丁当作完整 SSRF 防护。
+
 - 0.20.36 已按用户新要求移除 65535 专用适配，恢复单地址标准渠道；不再切任务域名或请求辅助定价目录，保留已存渠道 / 独立 Key / 模型 / 自定义协议和用户数据。专项与真实异机验收见 [Pending Tests](/docs/progress/pending-test)。
 
 - 0.20.35 内置桌面网络转发、自定义画布背景色、移除提示词库与来源、侧栏首页 / 顶栏与左侧工具布局、已有生成图片库已实现；独立配置与组件测试及仍需真实异机试用事项记录于 [Pending Tests](/docs/progress/pending-test)，按用户授权发布源码与安装包，保留回滚。

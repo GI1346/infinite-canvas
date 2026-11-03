@@ -27,6 +27,7 @@ export default function CanvasPage() {
     const [query, setQuery] = useState("");
     const autoOpenRef = useRef(false);
     const hydrated = useCanvasStore((state) => state.hydrated);
+    const hydrationError = useCanvasStore((state) => state.hydrationError);
     const projects = useCanvasStore((state) => state.projects);
     const createProject = useCanvasStore((state) => state.createProject);
     const importProject = useCanvasStore((state) => state.importProject);
@@ -111,7 +112,7 @@ export default function CanvasPage() {
                 </section>
                 <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">最近项目</h2><span className="text-xs text-muted-foreground">{projects.length} 个画布</span></div>
                 {!hydrated ? (
-                    <section className="flex min-h-[360px] items-center justify-center border-y border-stone-200 text-sm text-stone-500 dark:border-stone-800">{t("canvas.loading")}</section>
+                    <section className="flex min-h-[360px] items-center justify-center border-y border-stone-200 text-sm text-stone-500 dark:border-stone-800">{hydrationError || t("canvas.loading")}</section>
                 ) : projects.length && !visibleProjects.length ? (
                     <section className="py-24 text-center text-sm text-muted-foreground">没有匹配的项目</section>
                 ) : projects.length ? (
