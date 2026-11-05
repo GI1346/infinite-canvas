@@ -49,7 +49,7 @@ async function main(){
   const grouped=[group,a,b,refs[2],target],groupEdges=[{id:"g",fromNodeId:"group",toNodeId:"target"},connections[2]];
   assert.deepEqual(buildNodeGenerationContext("target",grouped,groupEdges,"draw").referenceImages.map(i=>i.id),["c","a","b"]);
   const config={...node("config",CanvasNodeType.Config),metadata:{composerContent:"@[node:b] @[node:a]",referenceNodeOrder:["a","b"]}};
-  assert.deepEqual(buildNodeGenerationContext("config",[...refs,config],refs.map(n=>({id:n.id,fromNodeId:n.id,toNodeId:"config"})),config.metadata.composerContent).referenceImages.map(i=>i.id),["b","a"]);
+  assert.deepEqual(buildNodeGenerationContext("config",[...refs,config],refs.map(n=>({id:n.id,fromNodeId:n.id,toNodeId:"config"})),config.metadata.composerContent).referenceImages.map(i=>i.id),["a","b","c"]);
   const branch=createGenerationBranch({...target,metadata:{...target.metadata,content:"data:image/png;base64,AA",generationType:"edit"}},nodes,connections,{} as AiConfig,"image","draw")!;
   assert.deepEqual(branch.node.metadata?.referenceNodeOrder,["c","a","b"]);assert.notEqual(branch.node.metadata?.referenceNodeOrder,target.metadata?.referenceNodeOrder);
   const panel=readFileSync("src/components/canvas/canvas-node-prompt-panel.tsx","utf8");assert.equal((panel.match(/onReorder=\{isRunning \? undefined/g)||[]).length,2);

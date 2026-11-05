@@ -57,6 +57,7 @@ export type CanvasCropContext = { full: true } | { conflict: true } | {
 };
 
 export type CanvasNodeMetadata = {
+    workflowDisplayVersion?: number;
     cropContext?: CanvasCropContext;
     fusionColorMatch?: boolean;
     llmOutputMode?: "text" | "list";
@@ -83,6 +84,9 @@ export type CanvasNodeMetadata = {
     size?: string;
     imageResolution?: string;
     imageAspectRatio?: string;
+    imageCompressionEnabled?: boolean;
+    imageCompressionResolution?: "1k" | "2k" | "4k";
+    imageCompressionMaxMb?: number;
     quality?: string;
     background?: string;
     count?: number;
@@ -113,6 +117,7 @@ export type CanvasNodeMetadata = {
     videoTaskId?: string;
     videoTaskProvider?: "openai" | "gemini";
     groupId?: string;
+    groupColor?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
 };
 

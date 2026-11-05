@@ -22,10 +22,13 @@ async function main() {
     } };
     useCanvasAssistantStore.setState({ context, sessions: [] });
     const call = (tool: string, args: Record<string, unknown> = {}, signal = new AbortController().signal) => executeHarnessCanvasTool({ id: "request", projectId: "harness-test", tool, args }, signal);
-    const index = await call("read_canvas");
+    const index = await call("read_configuration");
+    await assert.rejects(call("read_canvas"), /无效/);
+    await assert.rejects(call("read_assets", { nodeIds: ["text-source"] }), /只能读取/);
+    snapshot = { ...snapshot, selectedNodeIds: ["text-source"] };
     assert(!JSON.stringify(index).includes("EXACT_PRODUCT_PROMPT")); assert(!JSON.stringify(index).includes("fixture-secret"));
     assert(JSON.stringify(index).includes(model)); assert(JSON.stringify(index).includes("selectedNodeIds"));
-    assert(JSON.stringify(await call("read_canvas", { nodeIds: ["text-source"] })).includes("EXACT_PRODUCT_PROMPT"));
+    assert(JSON.stringify(await call("read_assets", { nodeIds: ["text-source"] })).includes("EXACT_PRODUCT_PROMPT"));
     const created = await call("apply_workflow", { nodes: [{ key: "image", type: "image", model }], connections: [], sourceNodeIds: ["text-source"] });
     const imageId = (created.value as { resolvedNodes: Array<{ id: string }> }).resolvedNodes[0].id;
     assert(snapshot.connections.some((edge) => edge.fromNodeId === "text-source" && edge.toNodeId === imageId));
@@ -38,10 +41,10 @@ async function main() {
     await assert.rejects(call("run_nodes", { nodeIds: [imageId], parameters: [] }), /parameters/);
     await assert.rejects(call("unknown"), /无效/);
     await assert.rejects(executeHarnessCanvasTool({ id: "wrong", projectId: "other", tool: "edit_canvas", args: { action: "delete", nodeIds: [imageId] } }, new AbortController().signal), /画布已切换/);
-    const canceled = new AbortController(); canceled.abort(); await assert.rejects(call("read_canvas", {}, canceled.signal), /任务已停止/);
+    const canceled = new AbortController(); canceled.abort(); await assert.rejects(call("read_configuration", {}, canceled.signal), /任务已停止/);
     harnessBusyProjects.add("harness-test"); await assert.rejects(call("edit_canvas", { action: "delete", nodeIds: [imageId] }), /正在执行/); harnessBusyProjects.clear();
     const requests: string[] = [];
-    window.blinkflowHarness = { open: async ({ projectId }) => { requests.push(projectId); return { url: "http://127.0.0.1:1234" }; }, onTool: (_handler: (request: HarnessCanvasRequest) => void) => () => {}, respond: () => {} };
+    window.blinkflowHarness = { open: async ({ projectId }) => { requests.push(projectId); return { url: "http://127.0.0.1:1234" }; }, publishModels: () => {}, publishSelection: () => {}, addReferences: async () => "unused", onImageModel: () => () => {}, onTool: (_handler: (request: HarnessCanvasRequest) => void) => () => {}, respond: () => {} };
     await openDeepSeekHarness(); assert.deepEqual(requests, ["harness-test"]);
     assert(snapshot.nodes.some((node) => node.id === imageId), "rejected requests cannot delete nodes");
     console.log("PASS Harness compact/focused reads, real channel IDs, text links, centered creation, first-call size, real output ID, isolation and cancellation; no network used.");

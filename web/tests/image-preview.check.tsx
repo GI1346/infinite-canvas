@@ -68,7 +68,40 @@ async function main() {
     await fire(image(), new Event('error')); assert(document.querySelector('[role="alert"]')?.textContent?.includes('加载失败'));
     await fire(document.querySelector('.ant-modal-close')!, new MouseEvent('click', { bubbles: true })); assert.equal(close, 1);
     assert.equal(changed, 0); assert.equal(selected, 0); assert.equal(cuts, 0); assert.equal((canvasRef.current as any).__capturedPointerId, undefined);
+    const gallery = Array.from({ length: 52 }, (_, index) => ({ id: "image-" + index, title: "画布图片 " + (index + 1), content: "data:image/svg+xml," + index }));
+    function Gallery() {
+        const [index, setIndex] = useState(0);
+        return <InfiniteCanvas containerRef={canvasRef} tool="select" viewport={initial} onViewportChange={() => changed++} onCanvasMouseDown={() => selected++} onConnectionCutStart={() => { cuts++; return true; }}>
+            <CanvasImagePreviewDialog dataUrl={gallery[index].content} title={gallery[index].title} open onClose={() => close++} images={gallery} position={index + 1} total={gallery.length} onSelect={setIndex} onPrevious={() => setIndex(current => (current + 51) % 52)} onNext={() => setIndex(current => (current + 1) % 52)} />
+        </InfiniteCanvas>;
+    }
+    await act(async () => { root.render(<Gallery />); await tick(); });
+    const strip = document.querySelector<HTMLElement>("[data-image-preview-thumbnails]")!;
+    const thumbnails = [...strip.querySelectorAll("button")];
+    assert.equal(thumbnails.length, 52, "all canvas image entries are represented");
+    thumbnails.forEach((button, index) => {
+        Object.defineProperty(button, "offsetLeft", { configurable: true, value: index * 64 });
+        Object.defineProperty(button, "offsetWidth", { configurable: true, value: 56 });
+    });
+    assert.equal(thumbnails[0].getAttribute("aria-current"), "true");
+    await load(); await wheel(-100);
+    await fire(thumbnails[51], new MouseEvent("click", { bubbles: true }));
+    assert.equal(image().src, gallery[51].content); assert.equal(image().alt, gallery[51].title);
+    assert.equal(strip.querySelectorAll('[aria-current="true"]').length, 1);
+    assert.equal(thumbnails[51].getAttribute("aria-current"), "true");
+    assert.equal(strip.scrollLeft, 51 * 64 + 56 - 600, "last thumbnail scrolls into view");
+    assert.deepEqual(view(), { x: 0, y: 0, k: 1 }, "thumbnail selection resets previous image transform");
+    const arrow = new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true });
+    await fire(window, arrow); assert(arrow.defaultPrevented);
+    assert.equal(image().src, gallery[0].content); assert.equal(strip.scrollLeft, 0, "right arrow wraps and reveals first thumbnail");
+    await fire(window, new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    assert.equal(image().src, gallery[51].content); assert.equal(thumbnails[51].getAttribute("aria-current"), "true");
+    await fire(document.querySelector('[aria-label="上一张图片"]')!, new MouseEvent("click", { bubbles: true }));
+    assert.equal(image().src, gallery[50].content);
+    await fire(document.querySelector('[aria-label="下一张图片"]')!, new MouseEvent("click", { bubbles: true }));
+    assert.equal(image().src, gallery[51].content);
+    assert.equal(changed, 0); assert.equal(selected, 0); assert.equal(cuts, 0);
     await act(async () => root.unmount());
-    console.log('Image preview passed: cursor-anchored bidirectional/rapid zoom, left drag, Ctrl isolation, capture release, blur/cancel, reset, portrait/source change/reopen, error/close; zero background canvas mutation.');
+    console.log('Image preview passed: cursor-anchored bidirectional/rapid zoom, left drag, Ctrl isolation, capture release, blur/cancel, reset, portrait/source change/reopen, error/close; 52 canvas thumbnails, click selection, keyboard/buttons, wraparound, selection-follow scrolling, source reset; zero background canvas mutation.');
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

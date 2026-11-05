@@ -41,7 +41,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     const inputs = buildNodeGenerationInputs(nodeId, nodes, connections);
     const sourceNode = nodes.find((node) => node.id === nodeId);
     if (sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim())) {
-        return buildComposerGenerationContext(inputs, prompt);
+        return buildComposerGenerationContext(inputs, prompt, sourceNode.metadata?.referenceNodeOrder);
     }
 
     const resourceInputs = orderReferenceNodes(flattenGenerationInputs(inputs).map((input) => ({ ...input, id: input.nodeId })), sourceNode?.metadata?.referenceNodeOrder);
@@ -63,68 +63,21 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     };
 }
 
-function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
-    const inputByNodeId = new Map(inputs.map((input) => [input.nodeId, input]));
-    const selectedInputs: NodeGenerationResourceInput[] = [];
-    const labelByNodeId = new Map<string, string>();
-    const textBlocks: string[] = [];
+function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string, referenceOrder?: string[]): NodeGenerationContext {
+    const resources = orderReferenceNodes(flattenGenerationInputs(inputs).map((input) => ({ ...input, id: input.nodeId })), referenceOrder), labels = new Map<string, string>();
     const counts = { image: 0, video: 0, audio: 0, text: 0 };
-    let hasToken = false;
-    let lastIndex = 0;
-    let nextPrompt = "";
-
-    for (const match of prompt.matchAll(/@\[node:([^\]]+)\]/g)) {
-        if (match.index === undefined) continue;
-        hasToken = true;
-        nextPrompt += prompt.slice(lastIndex, match.index);
-        const input = inputByNodeId.get(match[1]);
-        if (input) {
-            const labels = flattenGenerationInputs([input]).map((resource) => {
-                let label = labelByNodeId.get(resource.nodeId);
-                if (!label) {
-                    label = generationLabel(resource.type, counts[resource.type]++);
-                    labelByNodeId.set(resource.nodeId, label);
-                    if (resource.type === "text") textBlocks.push(textBlock(label, resource.text || ""));
-                    else selectedInputs.push(resource);
-                }
-                return resource.type === "text" ? `【${label}】` : label;
-            });
-            nextPrompt += labels.join("、");
-        }
-        lastIndex = match.index + match[0].length;
-    }
-
-    nextPrompt += prompt.slice(lastIndex);
-    if (textBlocks.length) nextPrompt = `${nextPrompt.trim()}\n\n${textBlocks.join("\n\n")}`;
-    const referenceImages = selectedInputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
-    const referenceVideos = selectedInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
-    const referenceAudios = selectedInputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
-
-    if (!hasToken) {
-        return {
-            prompt,
-            referenceImages: [],
-            referenceVideos: [],
-            referenceAudios: [],
-            textCount: 0,
-            imageCount: 0,
-            videoCount: 0,
-            audioCount: 0,
-        };
-    }
-
-    return {
-        prompt: nextPrompt,
-        referenceImages,
-        referenceVideos,
-        referenceAudios,
-        textCount: counts.text,
-        imageCount: referenceImages.length,
-        videoCount: referenceVideos.length,
-        audioCount: referenceAudios.length,
-    };
+    resources.forEach((input) => labels.set(input.nodeId, generationLabel(input.type, counts[input.type]++)));
+    const byId = new Map(inputs.map((input) => [input.nodeId, input]));
+    const text = prompt.replace(/@\[node:([^\]]+)\]/g, (_, id: string) => {
+        const input = byId.get(id);
+        return input ? flattenGenerationInputs([input]).map((resource) => resource.type === "text" ? `【${labels.get(resource.nodeId)}】` : labels.get(resource.nodeId)).join("、") : "";
+    });
+    const blocks = resources.filter((input) => input.type === "text").map((input) => textBlock(labels.get(input.nodeId)!, input.text || ""));
+    const referenceImages = resources.flatMap((input) => input.image ? [input.image] : []);
+    const referenceVideos = resources.flatMap((input) => input.video ? [input.video] : []);
+    const referenceAudios = resources.flatMap((input) => input.audio ? [input.audio] : []);
+    return { prompt: blocks.length ? `${text.trim()}\n\n${blocks.join("\n\n")}` : text, referenceImages, referenceVideos, referenceAudios, textCount: counts.text, imageCount: referenceImages.length, videoCount: referenceVideos.length, audioCount: referenceAudios.length };
 }
-
 export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): NodeGenerationInput[] {
     return getGenerationResourceNodes(nodeId, nodes, connections).flatMap((node): NodeGenerationInput[] => {
         if (node.type === CanvasNodeType.Group) {

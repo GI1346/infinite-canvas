@@ -1,3 +1,4 @@
+import { AssistantImageCompression } from "@/components/agent/assistant-image-compression";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { AtSign, Bot, Box, ChevronDown, Copy, Maximize2, MessageSquare, Minus, Plus, Send, Square, Trash2, Undo2, X } from "lucide-react";
 import { useCopyText } from "@/hooks/use-copy-text";
@@ -5,6 +6,9 @@ import { useCopyText } from "@/hooks/use-copy-text";
 import { ASSISTANT_CONTEXT_WINDOWS, normalizeAssistantContextWindow } from "@/lib/canvas/assistant-context-window";
 import { CanvasAssistantSkills } from "@/components/agent/canvas-assistant-skills";
 import { CanvasAssistantGenerationMode } from "@/components/agent/canvas-assistant-generation-mode";
+import { HarnessSidebarPane } from "@/components/agent/harness-sidebar-pane";
+import { useHarnessSidebarStore } from "@/stores/use-harness-sidebar-store";
+import { openDeepSeekHarness } from "@/services/api/deepseek-harness";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { anchorAssistantDock, clampAssistantDock, clampAssistantWindow, resizeAssistantWindow, type AssistantResizeDirection, type AssistantWindow, type AssistantDockLayout } from "@/lib/canvas/assistant-dock-layout";
 import { useNodeRegistryVersion } from "@/lib/canvas/node-registry";
@@ -53,6 +57,7 @@ export function assistantMessageRows(messages: CanvasAssistantMessage[]) {
     return rows;
 }
 export function CanvasAssistantDock() {
+    const assistantTab = useHarnessSidebarStore((state) => state.tab);
     const store = useCanvasAssistantStore(), config = useConfigStore((state) => state.config), colorTheme = useThemeStore((state) => state.theme), theme = canvasThemes[colorTheme];
     useNodeRegistryVersion((state) => state.version);
     const [layout, setLayout] = useState(initialLayout), [menu, setMenu] = useState<"models" | null>(null), [query, setQuery] = useState(""), [renaming, setRenaming] = useState(false), [name, setName] = useState(""), [expanded, setExpanded] = useState(false);
@@ -142,13 +147,18 @@ export function CanvasAssistantDock() {
     return <div data-canvas-overlay data-canvas-no-zoom data-canvas-assistant className="relative h-full shrink-0" style={{ width: store.open ? width : 0, zIndex: 240 }} onPointerDown={stop} onMouseDown={stop} onDoubleClick={stop} onContextMenu={stop} onKeyDown={stop} onKeyUp={stop} onWheel={stop}>
         <section data-assistant-panel data-canvas-overlay data-canvas-no-zoom role="dialog" aria-label="Agent 右侧面板" style={{ ...panelStyle, display: store.open ? "flex" : "none" }} className="flex-col">
             <header data-assistant-header className="flex shrink-0 items-center gap-1 border-b px-3 py-2" style={{ borderColor: theme.node.stroke }}>
-                <Bot size={17} /><strong className="mr-auto text-sm">Agent</strong>
-                <button type="button" className={button} aria-label="撤销 Agent 画布操作" title="撤销 Agent 最近一次画布操作" disabled={!store.context?.canUndo || session?.running} onClick={() => store.context?.undoOps?.()}><Undo2 size={15} /></button>
+                <div role="tablist" aria-label="画布助手" className="mr-auto flex min-w-0 items-center gap-1">
+                    <button type="button" role="tab" aria-selected={assistantTab === "agent"} className={`${button} !px-1.5 font-semibold`} style={{ background: assistantTab === "agent" ? theme.toolbar.activeBg : undefined }} onClick={() => useHarnessSidebarStore.setState({ tab: "agent" })}><Bot size={16} />Agent</button>
+                    <button type="button" role="tab" aria-selected={assistantTab === "harness"} className={`${button} !px-1.5 font-semibold`} style={{ background: assistantTab === "harness" ? theme.toolbar.activeBg : undefined }} onClick={() => { useHarnessSidebarStore.setState({ tab: "harness" }); if (!useHarnessSidebarStore.getState().url || useHarnessSidebarStore.getState().projectId !== snapshot?.projectId) void openDeepSeekHarness().catch(() => {}); }}>DeepSeek Harness</button>
+                </div>
+                {assistantTab === "agent" && <><button type="button" className={button} aria-label="撤销 Agent 画布操作" title="撤销 Agent 最近一次画布操作" disabled={!store.context?.canUndo || session?.running} onClick={() => store.context?.undoOps?.()}><Undo2 size={15} /></button>
                 <button type="button" className={button} aria-label="新建 Agent 对话" title="新建对话" disabled={store.loading} onClick={store.createSession}><Plus size={15} /></button>
                 <button type="button" className={button} aria-label="重命名 Agent 对话" title="重命名对话" disabled={!session} onClick={() => { setName(session?.title || ""); setRenaming(!renaming); }}>✎</button>
-                <button type="button" className={button} aria-label="删除 Agent 对话" title="删除当前对话" disabled={!session} onClick={() => session && store.deleteSession(session.id)}><Trash2 size={14} /></button>
+                <button type="button" className={button} aria-label="删除 Agent 对话" title="删除当前对话" disabled={!session} onClick={() => session && store.deleteSession(session.id)}><Trash2 size={14} /></button></>}
                 <button type="button" className={button} aria-label="收起 Agent" title="收起（任务继续）" onClick={() => store.setOpen(false)}><Minus size={16} /></button>
             </header>
+            <HarnessSidebarPane />
+            <div className="min-h-0 flex-1 flex-col" style={{ display: assistantTab === "agent" ? "flex" : "none" }}>
             <div className="flex shrink-0 items-center gap-2 px-3 pt-2">
                 <MessageSquare size={14} /><select aria-label="Agent 会话" className="min-w-0 flex-1 text-xs" style={inputStyle} value={store.currentId} onChange={(event) => store.selectSession(event.target.value)}>{store.sessions.map((item) => <option key={item.id} value={item.id}>{item.title}{item.running ? " · 运行中" : item.pending ? " · 待确认" : ""}</option>)}</select><ChevronDown size={12} />
             </div>
@@ -168,6 +178,7 @@ export function CanvasAssistantDock() {
                 <button type="button" aria-label="调整 Agent 输入区高度" title="上下拖动调整输入区高度" className="mb-1 flex h-3 w-full cursor-ns-resize items-center justify-center" style={{ touchAction: "none" }} onPointerDown={(event) => resizeWindow(event, "input")}><span className="h-1 w-8 rounded" style={{ background: theme.node.stroke }} /></button>
                 <label className="mb-2 flex items-center gap-2 text-xs" style={{ color: theme.node.muted }}>历史回读<select aria-label="Agent 历史回读条数" disabled={readOnly} className="min-w-0 flex-1" style={inputStyle} value={normalizeAssistantContextWindow(session?.contextWindow)} onChange={(event) => store.setContextWindow(Number(event.target.value))}>{ASSISTANT_CONTEXT_WINDOWS.map((count) => <option key={count} value={count}>最近 {count} 条</option>)}</select></label>
                 <div className="mb-2"><CanvasAssistantSkills activeId={session?.skillId} onSelect={store.setSkill} disabled={!session || store.loading || session.running || Boolean(session.pending)} /></div>
+                <div className="mb-2"><AssistantImageCompression owner="agent" disabled={session?.running} /></div>
                 <label className="mb-2 flex items-center gap-2 text-xs" style={{ color: theme.node.muted }}>对话模型<select data-assistant-chat-model aria-label="Agent 对话模型" disabled={session?.running} className="min-w-0 flex-1" style={inputStyle} value={session?.model || ""} onChange={(event) => store.setModel(event.target.value)}><option value="">请选择对话模型</option>{textModels.map((id) => <option key={id} value={id}>{modelLabel(id)}</option>)}</select></label>
                 <div className="relative rounded-2xl border p-2" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
                     {session?.models.length ? <div data-assistant-chips className="mb-2 flex max-h-28 flex-wrap gap-1 overflow-auto">{session.models.map((id) => <span key={id} className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs" style={{ borderColor: theme.node.stroke }}><Box size={12} /><span className="max-w-64 truncate" title={modelLabel(id)}>{modelLabel(id)}</span><button type="button" title="移除模型引用" aria-label={`移除模型 ${modelLabel(id)}`} onClick={() => store.toggleModel(id)}><X size={12} /></button></span>)}</div> : null}
@@ -188,9 +199,10 @@ export function CanvasAssistantDock() {
                     </div>}
                 </div>
             </div>
+            </div>
             <div data-assistant-sidebar-resize data-assistant-resize="w" role="separator" aria-label="调整 Agent 侧栏宽度" aria-orientation="vertical" style={{ position: "absolute", left: -3, top: 0, bottom: 0, width: 7, zIndex: 5, cursor: "col-resize", touchAction: "none" }} onPointerDown={(event) => resizeWindow(event, "sidebar")} />
         </section>
-        {expanded && store.open && session && <section data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore data-assistant-editor role="dialog" aria-label="Agent 大窗口编辑" className="fixed flex flex-col rounded-2xl border p-3 shadow-2xl" style={{ ...editorLayout, left: editorLayout.x, top: editorLayout.y, position: "fixed", zIndex: 260, boxShadow: theme.toolbar.shadow, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }}>
+        {expanded && store.open && assistantTab === "agent" && session && <section data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore data-assistant-editor role="dialog" aria-label="Agent 大窗口编辑" className="fixed flex flex-col rounded-2xl border p-3 shadow-2xl" style={{ ...editorLayout, left: editorLayout.x, top: editorLayout.y, position: "fixed", zIndex: 260, boxShadow: theme.toolbar.shadow, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }}>
             <header className="mb-2 flex shrink-0 cursor-grab items-center gap-2" style={{ touchAction: "none" }} onPointerDown={(event) => resizeWindow(event, "editor-move")}><strong className="mr-auto text-sm">Agent 大窗口编辑</strong><button type="button" className={button} aria-label="关闭 Agent 大窗口编辑" onClick={closeEditor}><X size={16} /></button></header>
             <p className="mb-2 shrink-0 text-xs" style={{ color: theme.node.muted }}>{session.running || session.pending ? "任务进行中，仅查看当前输入。" : "修改实时保留；可在窗口外选择画布图片，再添加到光标处。"}</p>
             <CanvasPromptChipInput key={session.id} inputRef={expandedTextarea} onEscape={closeEditor} ariaLabel="Agent 全屏输入文字" containerClassName="min-h-0 flex-1 flex flex-col" className="thin-scrollbar min-h-0 w-full flex-1 rounded-xl border p-3 text-base leading-7" style={{ background: "transparent", borderColor: theme.node.stroke, color: theme.node.text }} value={draft} references={references} mentionNodeIds={snapshot?.selectedNodeIds} readOnly={readOnly} showReferenceTitle imageHoverPreview onReferenceSelect={selectReference} onChange={store.setDraft} onSelectionChange={store.setDraftSelection} getSelection={store.getDraftSelection} placeholder="在这里查看和编辑完整输入文字，@ 引用节点或模型" />

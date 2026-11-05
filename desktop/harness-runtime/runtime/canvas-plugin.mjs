@@ -17,7 +17,7 @@ const definitions = [
   ['read_configuration', '读取实时可用模型、节点类型与用户主动选中的引用，不返回整张画布的节点、连线或正文。只能对主动引用或本 Harness 创建、运行的节点使用 read_assets/read_results。', {}],
   ['read_assets', '只查看用户主动选中或本 Harness 创建、运行的节点正文、参数与图片视觉内容。未引用节点不可读取；图片返回官方持久化附件。', { nodeIds: ids('需要查看的节点 ID') }],
   ['read_results', '回读实际运行状态、产物、真实像素尺寸和错误。请求尺寸不等于产物尺寸。', { nodeIds: ids('需回读结果的节点 ID') }],
-  ['apply_workflow', '创建节点与连线。文本正文放 prompt；生成模型必须逐字使用 read_configuration 的完整 ID。返回 key 到真实 ID 的映射，之后用真实 ID。nodes 可空以连接已有节点。新节点在当前可视画布居中布局。', {
+  ['apply_workflow', '创建节点与连线。生图必须创建 type=config（生成配置），连接文本/图片上游；type=image 是结果，不作为生成器。文本正文放 prompt；生成模型必须逐字使用 read_configuration 的完整 ID。返回 key 到真实 ID 的映射，之后用真实 ID。nodes 可空以连接已有节点。新节点在当前可视画布居中布局。', {
     nodes: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
       key: string('本次工作流内唯一临时 key', true), type: string('read_configuration 返回的已注册节点类型', true), title: string('节点标题'), prompt: string('文本节点正文或生成提示词'), model: string('真实完整渠道模型 ID'), mode: { type: 'string', enum: ['image', 'video', 'text', 'audio'] }, parameters: object(generationParameters),
     } } },
@@ -30,7 +30,7 @@ const definitions = [
     nodes: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { id: string('真实节点 ID', true), title: string('标题'), x: number('画布横坐标'), y: number('画布纵坐标'), width: number('节点显示宽度，不是生成像素'), height: number('节点显示高度，不是生成像素'), text: string('仅文本节点正文'), prompt: string('生成提示词'), model: string('真实完整模型 ID'), parameters: object(generationParameters) } } },
     nodeIds: ids('操作对象，提取选区只传一个原图 ID', false), connectionIds: ids('断开的连线 ID', false), dx: number('复制水平位移'), dy: number('复制垂直位移'), columns: number('宫格列数'), gap: number('宫格间距'), x: number('横坐标，选区时为原图像素'), y: number('纵坐标，选区时为原图像素'), width: number('选区原图像素宽'), height: number('选区原图像素高'), zoom: number('画布缩放值'), ratio: string('选区宽高比'),
   }],
-  ['run_nodes', '实际运行指定节点并等待真实产物。仅运行支持的生成节点、LLM、并发或融合节点。requirements 必须逐字传用户本轮尺寸、分辨率和质量要求（包括“最高”等原话），系统在第一次请求前落实真实像素与质量档位；最高=max，高=high。保留旧产物，不得为纠正尺寸擅自再次付费生成。', {
+  ['run_nodes', '将本批所有已就绪、独立的生成配置 ID 一次放入 nodeIds，并发生成并等待全部结果，不要逐张调用。返回 summary 是逐图真实成功、失败和未确认，最终答复直接引用 summary；部分失败不影响其他项且不自动重试。实际运行指定节点并等待真实产物。生图运行 config（生成配置）的 ID，保留配置并新增图片结果；LLM、并发或融合仍用各自节点 ID。requirements 必须逐字传用户本轮尺寸、分辨率和质量要求（包括“最高”等原话），系统在第一次请求前落实真实像素与质量档位；最高=max，高=high。保留旧产物，不得为纠正尺寸擅自再次付费生成。', {
     nodeIds: ids('需运行的真实节点 ID'), requirements: string('用户原始尺寸/比例/分辨率/质量要求，例如：一只小猫，2k，9:16，图像质量最高'), model: string('可选生图模型，必须是 read_configuration.models 中的完整渠道模型 ID；明确覆盖窗口所选生图模型，仅对图片生成节点有效'), parameters: object(generationParameters), prompt: string('可选的本次生成提示词覆盖，不替代已连入的文本上下游'),
   }],
 ];

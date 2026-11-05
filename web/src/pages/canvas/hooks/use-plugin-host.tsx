@@ -19,6 +19,8 @@ import type { CanvasConnection, CanvasNodeData, ViewportTransform } from "@/type
 type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
 
 type PluginHostParams = {
+    contentNodes: CanvasNodeData[];
+    nodeDraggingRef: MutableRefObject<boolean>;
     projectId?: string;
     effectiveConfig: AiConfig;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
@@ -38,14 +40,16 @@ type PluginHostParams = {
  */
 export function usePluginHost(params: PluginHostParams) {
     const { t } = useTranslation();
-    const { effectiveConfig, isAiConfigReady, openConfigDialog, theme, nodesRef, connectionsRef, viewportRef, setNodes, setDialogNodeId, applyAgentOps } = params;
+    const { contentNodes, nodeDraggingRef, effectiveConfig, isAiConfigReady, openConfigDialog, theme, nodesRef, connectionsRef, viewportRef, setNodes, setDialogNodeId, applyAgentOps } = params;
     const projectIdRef = useRef(params.projectId);
     projectIdRef.current = params.projectId;
-    const graphRefs = useRef({ nodes: nodesRef.current, connections: connectionsRef.current });
+    const graphRefs = useRef({ nodes: nodesRef.current, connections: connectionsRef.current, contentNodes });
     // Graph refs have been committed by the canvas page before passive effects run.
     useEffect(() => {
         if (graphRefs.current.nodes === nodesRef.current && graphRefs.current.connections === connectionsRef.current) return;
-        graphRefs.current = { nodes: nodesRef.current, connections: connectionsRef.current };
+        // Still notify real content/connection changes during a drag; publish final positions on release.
+        if (nodeDraggingRef.current && graphRefs.current.contentNodes === contentNodes && graphRefs.current.connections === connectionsRef.current) return;
+        graphRefs.current = { nodes: nodesRef.current, connections: connectionsRef.current, contentNodes };
         emitCanvasEvent("canvas:graph-changed");
     });
 

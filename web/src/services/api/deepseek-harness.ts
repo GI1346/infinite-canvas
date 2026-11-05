@@ -1,4 +1,5 @@
-import { assistantGraphSummary, assistantRunMode, assistantRunTargets, assistantWorkflowWithSources, executeAssistantTool, type AssistantAction, type AssistantToolResult } from "@/services/api/canvas-assistant";
+import { useAssistantCompressionStore } from "@/stores/use-assistant-compression-store";
+import { assistantGraphSummary, assistantRunMode, assistantRunOutcome, assistantRunReceipt, assistantRunTargets, assistantWorkflowWithSources, executeAssistantTool, type AssistantAction, type AssistantToolResult } from "@/services/api/canvas-assistant";
 import { explicitAssistantImageRequirements } from "@/lib/canvas/assistant-image-parameters";
 import { getNodeDefinition, listNodeDefinitions } from "@/lib/canvas/node-registry";
 import { harnessBusyProjects as busyProjects } from "@/lib/canvas/harness-canvas-busy";
@@ -6,6 +7,8 @@ import { encodeChannelModel, modelOptionLabel, selectableModelsByCapability, use
 import type { CanvasAssistantContext } from "@/stores/use-canvas-assistant-store";
 import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
 import { useHarnessModelStore } from "@/stores/use-harness-model-store";
+import { useHarnessSidebarStore } from "@/stores/use-harness-sidebar-store";
+import { ensureHarnessBridge } from "@/lib/harness-browser-bridge";
 
 import { buildCanvasResourceReferences, getGroupResourceNodes, resolveCanvasReferenceImages } from "@/lib/canvas/canvas-resource-references";
 import { App } from "antd";
@@ -45,11 +48,22 @@ export function harnessModelsState(): HarnessModelsState {
 export async function openDeepSeekHarness() {
     const context = useCanvasAssistantStore.getState().context;
     if (!context) throw new Error("请先打开一个画布");
-    const harness = window.blinkflowHarness;
-    if (!harness) throw new Error("DeepSeek Harness 内置在桌面安装版中，请在新版桌面画布打开");
-    const models = harnessModelsState();
-    harness.publishModels(models);
-    return harness.open({ projectId: context.getSnapshot().projectId, models });
+    const projectId = context.getSnapshot().projectId;
+    useCanvasAssistantStore.getState().setOpen(true);
+    useHarnessSidebarStore.setState({ tab: "harness", loading: true, error: "" });
+    try {
+        const harness = ensureHarnessBridge();
+        if (!harness) throw new Error("请通过本地网页预览或桌面画布打开 Harness");
+        const models = harnessModelsState();
+        harness.publishModels(models);
+        const result = await harness.open({ projectId, models });
+        if (useCanvasAssistantStore.getState().context?.getSnapshot().projectId !== projectId) throw new Error("画布已切换，请重新打开 Harness");
+        useHarnessSidebarStore.setState({ url: result.url, projectId, loading: false, error: "" });
+        return result;
+    } catch (error) {
+        useHarnessSidebarStore.setState({ loading: false, error: error instanceof Error ? error.message : String(error) });
+        throw error;
+    }
 }
 
 /** Use the same validated operations and generation runner as the original canvas Agent. */
@@ -89,7 +103,7 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
                 selectedImageModel,
                 defaults: { image: config.imageModel, video: config.videoModel, text: config.textModel, audio: config.audioModel },
                 nodeTypes: listNodeDefinitions().map((node) => ({ type: node.type, name: node.title, description: node.description || "", mode: node.useBuiltinPanel?.mode })),
-                note: "这里只提供模型配置、节点类型和用户主动选中的引用，不提供整张画布索引。read_assets/read_results 只能使用主动选中或本 Harness 创建、运行的节点，不能遍历画布；需要其他节点请用户先选择。模型 id 必须逐字使用。selectedImageModel 是用户在 Harness 选择的生图默认：未明确指定其他模型时省略工具 model，执行器会使用它；用户明确指定其他生图模型时，apply_workflow.nodes[].model 或 run_nodes.model 填真实完整ID。选中模型失效会报错，不会跨渠道回退。新节点会布局到当前视图中心。生成尺寸用 parameters.imageAspectRatio、imageResolution(1k/2k/4k/auto) 或精确 size(宽x高)，不是显示宽高。文本正文放 apply_workflow.nodes[].prompt；已有提示词须用 connections 连接到图片节点。run_nodes 才会实际生成。图片质量档位：auto=自动、low=低、medium=中、high=高、xhigh=极高、max=最高。用户说“质量最高”必须设 quality=\"max\"，不得把 high 当作最高；不支持该档位时报告接口错误，不擅自降级或重试。",
+                note: "这里只提供模型配置、节点类型和用户主动选中的引用，不提供整张画布索引。read_assets/read_results 只能使用主动选中或本 Harness 创建、运行的节点，不能遍历画布；需要其他节点请用户先选择。模型 id 必须逐字使用。selectedImageModel 是用户在 Harness 选择的生图默认：未明确指定其他模型时省略工具 model，执行器会使用它；用户明确指定其他生图模型时，apply_workflow.nodes[].model 或 run_nodes.model 填真实完整ID。选中模型失效会报错，不会跨渠道回退。新节点会布局到当前视图中心。生成尺寸用 parameters.imageAspectRatio、imageResolution(1k/2k/4k/auto) 或精确 size(宽x高)，不是显示宽高。文本正文放 apply_workflow.nodes[].prompt；所有图片生成必须使用 type=config（生成配置），已有提示词须用 connections 连接到 config；图片节点只是参考或结果。run_nodes 运行 config 后在旁边新增图片结果，复用原 config 并保留旧结果。run_nodes 才会实际生成。图片质量档位：auto=自动、low=低、medium=中、high=高、xhigh=极高、max=最高。用户说“质量最高”必须设 quality=\"max\"，不得把 high 当作最高；不支持该档位时报告接口错误，不擅自降级或重试。",
             } };
         }
         let action = { tool: request.tool, args: request.args } as AssistantAction;
@@ -99,17 +113,19 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
             if (Array.isArray(sourceIds) && sourceIds.some((id) => !context.getSnapshot().nodes.some((node) => node.id === id && node.type === "text"))) throw new Error("sourceNodeIds 引用的文本节点不存在");
             if (Array.isArray(action.args.nodes)) action = { ...action, args: { ...action.args, nodes: action.args.nodes.map((raw) => {
                 if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-                const item = raw as Record<string, unknown>, type = String(item.type || "");
+                const supplied = raw as Record<string, unknown>;
+                // An image tool plan describes a generator; image nodes themselves are immutable results.
+                const item = supplied.type === "image" ? { ...supplied, type: "config" } : supplied, type = String(item.type || "");
                 const mode = item.mode ?? (type === "image" || type === "dxos:concurrent" ? "image" : getNodeDefinition(type)?.useBuiltinPanel?.mode);
-                if (mode !== "image" || type === "blinkflow:fusion") return raw;
+                if (mode !== "image" || type === "blinkflow:fusion") return item;
                 if (selectedImageModel) requireImageModel(selectedImageModel);
                 const model = item.model === undefined || item.model === "" ? selectedImageModel : requireImageModel(item.model);
-                return model ? { ...item, model } : raw;
+                return model ? { ...item, model } : item;
             }) } };
             action = assistantWorkflowWithSources(action, context.getSnapshot(), (sourceIds || []) as string[]);
         }
         if (action.tool !== "run_nodes") {
-            const result = await executeAssistantTool(action, context, config, [], signal, [...known]);
+            const result = await executeAssistantTool(action, context, config, [], signal, [...known], useAssistantCompressionStore.getState().harness);
             assertCurrent();
             if (action.tool === "read_assets" || action.tool === "read_results") ((result.value as { nodes?: Array<{ id: string }> })?.nodes || []).forEach((node) => known.add(node.id));
             if (action.tool === "read_results") {
@@ -123,6 +139,25 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
         }
         let targets = assistantRunTargets(action, context);
         if (!targets.length) throw new Error("请指定需要运行的真实节点 ID");
+        // Old conversations can still request an image ID. Route them through a visible config too.
+        for (let index = 0; index < targets.length; index++) {
+            const source = targets[index];
+            if (source.type !== "image") continue;
+            const graph = context.getSnapshot();
+            const parent = graph.connections.filter((edge) => edge.toNodeId === source.id).map((edge) => graph.nodes.find((node) => node.id === edge.fromNodeId)).find((node) => node?.type === "config");
+            if (parent) { targets[index] = parent; continue; }
+            const incoming = graph.connections.filter((edge) => edge.toNodeId === source.id);
+            const parameters = assistantGraphSummary({ ...graph, nodes: [source] }).nodes[0].parameters;
+            const result = await executeAssistantTool({ tool: "apply_workflow", args: {
+                nodes: [{ key: "config", type: "config", title: (source.title || "图片") + " · 生成配置", prompt: source.metadata?.composerContent || source.metadata?.prompt || "", model: request.args.model ?? (selectedImageModel || source.metadata?.model || config.imageModel), parameters }],
+                connections: incoming.length ? incoming.map((edge) => ({ from: edge.fromNodeId, to: "config", ...(edge.toPort ? { toPort: edge.toPort } : {}) })) : source.metadata?.content || source.metadata?.storageKey ? [{ from: source.id, to: "config" }] : [],
+            } }, context, config, [], signal);
+            assertCurrent();
+            const id = (result.value as { resolvedNodes: Array<{ id: string }> }).resolvedNodes[0].id;
+            targets[index] = context.getSnapshot().nodes.find((node) => node.id === id)!;
+        }
+        targets = [...new Map(targets.map((node) => [node.id, node])).values()];
+        action = { ...action, args: { ...action.args, nodeIds: targets.map((node) => node.id) } };
         const modes = targets.map(assistantRunMode);
         const imageIds = targets.filter((node, index) => modes[index] === "image" && node.type !== "blinkflow:fusion").map((node) => node.id);
         const model = request.args.model === undefined ? selectedImageModel : requireImageModel(request.args.model);
@@ -139,38 +174,44 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
         assertCurrent();
         if (parameters && Object.keys(parameters).length) await executeAssistantTool({ tool: "update_nodes", args: { nodeIds: targets.map((node) => node.id), parameters } }, context, config, [], signal);
         if (imageIds.length && Object.keys(explicit).length) await executeAssistantTool({ tool: "update_nodes", args: { nodeIds: imageIds, parameters: explicit } }, context, config, [], signal);
+        if (imageIds.length) context.applyOps(imageIds.map((id) => ({ type: "update_node", id, metadata: { ...useAssistantCompressionStore.getState().harness } })));
         targets = assistantRunTargets(action, context);
-        const outcomes = [];
-        for (const [index, node] of targets.entries()) {
+        const outcomes = await Promise.all(targets.map(async (node, index) => {
             assertCurrent();
-            const expectedModel = imageModels.find((item) => item.id === node.id)?.model;
-            if (expectedModel && (requireImageModel(expectedModel) !== context.getSnapshot().nodes.find((item) => item.id === node.id)?.metadata?.model)) throw new Error("运行前节点模型已改变，本次未使用其他模型生成，请重新确认");
-            const output = await context.runNode(node.id, modes[index], typeof request.args.prompt === "string" ? request.args.prompt : node.metadata?.composerContent || node.metadata?.prompt || "", signal);
-            assertCurrent();
-            const current = output || context.getSnapshot().nodes.find((item) => item.id === node.id);
-            if (current) known.add(current.id);
-            const outputModel = current?.metadata?.model;
-            outcomes.push({ id: current?.id || node.id, sourceNodeId: node.id, model: outputModel, modelLabel: outputModel ? modelOptionLabel(useConfigStore.getState().config, outputModel) : undefined, status: current?.metadata?.status || "idle", error: current?.metadata?.errorDetails, width: current?.metadata?.naturalWidth, height: current?.metadata?.naturalHeight, parameters: { size: current?.metadata?.size, imageResolution: current?.metadata?.imageResolution, imageAspectRatio: current?.metadata?.imageAspectRatio, quality: current?.metadata?.quality }, hasOutput: Boolean(current?.metadata?.storageKey || current?.metadata?.content || current?.metadata?.images?.some((image) => image.status === "success")), images: current?.metadata?.images?.map((image) => ({ id: image.id, status: image.status, error: image.errorDetails, width: image.naturalWidth, height: image.naturalHeight })) });
-        }
-        return { value: { outcomes, note: "id 是实际产物节点 ID；sourceNodeId 是运行输入；model/modelLabel 是实际产物节点绑定的请求模型，不代表服务端底层模型身份已核验。以真实 status / width / height 判断结果，不能把请求参数当作实际像素。需要视觉验证时 read_assets，文本结果用 read_results。不要为了修正尺寸擅自再次付费生成。" } };
+            try {
+                const expectedModel = imageModels.find((item) => item.id === node.id)?.model;
+                if (expectedModel && (requireImageModel(expectedModel) !== context.getSnapshot().nodes.find((item) => item.id === node.id)?.metadata?.model)) throw new Error("运行前节点模型已改变，本次未使用其他模型生成，请重新确认");
+                const output = await context.runNode(node.id, modes[index], typeof request.args.prompt === "string" ? request.args.prompt : node.metadata?.composerContent || node.metadata?.prompt || "", signal);
+                assertCurrent();
+                const outcome = assistantRunOutcome(node.id, output, context.getSnapshot());
+                if (outcome.exists) known.add(outcome.id);
+                return { ...outcome, modelLabel: outcome.model ? modelOptionLabel(useConfigStore.getState().config, outcome.model) : undefined };
+            } catch (error) {
+                assertCurrent();
+                return assistantRunOutcome(node.id, undefined, context.getSnapshot(), error);
+            }
+        }));
+        return { value: { ...assistantRunReceipt(outcomes), note: "全部目标已并发执行。最终逐图结论请直接使用 summary：成功必须存在本次有效产物；失败、未确认分别说明，不把部分成功说成全部完成。以真实 width/height 判断像素，不能把参数当产物。部分失败保留其他结果，不自动再次付费生成。" } };
     } finally { if (mutate) busyProjects.delete(request.projectId); }
 }
 
 /** Add only the user's explicit image selection to the current Harness draft. */
 export async function addImagesToDeepSeekHarness(nodeIds: string[]) {
     const context = useCanvasAssistantStore.getState().context;
-    if (!context || !window.blinkflowHarness) throw new Error("请从桌面画布打开 Harness");
+    if (!context) throw new Error("请先打开画布");
     const snapshot = context.getSnapshot();
     const selected = snapshot.nodes.filter((node) => nodeIds.includes(node.id));
     const nodes = [...new Map(selected.flatMap((node) => node.type === "group" ? getGroupResourceNodes(node.id, snapshot.nodes) : [node]).map((node) => [node.id, node])).values()];
     const references = buildCanvasResourceReferences(nodes).filter((item) => item.kind === "image");
     if (!references.length) throw new Error("请选择有内容的图片，空白节点不能作为参考图");
-    const images = await resolveCanvasReferenceImages(references, nodes);
+    const resolved = await resolveCanvasReferenceImages(references, nodes);
+    const compression = useAssistantCompressionStore.getState().harness;
+    const images = compression.imageCompressionEnabled ? await (await import("@/lib/canvas/reference-image-compression")).compressReferenceImages(resolved, compression) : resolved;
     const assertCurrent = () => { if (useCanvasAssistantStore.getState().context?.getSnapshot().projectId !== snapshot.projectId) throw new Error("画布已切换，请重新选择图片"); };
     assertCurrent();
     await openDeepSeekHarness();
     assertCurrent();
-    await window.blinkflowHarness.addReferences({ projectId: snapshot.projectId, files: images.map((image, index) => ({ nodeId: references[index].nodeId, name: references[index].title + " [" + references[index].nodeId + "]", dataUrl: image.dataUrl })) });
+    useHarnessSidebarStore.setState((state) => ({ references: [...state.references, { id: crypto.randomUUID(), projectId: snapshot.projectId, files: images.map((image, index) => ({ nodeId: references[index].nodeId, name: references[index].title + " [" + references[index].nodeId + "]", dataUrl: image.dataUrl })) }] }));
     const known = createdNodes.get(snapshot.projectId) || new Set<string>();
     references.forEach((item) => known.add(item.nodeId));
     createdNodes.set(snapshot.projectId, known);

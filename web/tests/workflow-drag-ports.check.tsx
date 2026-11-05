@@ -20,7 +20,7 @@ registerNodeDefinitions([llmNodeDefinition, ...dxosNodeDefinitions, { type: "ima
 const no = () => {}, tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 let passed = 0;
 async function test(name: string, work: () => unknown | Promise<unknown>) { await work(); console.log(`PASS ${name}`); passed++; }
-async function fire(target: EventTarget, event: Event) { await act(async () => { target.dispatchEvent(event); await tick(); }); return event; }
+async function fire(target: EventTarget, event: Event) { await act(async () => { target.dispatchEvent(event); await tick(event.type === "wheel" ? 25 : 5); }); return event; }
 const mouse = (type: string, options = {}) => new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 1, ...options });
 const pointer = (type: string, options = {}) => new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, buttons: 1, ...options });
 async function down(target: EventTarget, options = {}) { await fire(target, pointer("pointerdown", options)); await fire(target, mouse("mousedown", options)); }
@@ -46,7 +46,7 @@ async function main() {
     const box = { left: 265, top: 92, width: 1000, height: 800 };
     ref.current!.getBoundingClientRect = () => ({ ...box, x: box.left, y: box.top, right: box.left + box.width, bottom: box.top + box.height, toJSON: no });
     const nodeEl = (id: string) => el.querySelector<HTMLElement>(`[data-node-id="${id}"]`)!;
-    const content = (id: string) => { let current = nodeEl(id).querySelector<HTMLElement>("[data-node-drag-handle]")!; while (!current.classList.contains("text-xs")) current = current.parentElement!; return current; };
+    const content = (id: string) => { let current = nodeEl(id).querySelector<HTMLElement>("[data-node-drag-handle]")!; while (!current.classList.contains("text-2xl")) current = current.parentElement!; return current; };
     try {
         await test("LLM/表格/并发根留白和标题旁间隙真实DOM鼠标按下可拖动，不再仅限标题", async () => {
             for (const node of [table, batch, llm]) {
@@ -76,6 +76,37 @@ async function main() {
                 const old = { ...viewport }; await fire(window, new KeyboardEvent("keydown", { bubbles: true, cancelable: true, code: "Space", key: " " })); await down(control, { clientX: 500, clientY: 300 }); await fire(window, pointer("pointermove", { clientX: 530, clientY: 320 })); await act(async () => { await tick(25); }); await fire(window, pointer("pointerup", { clientX: 530, clientY: 320 })); await fire(control, mouse("click")); await fire(window, new KeyboardEvent("keyup", { bubbles: true, cancelable: true, code: "Space", key: " " }));
                 assert.equal(viewport.x, old.x + 30); assert.equal(viewport.y, old.y + 20); assert.equal(drags.length, before); assert.equal(starts.length, connects); assert.equal(requests, 0);
             }
+        });
+        await test("只有聚焦编辑时空格和滚轮让路，点击画布空白立即退出编辑并恢复导航", async () => {
+            const editor = content(llm.id).querySelector<HTMLTextAreaElement>("textarea")!;
+            await act(async () => { editor.focus(); await tick(); });
+            assert.equal(document.activeElement, editor);
+            const initial = { ...viewport };
+            const space = await fire(editor, new KeyboardEvent("keydown", { bubbles: true, cancelable: true, code: "Space", key: " " }));
+            assert.equal(space.defaultPrevented, false, "focused editor receives typed spaces");
+            const editingWheel = await fire(editor, new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -50, clientX: 550, clientY: 450 }));
+            assert.equal(editingWheel.defaultPrevented, false, "focused editor keeps native text scroll");
+            assert.deepEqual(viewport, initial);
+            await fire(editor, new KeyboardEvent("keyup", { bubbles: true, cancelable: true, code: "Space", key: " " }));
+            await down(ref.current!, { clientX: 300, clientY: 100 });
+            assert.notEqual(document.activeElement, editor, "background pointerdown must blur despite preventDefault");
+            await fire(window, pointer("pointerup"));
+            const beforeZoom = viewport.k;
+            const hoverWheel = await fire(editor, new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -50, clientX: 550, clientY: 450 }));
+            assert.equal(hoverWheel.defaultPrevented, true);
+            assert.ok(viewport.k > beforeZoom, "hovering an unfocused input zooms the canvas");
+            const beforePan = { ...viewport };
+            await fire(document.body, new KeyboardEvent("keydown", { bubbles: true, cancelable: true, code: "Space", key: " " }));
+            const panDown = await fire(editor, pointer("pointerdown", { clientX: 500, clientY: 300 }));
+            assert.equal(panDown.defaultPrevented, true, "space drag cannot focus the input");
+            await fire(editor, mouse("mousedown", { clientX: 500, clientY: 300 }));
+            await fire(window, pointer("pointermove", { clientX: 530, clientY: 320 }));
+            await fire(window, pointer("pointerup"));
+            await fire(editor, mouse("click"));
+            await fire(document.body, new KeyboardEvent("keyup", { bubbles: true, cancelable: true, code: "Space", key: " " }));
+            assert.notEqual(document.activeElement, editor);
+            assert.equal(viewport.x, beforePan.x + 30);
+            assert.equal(viewport.y, beforePan.y + 20);
         });
         await test("表格五个输入端口从嵌套span发起连接时各自传递准确portId且不拖动", async () => {
             const before = drags.length;

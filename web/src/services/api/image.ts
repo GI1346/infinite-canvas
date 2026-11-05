@@ -96,7 +96,7 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal; agent?: boolean };
+type RequestOptions = { signal?: AbortSignal; agent?: boolean; imageCompression?: import("@/lib/canvas/reference-image-compression").ReferenceImageCompressionSettings };
 
 const IMAGE_QUALITY_VALUES = ["low", "medium", "high", "xhigh", "max"];
 const DEFAULT_IMAGE_SHORT_SIDE = 1024;
@@ -753,6 +753,10 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
 }
 
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
+    if (options?.imageCompression?.imageCompressionEnabled) {
+        const { compressReferenceImages } = await import("@/lib/canvas/reference-image-compression");
+        references = await compressReferenceImages(references, options.imageCompression, options.signal);
+    }
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);

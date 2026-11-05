@@ -1,184 +1,59 @@
-import type { CSSProperties } from "react";
-import { Image as ImageIcon, LoaderCircle, MessageSquare, Music2, Play, Settings2, Square, Video } from "lucide-react";
-import { Button, Segmented } from "antd";
-import { useTranslation } from "react-i18next";
-
+import { useState } from "react";
+import { Maximize2, Play, Square } from "lucide-react";
+import { Button, Modal } from "antd";
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { resolveModelForCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions } from "@/lib/media-size";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
-import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
-import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
-import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
-import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
+import { stopWorkflowControlDrag } from "./workflow-node-interactions";
+import { CanvasConfigComposer } from "./canvas-config-composer";
+import type { NodeGenerationInput } from "./canvas-node-generation";
+import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 
-type CanvasConfigNodePanelProps = {
+type Props = {
     node: CanvasNodeData;
+    nodes: CanvasNodeData[];
+    inputs: NodeGenerationInput[];
+    connectedNodes: CanvasNodeData[];
     isRunning: boolean;
-    inputSummary: { textCount: number; imageCount: number; videoCount: number; audioCount: number };
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeMetadata>) => void;
     onGenerate: (nodeId: string) => void;
     onStop: (nodeId: string) => void;
-    onComposerToggle: () => void;
+    onDisconnectReference: (fromNodeId: string, toNodeId: string) => void;
+    onStartReferenceSelection: (nodeId: string) => void;
 };
 
-export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigChange, onGenerate, onStop, onComposerToggle }: CanvasConfigNodePanelProps) {
-    const { t } = useTranslation();
-    const globalConfig = useEffectiveConfig();
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    const mode = node.metadata?.generationMode || "image";
-    const config = buildNodeConfig(globalConfig, node, mode);
-    const chipStyle = { background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text };
-    const hasAnyInput = Boolean(inputSummary.textCount || inputSummary.imageCount || inputSummary.videoCount || inputSummary.audioCount);
-    const hasComposerContent = Boolean((node.metadata?.composerContent ?? node.metadata?.prompt ?? "").trim());
-    const canGenerate = hasComposerContent || (mode === "audio" ? inputSummary.textCount > 0 : hasAnyInput);
-
-    return (
-        <div className="flex h-full w-full cursor-move flex-col px-3 pb-3 pt-7 text-sm" style={{ color: theme.node.text }} onWheel={(event) => event.stopPropagation()}>
-            <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="shrink-0 text-sm font-semibold">{t("canvas.configNode.title")}</div>
-                <div className="cursor-default" onMouseDown={(event) => event.stopPropagation()}>
-                    <Segmented
-                        size="small"
-                        className="canvas-config-mode !rounded-md !p-0.5"
-                        value={mode}
-                        onChange={(value) => onConfigChange(node.id, { generationMode: value as CanvasGenerationMode })}
-                        options={[
-                            {
-                                value: "image",
-                                label: (
-                                    <span className="inline-flex items-center gap-1">
-                                        <ImageIcon className="size-3.5" />
-                                        {t("canvas.configNode.image")}
-                                    </span>
-                                ),
-                            },
-                            {
-                                value: "text",
-                                label: (
-                                    <span className="inline-flex items-center gap-1">
-                                        <MessageSquare className="size-3.5" />
-                                        {t("canvas.configNode.text")}
-                                    </span>
-                                ),
-                            },
-                            {
-                                value: "video",
-                                label: (
-                                    <span className="inline-flex items-center gap-1">
-                                        <Video className="size-3.5" />
-                                        {t("canvas.configNode.video")}
-                                    </span>
-                                ),
-                            },
-                            {
-                                value: "audio",
-                                label: (
-                                    <span className="inline-flex items-center gap-1">
-                                        <Music2 className="size-3.5" />
-                                        {t("canvas.configNode.audio")}
-                                    </span>
-                                ),
-                            },
-                        ]}
-                    />
-                </div>
-            </div>
-
-            <div className="mb-2 flex flex-wrap gap-1.5">
-                <InputChip label={t("canvas.configNode.prompt")} value={t("canvas.configNode.items", { count: inputSummary.textCount })} style={chipStyle} />
-                <InputChip label={t("canvas.configNode.references")} value={t("canvas.configNode.images", { count: inputSummary.imageCount })} style={chipStyle} />
-                <InputChip label={t("canvas.configNode.videoReferences")} value={t("canvas.configNode.items", { count: inputSummary.videoCount })} style={chipStyle} />
-                <InputChip label={t("canvas.configNode.audioReferences")} value={t("canvas.configNode.items", { count: inputSummary.audioCount })} style={chipStyle} />
-                <button type="button" className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px]" style={chipStyle} onMouseDown={(event) => event.stopPropagation()} onClick={onComposerToggle}>
-                    <Settings2 className="size-3.5" />
-                    {t("canvas.configNode.compose")}
-                </button>
-            </div>
-
-            <div className="mb-2 grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_148px] items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
-                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability={mode} onMissingConfig={() => openConfigDialog(true)} fullWidth />
-                {mode === "video" ? (
-                    <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
-                ) : mode === "image" ? (
-                    <CanvasImageSettingsPopover config={config} placement="topRight" autoAdjustOverflow={false} buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })} />
-                ) : mode === "audio" ? (
-                    <CanvasAudioSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
-                ) : (
-                    <CanvasTextSettingsPopover config={config} count={node.metadata?.textCount || 1} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(_, value) => onConfigChange(node.id, { reasoningEffort: value })} onCountChange={(textCount) => onConfigChange(node.id, { textCount })} />
-                )}
-            </div>
-
-            <Button
-                type="primary"
-                className="mt-auto !h-9 !w-full !cursor-pointer !rounded-lg"
-                danger={isRunning}
-                disabled={!isRunning && !canGenerate}
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={() => (isRunning ? onStop(node.id) : onGenerate(node.id))}
-            >
-                <span className="inline-flex items-center gap-1.5">
-                    {isRunning ? (
-                        <>
-                            <LoaderCircle className="size-4 animate-spin" />
-                            <Square className="size-3.5 fill-current" />
-                            <span>{t("canvas.configNode.stop")}</span>
-                        </>
-                    ) : (
-                        <>
-                            <Play className="size-4" />
-                            <span>{t("canvas.configNode.generate")}</span>
-                        </>
-                    )}
-                </span>
-            </Button>
+export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isRunning, onConfigChange, onGenerate, onStop, onDisconnectReference, onStartReferenceSelection }: Props) {
+    const global = useEffectiveConfig(), theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const [expanded, setExpanded] = useState(false);
+    const meta = node.metadata || {}, value = meta.composerContent ?? meta.prompt ?? "";
+    const config = { ...global, model: resolveModelForCapability(global, meta.model, "image"), size: meta.size || global.size, quality: meta.quality || global.quality, count: String(meta.count || global.canvasImageCount || global.count) };
+    const compressionEnabled = meta.imageCompressionEnabled === true, compressionResolution = meta.imageCompressionResolution ?? "2k", compressionMaxMb = meta.imageCompressionMaxMb ?? 1;
+    const ratio = meta.imageAspectRatio || inferMediaRatio(config.size), resolution = meta.imageResolution || inferMediaScale(config.size);
+    const patch = (next: Partial<CanvasNodeMetadata>) => onConfigChange(node.id, next);
+    const inputStyle = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 12 };
+    const editor = (large: boolean) => <CanvasConfigComposer nodeId={node.id} nodes={nodes} inputs={inputs} connectedNodes={connectedNodes} value={value} embedded expanded={large} onChange={(composerContent) => patch({ composerContent })} onClose={() => setExpanded(false)} onDisconnectReference={onDisconnectReference} onStartReferenceSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection(nodeId); }} onReorderReferences={isRunning ? undefined : (referenceNodeOrder) => patch({ referenceNodeOrder })} />;
+    return <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-3xl text-sm" style={{ background: theme.node.panel, color: theme.node.text }}>
+        <div data-canvas-no-zoom className="flex min-h-0 flex-1 flex-col p-4" onMouseDown={stopWorkflowControlDrag}>
+            <div className="mb-2 flex shrink-0 justify-end"><button type="button" aria-label="放大编辑生成配置" className="inline-flex items-center gap-1 text-xs opacity-70 hover:opacity-100" onClick={() => setExpanded(true)}><Maximize2 size={14} />放大编辑</button></div>
+            {!expanded ? editor(false) : <p className="opacity-60">正在放大编辑 · 内容实时同步</p>}
         </div>
-    );
-}
-
-function InputChip({ label, value, style }: { label: string; value: string; style: CSSProperties }) {
-    return (
-        <div className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px]" style={style}>
-            <span>{label}</span>
-            <span className="font-medium">{value}</span>
+        <div data-canvas-no-zoom className="shrink-0 space-y-2 border-t p-4" style={{ borderColor: theme.node.stroke, background: theme.node.fill }} onMouseDown={stopWorkflowControlDrag}>
+            <span className="inline-block rounded-full px-3 py-0.5 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.toolbar.activeText }}>探索</span>
+            <div className="flex min-w-0 items-center gap-2"><div className="min-w-0 flex-1"><ModelPicker className="h-10" config={config} value={config.model} onChange={(model) => patch({ model })} capability="image" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} fullWidth /></div><Button type="primary" shape="circle" aria-label={isRunning ? "停止生成" : "生成图片"} disabled={!isRunning && !value.trim() && !inputs.length} danger={isRunning} icon={isRunning ? <Square size={16} /> : <Play size={18} />} onClick={() => isRunning ? onStop(node.id) : onGenerate(node.id)} /></div>
+            <div className="grid grid-cols-4 gap-2 text-xs">
+                <label className="min-w-0 rounded-xl p-2" style={inputStyle}>比例<select aria-label="生成配置比例" className="mt-1 w-full bg-transparent outline-none" disabled={isRunning} value={ratio} onChange={(event) => patch({ imageAspectRatio: event.target.value, imageResolution: resolution, size: computeMediaSize(resolution, event.target.value) })}>{mediaRatioOptions.map((item) => <option key={item.value} value={item.value}>{item.value === "auto" ? "自动" : item.value}</option>)}</select></label>
+                <label className="min-w-0 rounded-xl p-2" style={inputStyle}>清晰度<select aria-label="生成配置分辨率" className="mt-1 w-full bg-transparent outline-none" disabled={isRunning} value={resolution} onChange={(event) => patch({ imageResolution: event.target.value, imageAspectRatio: ratio, size: computeMediaSize(event.target.value, ratio) })}>{mediaScaleOptions.map((item) => <option key={item} value={item}>{item === "auto" ? "自动" : item.toUpperCase()}</option>)}</select></label>
+                <label className="min-w-0 rounded-xl p-2" style={inputStyle}>质量<select aria-label="生成配置质量" className="mt-1 w-full bg-transparent outline-none" disabled={isRunning} value={config.quality} onChange={(event) => patch({ quality: event.target.value })}>{["auto", "low", "medium", "high", "xhigh", "max"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label className="min-w-0 rounded-xl p-2" style={inputStyle}>数量<input aria-label="生成配置数量" className="mt-1 w-full bg-transparent outline-none" type="number" min={1} max={15} disabled={isRunning} value={config.count} onChange={(event) => patch({ count: Math.max(1, Math.min(15, Number(event.target.value) || 1)) })} /></label>
+            </div>
+            <div data-image-compression className="space-y-2 border-t pt-2" style={{ borderColor: theme.node.stroke }}>
+                <div className="flex items-center justify-between gap-2"><span className="font-medium">图片压缩</span><div className="flex items-center gap-2"><span className="text-xs opacity-60">{compressionEnabled ? `${compressionResolution.toUpperCase()} · ${compressionMaxMb} MB` : "未启用"}</span><button type="button" role="switch" aria-label="图片压缩" aria-checked={compressionEnabled} disabled={isRunning} className="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50" style={{ background: compressionEnabled ? theme.toolbar.activeText : theme.node.stroke }} onClick={() => patch({ imageCompressionEnabled: !compressionEnabled })}><span aria-hidden="true" className="absolute left-0.5 top-0.5 size-5 rounded-full shadow-sm transition-transform" style={{ background: theme.node.panel, transform: compressionEnabled ? "translateX(20px)" : "translateX(0)" }} /></button></div></div>
+                <div className="flex items-center gap-2 text-xs"><span>最长边</span><select aria-label="压缩最长边" disabled={!compressionEnabled || isRunning} value={compressionResolution} className="rounded-lg px-2 py-1 disabled:opacity-50" style={inputStyle} onChange={(event) => patch({ imageCompressionResolution: event.target.value as "1k" | "2k" | "4k" })}>{["1k", "2k", "4k"].map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}</select><label className="ml-auto flex min-w-0 items-center gap-2">单图上限<input aria-label="压缩单图上限 MB" type="number" step="any" disabled={!compressionEnabled || isRunning} value={compressionMaxMb} className="w-20 rounded-lg px-2 py-1 disabled:opacity-50" style={inputStyle} onChange={(event) => patch({ imageCompressionMaxMb: event.target.value === "" ? 0 : Number(event.target.value) })} />MB</label></div>
+                <p className="text-[11px] opacity-60">仅压缩发送的参考图，保留画布原图</p>
+            </div>
         </div>
-    );
-}
-
-function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasGenerationMode): AiConfig {
-    return {
-        ...globalConfig,
-        model: resolveModelForCapability(globalConfig, node.metadata?.model, mode),
-        reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultConfig.reasoningEffort,
-        quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
-        size: node.metadata?.size || globalConfig.size || defaultConfig.size,
-        background: node.metadata?.background ?? globalConfig.background ?? defaultConfig.background,
-        videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
-        vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
-        videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
-        videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultConfig.videoWatermark,
-        videoMode: node.metadata?.videoMode || globalConfig.videoMode || defaultConfig.videoMode,
-        audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
-        audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultConfig.audioFormat,
-        audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
-        audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
-        count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
-    };
-}
-
-function videoConfigPatch(key: keyof AiConfig, value: string) {
-    if (key === "videoSeconds") return { seconds: value };
-    if (key === "videoGenerateAudio") return { generateAudio: value };
-    if (key === "videoWatermark") return { watermark: value };
-    if (key === "videoMode") return { videoMode: value };
-    return { [key]: value };
-}
-
-function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
-    if (key === "audioVoice") return { audioVoice: value };
-    if (key === "audioFormat") return { audioFormat: value };
-    if (key === "audioSpeed") return { audioSpeed: value };
-    return { audioInstructions: value };
+        <Modal title="生成配置 · 放大编辑" open={expanded} footer={null} centered width="min(1000px, 94vw)" onCancel={() => setExpanded(false)} destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}><div className="flex h-[65vh] min-h-0 flex-col">{expanded && editor(true)}</div></Modal>
+    </div>;
 }

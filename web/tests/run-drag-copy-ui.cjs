@@ -13,7 +13,7 @@ function productionHarness() {
     const ast = ts.createSourceFile("project.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     const page = ast.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === "InfiniteCanvasPage");
     if (!page?.body) throw new Error("Production InfiniteCanvasPage not found");
-    const names = new Set(`containerRef historyRef lastHistoryRef historyCommitTimerRef applyingHistoryRef historyPausedRef rafRef nodeDraggingRef dragRef nodes connections chatSessions activeChatId viewport selectedNodeIds selectedConnectionId hoveredNodeId connectingParams connectionTargetNodeId pendingConnectionCreate mouseWorld selectionBox contextMenu nodeCreatePosition backgroundMode showImageInfo loadedProjectId projectLoaded toolbarNodeId dialogNodeId infoNodeId paintNodeId cropNodeId maskEditNodeId isNodeDragging dropTargetGroupId historyState nodesRef connectionsRef selectedNodeIdsRef viewportRef connectingParamsRef connectionTargetNodeIdRef selectionBoxRef pendingConnectionCreateRef createHistoryEntry screenToCanvas setConnecting applyHistory undoCanvas redoCanvas handleCanvasMouseDown selectNodeByEvent pendingSelectionRef handleNodeSelectCapture handleNodeMouseDown prepareNodeDrag finishNodeDrag handleGlobalMouseMove handleGlobalPointerMove handleGlobalMouseUp handleConnectStart`.split(" "));
+    const names = new Set(`containerRef historyRef lastHistoryRef historyCommitTimerRef applyingHistoryRef historyPausedRef rafRef dragPointerRef focusAnimRef nodeDraggingRef dragPaintRef dragRef paintNodeDrag nodes connections chatSessions activeChatId viewport selectedNodeIds selectedConnectionId connectingParams connectionTargetNodeId pendingConnectionCreate mouseWorld selectionBox contextMenu nodeCreatePosition backgroundMode showImageInfo loadedProjectId projectLoaded toolbarNodeId dialogNodeId infoNodeId paintNodeId cropNodeId maskEditNodeId isNodeDragging dropTargetGroupId historyState nodesRef connectionsRef selectedNodeIdsRef viewportRef connectingParamsRef connectionTargetNodeIdRef selectionBoxRef pendingConnectionCreateRef createHistoryEntry screenToCanvas setConnecting applyHistory undoCanvas redoCanvas handleCanvasMouseDown selectNodeByEvent pendingSelectionRef handleNodeSelectCapture handleNodeMouseDown prepareNodeDrag finishNodeDrag handleGlobalMouseMove handleGlobalPointerMove handleGlobalMouseUp handleConnectStart handleConnectionSelect handleConnectionContextMenu`.split(" "));
     const statements = [];
     let copied = 0, effects = 0;
     for (const statement of page.body.statements) {
@@ -29,12 +29,20 @@ function productionHarness() {
         }
     }
     if (names.size || effects !== 5) throw new Error(`Production extraction incomplete: ${[...names]} / ${effects} effects`);
-    console.log(`Production AST: ${copied} unmodified declarations + ${effects} unmodified effects`);
+    let connectionView;
+    const findConnectionView = (node) => {
+        if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(ast) === "ConnectionPath") connectionView = node.getText(ast);
+        ts.forEachChild(node, findConnectionView);
+    };
+    findConnectionView(page.body);
+    if (!connectionView) throw new Error("Production ConnectionPath render not found");
+    console.log(`Production AST: ${copied} unmodified declarations + ${effects} unmodified effects + actual connection render`);
     return `
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { CanvasNode } from "@/components/canvas/canvas-node";
 import { ConnectionPath } from "@/components/canvas/canvas-connections";
+import { connectionCurve, curvePath } from "@/lib/canvas/canvas-connection-geometry";
 import { cloneDragSelection, expandDragNodeIds } from "@/lib/canvas/canvas-drag-copy";
 import { findGroupDropTarget, snapNodesIntoGroup, findContainingGroupId, canGroupSelectedNodes, canUngroupSelectedNodes } from "@/lib/canvas/canvas-node-geometry";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
@@ -56,10 +64,10 @@ export function ProjectDragHarness({ seed, expose }) {
   setLoadedProjectId(projectId);
  }, []);
  const pluginHost = { getNode: (id) => nodesRef.current.find(n => n.id === id) || null, getNodes: () => nodesRef.current, getConnections: () => connectionsRef.current, getUpstream: () => [], getDownstream: () => [], updateNode: no, updateMetadata: no, applyOps: no, openPanel: no, closePanel: no, ai: { listModels: () => [], defaultModel: () => "", generateText: () => { throw Error("Unexpected AI"); }, generateImage: () => { throw Error("Unexpected AI"); }, generateVideo: () => { throw Error("Unexpected AI"); } } };
- useLayoutEffect(() => expose({ nodes, connections, selected: selectedNodeIds, viewport, history: historyRef.current, last: lastHistoryRef.current, drag: dragRef.current, container: containerRef.current, connecting: connectingParams, selectionBox, isNodeDragging, updateOriginal: (id, patch) => setNodes(items => items.map(item => item.id === id ? { ...item, metadata: { ...item.metadata, ...patch } } : item)) }), [nodes, connections, selectedNodeIds, viewport, isNodeDragging, selectionBox, connectingParams, historyState]);
+ useLayoutEffect(() => expose({ nodes, liveNodes: () => nodesRef.current, connections, selected: selectedNodeIds, viewport, history: historyRef.current, last: lastHistoryRef.current, drag: dragRef.current, container: containerRef.current, connecting: connectingParams, selectionBox, isNodeDragging, updateOriginal: (id, patch) => setNodes(items => items.map(item => item.id === id ? { ...item, metadata: { ...item.metadata, ...patch } } : item)) }), [nodes, connections, selectedNodeIds, viewport, isNodeDragging, selectionBox, connectingParams, historyState]);
  return <InfiniteCanvas containerRef={containerRef} viewport={viewport} tool="select" onViewportChange={setViewport} onCanvasMouseDown={handleCanvasMouseDown}>
-  <svg>{connections.map(connection => { const from = nodes.find(n => n.id === connection.fromNodeId), to = nodes.find(n => n.id === connection.toNodeId); return from && to ? <ConnectionPath key={connection.id} connection={connection} from={from} to={to} active={false} onSelect={no} onContextMenu={no} /> : null; })}</svg>
-  {nodes.map(node => <CanvasNode key={node.id} data={node} scale={viewport.k} isSelected={selectedNodeIds.has(node.id)} isRelated={false} isFocusRelated={false} isConnectionTarget={false} isConnecting={Boolean(connectingParams)} showPanel={false} showImageInfo={false} groupChildCount={nodes.filter(child => child.metadata?.groupId === node.id).length} pluginHost={pluginHost} onMouseDown={handleNodeMouseDown} onSelectCapture={handleNodeSelectCapture} onHoverStart={no} onHoverEnd={no} onConnectStart={handleConnectStart} onResizeStart={no} onResize={no} onResizeEnd={no} onContentChange={no} onTitleChange={no} onContextMenu={no} />)}
+  <svg>{connections.map(connection => { const from = nodes.find(n => n.id === connection.fromNodeId), to = nodes.find(n => n.id === connection.toNodeId); return from && to ? ${connectionView} : null; })}</svg>
+  {nodes.map(node => <CanvasNode key={node.id} data={node} scale={viewport.k} isSelected={selectedNodeIds.has(node.id)} isConnectionTarget={false} isConnecting={Boolean(connectingParams)} showPanel={false} showImageInfo={false} groupChildCount={nodes.filter(child => child.metadata?.groupId === node.id).length} pluginHost={pluginHost} onMouseDown={handleNodeMouseDown} onSelectCapture={handleNodeSelectCapture} onConnectStart={handleConnectStart} onResizeStart={no} onResize={no} onResizeEnd={no} onContentChange={no} onTitleChange={no} onContextMenu={no} />)}
  </InfiniteCanvas>;
 }`;
 }

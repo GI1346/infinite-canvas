@@ -1,4 +1,30 @@
-// Uses Harness's supported browser module and layout slot; never patches vendor DOM.
+// Same narrow canvas bridge in both Electron and the local browser preview.
+const sidebarChannel = 'blinkflow-harness-sidebar';
+const hostOrigin = new URLSearchParams(window.location.hash.slice(1)).get('blinkflowHost') || (() => { try { return new URL(document.referrer).origin; } catch { return ''; } })();
+const embedded = window.parent !== window && (() => { try { const host = new URL(hostOrigin); return host.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(host.hostname); } catch { return false; } })();
+const sidebarListeners = new Map(), sidebarRequests = new Map();
+let sidebarTheme;
+const sidebarEmit = (kind, value) => (sidebarListeners.get(kind) || []).forEach(handler => handler(value));
+const sidebarOn = (kind, handler) => { let handlers = sidebarListeners.get(kind); if (!handlers) sidebarListeners.set(kind, handlers = new Set()); handlers.add(handler); return () => handlers.delete(handler); };
+const sidebarCall = (method, args) => new Promise((resolve, reject) => {
+  const id = crypto.randomUUID();
+  sidebarRequests.set(id, { resolve, reject });
+  window.parent.postMessage({ channel: sidebarChannel, kind: 'request', id, method, args }, hostOrigin);
+});
+if (embedded) {
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || event.origin !== hostOrigin || event.data?.channel !== sidebarChannel) return;
+    const { kind, value } = event.data;
+    if (kind === 'response') { const pending = sidebarRequests.get(value?.id); if (!pending) return; sidebarRequests.delete(value.id); value.error ? pending.reject(new Error(value.error)) : pending.resolve(value.result); }
+    else if (kind === 'connect' || kind === 'theme') { sidebarTheme = kind === 'connect' ? value?.theme : value; sidebarEmit('theme', sidebarTheme); }
+    else sidebarEmit(kind, value);
+  });
+  window.blinkflowHarnessModels = { get: () => sidebarCall('models.get'), select: imageModel => sidebarCall('models.select', { imageModel }), onChange: handler => sidebarOn('models', handler) };
+  window.blinkflowHarnessReferences = { selection: () => sidebarCall('references.selection'), onSelection: handler => sidebarOn('selection', handler), resolve: (nodeId, projectId) => sidebarCall('references.resolve', { nodeId, projectId }), get: () => sidebarCall('references.get'), ack: id => sidebarCall('references.ack', { id }), onChange: handler => sidebarOn('references', handler) };
+  window.parent.postMessage({ channel: sidebarChannel, kind: 'ready' }, hostOrigin);
+}
+
+// Uses Harness's supported browser module, theme service and layout slots.
 window.__ModuleLoader__.load({
   id: 'blinkflow-canvas-ui',
   factory: (require) => {
@@ -147,8 +173,21 @@ window.__ModuleLoader__.load({
       return error ? h('div', { role: 'alert', className: 'bfcui-info bfcui-error' }, error, h('button', { type: 'button', className: 'bfcui-button', onClick: () => window.dispatchEvent(new Event('blinkflow-retry-references')) }, '重试添加')) : null;
     }
     return {
-      inject: ['slots', 'sessions', 'conversation', 'inputTriggers'],
+      inject: ['slots', 'sessions', 'conversation', 'inputTriggers', 'theme'],
       apply(ctx) {
+        if (embedded) {
+          let release;
+          const applyTheme = theme => {
+            if (!theme || !['light', 'dark'].includes(theme.mode)) return;
+            const values = { '--dsw-alias-bg-base': theme.background, '--dsw-alias-bg-layer-1': theme.panel, '--dsw-alias-bg-layer-2': theme.panel, '--dsw-alias-bg-module-platform': theme.fill, '--dsw-alias-label-primary': theme.text, '--dsw-alias-label-secondary': theme.muted, '--dsw-alias-label-tertiary': theme.muted, '--dsw-alias-interactive-bg-hover': theme.active, '--dsw-alias-interactive-bg-active': theme.active, '--dsw-alias-border-l2': theme.border, '--dsw-alias-border-l3': theme.border, '--dsw-alias-border-l4': theme.border };
+            ctx.theme.setTheme(theme.mode);
+            const tokens = Object.fromEntries(Object.entries(values).filter(([, value]) => typeof value === 'string' && CSS.supports('color', value)).map(([name, value]) => [name, { light: value, dark: value }]));
+            const previous = release;
+            release = ctx.theme.overrideTokens('blinkflow-canvas-theme', tokens);
+            previous?.();
+          };
+          ctx.effect(() => { const off = sidebarOn('theme', applyTheme); if (sidebarTheme) applyTheme(sidebarTheme); return () => { off(); release?.(); }; });
+        }
         const api = window.blinkflowHarnessReferences;
         const sourceName = 'blinkflow-canvas-nodes', picked = new Map();
         ctx.effect(() => ctx.inputTriggers.registerSource({

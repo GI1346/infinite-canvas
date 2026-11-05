@@ -115,8 +115,8 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
         const handleKeyDown = (event: KeyboardEvent) => {
             if (document.querySelector("[data-canvas-image-editor]")) { spaceRef.current = false; typingSpaceRef.current = false; setIsSpacePressed(false); return; }
             if (event.code !== "Space" || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (!spaceRef.current && !isCanvasKeyTarget(event.target))) return;
-            if (!spaceRef.current && isTextEditing(event.target)) {
-                typingSpaceRef.current = true; // Keep normal typing, but recognize a following Space + left drag as a pan.
+            if (isTextEditing(event.target) || isTextEditing(document.activeElement)) {
+                spaceRef.current = false; typingSpaceRef.current = false; setIsSpacePressed(false);
                 return;
             }
             captureSpace(event);
@@ -162,7 +162,10 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
 
     const handleWheel = (event: WheelEvent) => {
         const target = event.target instanceof Element ? event.target : null;
-        if (target?.closest(".ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown") || (target?.closest("[data-canvas-no-zoom]") && !target.closest("[data-node-id]"))) return;
+        if (target?.closest("[data-canvas-overlay],.ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
+        if (!target?.closest("[data-node-id]") && target?.closest("[data-canvas-no-zoom]")) return;
+        const editor = target?.closest("input,textarea,select,[contenteditable]:not([contenteditable='false']),.cm-editor");
+        if (editor && (editor === document.activeElement || editor.contains(document.activeElement))) return;
 
         if (cuttingRef.current) { event.preventDefault(); event.stopPropagation(); return; }
 
@@ -195,10 +198,14 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
 
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
         const target = event.target instanceof Element ? event.target : null;
+        const input = target?.closest("input");
+
         if (target?.closest("[data-canvas-overlay],.ant-modal,.ant-popover,.ant-dropdown") || (target?.closest("[data-canvas-no-zoom]") && !target.closest("[data-node-id]"))) return;
         if (target?.closest("[data-connection-create-menu]")) return;
         const isBackgroundClick = !target?.closest("[data-node-id],[data-connection-id]");
         const shouldPan = event.button === 1 || (event.button === 0 && (spaceRef.current || typingSpaceRef.current || (tool === "pan" && isBackgroundClick)));
+        if (!shouldPan && (target?.closest("textarea,[contenteditable]:not([contenteditable='false'])") || (input instanceof HTMLInputElement && !["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden"].includes(input.type)))) return;
+        if ((shouldPan || (event.button === 0 && isBackgroundClick)) && document.activeElement instanceof HTMLElement) document.activeElement.blur();
 
         if (event.button === 0 && event.ctrlKey && !spaceRef.current && !typingSpaceRef.current && !target?.closest("input,textarea,select,button,a,[role='button'],[contenteditable]:not([contenteditable='false']),[data-node-toolbar],[data-node-handle]")) {
             if (onConnectionCutStart?.(event)) {
@@ -298,11 +305,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
         if (!container) return;
 
         // Prevent canvas scrolling from moving the page while preserving native scrolling inside overlays and dialogs.
-        const preventWheelScroll = (event: WheelEvent) => {
-            const target = event.target instanceof Element ? event.target : null;
-            if (target?.closest(".ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown") || (target?.closest("[data-canvas-no-zoom]") && !target.closest("[data-node-id]"))) return;
-            handleWheel(event);
-        };
+        const preventWheelScroll = (event: WheelEvent) => handleWheel(event);
         container.addEventListener("wheel", preventWheelScroll, { passive: false, capture: true });
         return () => container.removeEventListener("wheel", preventWheelScroll, true);
     }, [containerRef]);

@@ -112,7 +112,7 @@ async function main() {
         await state().send();
         if (mode === "manual") { assert(current().pending); assert.equal(g.requests.length, 0); responses = [final]; await state().confirm(true); }
         assert.equal(g.requests.length, 1); assert.equal(g.requests[0].size, "1360x2048"); assert.equal(g.requests[0].imageResolution, "2k");
-        assert.equal(current().messages.at(-1)?.text, "收到真实结果");
+        assert.match(current().messages.at(-1)!.text, /成功 1，失败 0/);
     }
     assert(assistantSystemPrompt(config, [], "manual").includes("edit_canvas"));
     console.log("PASS both approval modes; explicit user requirements applied before the FIRST and only request; feedback reads real output ID/pixels, not old input.");

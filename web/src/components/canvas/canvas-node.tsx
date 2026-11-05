@@ -1,7 +1,8 @@
 import { LOCAL_FUSION_NODE_TYPE, FUSION_PATCH_PORT } from "@/lib/canvas/canvas-fusion-ports";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
+import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Maximize2, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
+import { Modal } from "antd";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -24,10 +25,9 @@ type CanvasNodeProps = {
     data: CanvasNodeData;
     scale: number;
     isSelected: boolean;
-    isRelated: boolean;
-    isFocusRelated: boolean;
     isConnectionTarget: boolean;
     isConnecting: boolean;
+    isDragging?: boolean;
     referenceSelectionState?: "target" | "disabled" | "available";
     showPanel: boolean;
     showImageInfo: boolean;
@@ -41,8 +41,6 @@ type CanvasNodeProps = {
     batchExpanded?: boolean;
     onMouseDown: (event: React.MouseEvent, nodeId: string) => void;
     onSelectCapture?: (event: React.MouseEvent, nodeId: string) => void;
-    onHoverStart: (nodeId: string) => void;
-    onHoverEnd: (nodeId: string) => void;
     onConnectStart: (event: React.MouseEvent, nodeId: string, handleType: "source" | "target", portId?: string) => void;
     onResizeStart: (nodeId: string) => void;
     onResize: (nodeId: string, width: number, height: number, position?: Position) => void;
@@ -90,15 +88,15 @@ export const CanvasNode = React.memo(function CanvasNode({
     data,
     scale,
     isSelected,
-    isRelated,
-    isFocusRelated,
     isConnectionTarget,
     isConnecting,
+    isDragging = false,
     referenceSelectionState,
     showPanel,
     showImageInfo,
     mentionReferences = [],
     pluginHost,
+    registryVersion,
     renderPanel,
     renderNodeContent,
     groupChildCount = 0,
@@ -106,8 +104,6 @@ export const CanvasNode = React.memo(function CanvasNode({
     batchExpanded = false,
     onMouseDown,
     onSelectCapture,
-    onHoverStart,
-    onHoverEnd,
     onConnectStart,
     onResizeStart,
     onResize,
@@ -129,16 +125,21 @@ export const CanvasNode = React.memo(function CanvasNode({
     const { t } = useTranslation();
     const [hovered, setHovered] = useState(false);
     const definition = getNodeDefinition(data.type);
-    const pluginContext = useMemo<CanvasNodeContext | null>(() => (pluginHost ? buildNodeContext(pluginHost, data, theme, scale, isSelected) : null), [pluginHost, data, theme, scale, isSelected]);
+    // Moving the shell must not rebuild tables, model pickers or rich text on every frame.
+    // Read the final position again on release; actual content edits still invalidate immediately.
+    const contentNode = useMemo(() => data, [data.id, data.type, data.title, data.width, data.height, data.metadata, isDragging ? null : data.position]);
+    const pluginContext = useMemo<CanvasNodeContext | null>(() => (pluginHost ? buildNodeContext(pluginHost, contentNode, theme, scale, isSelected) : null), [pluginHost, contentNode, theme, scale, isSelected]);
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const isImage = data.type === CanvasNodeType.Image;
+    const largeTitle = ["dxos:table", "dxos:llm", "dxos:concurrent"].includes(data.type);
     const titleName = isImage ? canvasTitleWithoutExtension(data.title || "") : data.title || "";
     const [titleDraft, setTitleDraft] = useState(titleName);
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
     const isGroup = data.type === CanvasNodeType.Group;
+    const groupColor = data.metadata?.groupColor || theme.node.muted;
     const batchCount = data.type === CanvasNodeType.Image ? data.metadata?.images?.length || 0 : data.type === CanvasNodeType.Text ? data.metadata?.texts?.length || 0 : 0;
     const isBatchRoot = batchCount > 1;
     // Nodes with the interaction/move toggle ignore content pointer events in move mode and allow interaction in interactive mode.
@@ -146,10 +147,9 @@ export const CanvasNode = React.memo(function CanvasNode({
     const supportsInteractionToggle = Boolean(definition?.interactionToggle);
     const forceInteractive = supportsInteractionToggle ? Boolean(definition?.forceInteractive?.(data)) : false;
     const contentInteractive = !supportsInteractionToggle || forceInteractive || !data.metadata?.content ? true : Boolean(data.metadata?.interactive);
-    // Transparent nodes such as SVGs blend into the canvas while retaining outlines for selected or related states.
+    // Hover is local to this node; selection never propagates through connections.
     const transparentBg = Boolean(definition?.transparentBackground);
-    const isActive = isConnectionTarget || isSelected || isFocusRelated;
-    const imageBorderColor = isActive ? selectionBlue : isRelated ? theme.node.muted : "transparent";
+    const isActive = isConnectionTarget || isSelected;
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const titleInputRef = useRef<HTMLInputElement>(null);
     const resizeRef = useRef({
@@ -301,12 +301,40 @@ export const CanvasNode = React.memo(function CanvasNode({
         };
     }, [handleResizeMove, handleResizeUp]);
 
+    const nodeContent = useMemo(() => (
+                    <NodeContent
+                        node={contentNode}
+                        theme={theme}
+                        isEditingContent={isEditingContent}
+                        textareaRef={textareaRef}
+                        isBatchRoot={isBatchRoot}
+                        batchCount={batchCount}
+                        batchExpanded={batchExpanded}
+                        scale={scale}
+                        renderNodeContent={renderNodeContent}
+                        pluginContext={pluginContext}
+                        mentionReferences={mentionReferences}
+                        onContentChange={onContentChange}
+                        onStopEditing={() => setIsEditingContent(false)}
+                        onRetry={onRetry}
+                        onToggleBatch={() => onToggleBatch?.(contentNode.id)}
+                        onSetBatchPrimary={(itemId) => onSetBatchPrimary?.(contentNode.id, itemId)}
+                        onDuplicateBatchImage={(imageId) => onDuplicateBatchImage?.(contentNode, imageId)}
+                        onDownloadBatchImage={(imageId) => onDownloadBatchImage?.(contentNode, imageId)}
+                        onRetryBatchImage={(imageId) => onRetryBatchImage?.(contentNode, imageId)}
+                        onDeleteBatchImage={(imageId) => onDeleteBatchImage?.(contentNode.id, imageId)}
+                        onViewBatchImage={(imageId) => onViewImage?.(contentNode, imageId)}
+                        groupChildCount={groupChildCount}
+                    />
+    ), [contentNode, registryVersion, theme, isEditingContent, isBatchRoot, batchCount, batchExpanded, scale, renderNodeContent, pluginContext, mentionReferences, onContentChange, onRetry, onToggleBatch, onSetBatchPrimary, onDuplicateBatchImage, onDownloadBatchImage, onRetryBatchImage, onDeleteBatchImage, onViewImage, groupChildCount]);
+
     return (
         <div
             data-node-id={data.id}
             className={`node-element group/node absolute flex select-none flex-col transition-shadow duration-200 ${isGroup ? "z-[5]" : isSelected ? "z-50" : "z-10"} ${referenceSelectionState === "available" ? "cursor-pointer" : referenceSelectionState ? "cursor-not-allowed" : ""}`}
             style={{
-                transform: `translate(${data.position.x}px, ${data.position.y}px)`,
+                transform: `translate3d(${data.position.x}px, ${data.position.y}px, 0)`,
+                willChange: isDragging ? "transform" : undefined,
                 width: data.width,
                 height: data.height,
                 transition: "box-shadow 200ms ease",
@@ -314,11 +342,9 @@ export const CanvasNode = React.memo(function CanvasNode({
             }}
             onMouseEnter={() => {
                 setHovered(true);
-                onHoverStart(data.id);
             }}
             onMouseLeave={() => {
                 setHovered(false);
-                onHoverEnd(data.id);
             }}
             onMouseDownCapture={(event) => {
                 if (!referenceSelectionState) onSelectCapture?.(event, data.id);
@@ -333,7 +359,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 else onContextMenu(event, data.id);
             }}
         >
-            <div className="absolute left-3 top-[-28px] z-[65] max-w-[calc(100%-24px)]" data-node-title={data.id} style={isImage ? { top: -44, width: Math.max(0, data.width - 24), maxWidth: "none", overflow: "hidden" } : undefined} onMouseDown={(event) => {
+            <div className="absolute left-3 top-[-28px] z-[65] max-w-[calc(100%-24px)]" data-node-title={data.id} style={isImage || largeTitle ? { top: -44, width: Math.max(0, data.width - 24), maxWidth: "none", overflow: "hidden" } : undefined} onMouseDown={(event) => {
                 if (referenceSelectionState) {
                     event.stopPropagation();
                     if (event.button === 0 && referenceSelectionState === "available") onSelectReference?.(data.id);
@@ -344,10 +370,10 @@ export const CanvasNode = React.memo(function CanvasNode({
                     <input
                         ref={titleInputRef}
                         value={titleDraft}
-                        aria-label="节点名称"
+                        aria-label={isGroup ? "组名称" : "节点名称"}
                         maxLength={64}
                         className={`h-6 max-w-full border-0 border-b border-dashed bg-transparent px-0 text-left ${isImage ? "text-base" : "text-xs"} font-medium outline-none`}
-                        style={{ borderColor: theme.node.muted, color: theme.node.text, ...(isImage ? { fontSize: 32, height: 40 } : {}) }}
+                        style={{ borderColor: theme.node.muted, color: theme.node.text, ...(isImage || largeTitle ? { fontSize: isImage ? 32 : 24, height: 40 } : {}) }}
                         onChange={(event) => setTitleDraft(event.target.value)}
                         onBlur={finishTitleEditing}
                         onKeyDown={(event) => {
@@ -362,7 +388,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     <button
                         type="button"
                         className={`block max-w-full truncate border-b border-dashed border-transparent px-0 text-left ${isImage ? "py-0 text-base leading-6" : "py-0.5 text-xs"} font-medium opacity-75 transition hover:border-current hover:opacity-100`}
-                        style={{ color: theme.node.text, ...(isImage ? { fontSize: 32, lineHeight: "40px", width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } : {}) }}
+                        style={{ color: theme.node.text, ...(isGroup ? { fontSize: 14, padding: "2px 8px", borderRadius: 7, border: "1px solid " + groupColor, background: "color-mix(in srgb, " + groupColor + " 12%, " + theme.node.panel + ")", opacity: 1 } : {}), ...(isImage || largeTitle ? { fontSize: isImage ? 32 : 24, lineHeight: "40px", width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } : {}) }}
                         title={t("canvas.node.renameHint")}
                         onDoubleClick={(event) => {
                             event.stopPropagation();
@@ -377,10 +403,11 @@ export const CanvasNode = React.memo(function CanvasNode({
             <div
                 className="relative h-full w-full overflow-visible rounded-3xl border-2"
                 style={{
-                    background: isGroup ? "transparent" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
-                    borderColor: isGroup ? (isGroupDropTarget || isActive ? selectionBlue : theme.node.stroke) : hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : transparentBg ? "transparent" : theme.node.stroke,
-                    borderStyle: isGroup ? "dashed" : "solid",
-                    boxShadow: isGroupDropTarget ? `0 0 0 2px ${selectionBlue}66, inset 0 0 0 999px ${selectionBlue}10` : isActive ? `0 0 0 1px ${selectionBlue}55` : isRelated ? `0 0 0 1px ${theme.node.muted}55, 0 18px 48px rgba(0,0,0,.14)` : undefined,
+                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
+                    borderColor: isActive || isGroupDropTarget ? selectionBlue : hovered ? `${selectionBlue}66` : isGroup ? groupColor : hasImageContent || transparentBg ? "transparent" : theme.node.stroke,
+                    borderStyle: "solid",
+                    borderWidth: isGroup ? 2.5 : undefined,
+                    boxShadow: isGroupDropTarget ? `0 0 0 2px ${selectionBlue}66, inset 0 0 0 999px ${selectionBlue}10` : isActive ? `0 0 0 1px ${selectionBlue}55` : hovered ? `0 0 0 1px ${selectionBlue}22` : undefined,
                 }}
                 onMouseDown={(event) => {
                     if (!referenceSelectionState) onMouseDown(event, data.id);
@@ -412,35 +439,12 @@ export const CanvasNode = React.memo(function CanvasNode({
                     className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot ? "overflow-visible" : "overflow-hidden"}`}
                     style={
                         {
-                            background: isGroup ? "transparent" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
+                            background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
                             pointerEvents: contentInteractive ? undefined : "none",
                         } as React.CSSProperties
                     }
                 >
-                    <NodeContent
-                        node={data}
-                        theme={theme}
-                        isEditingContent={isEditingContent}
-                        textareaRef={textareaRef}
-                        isBatchRoot={isBatchRoot}
-                        batchCount={batchCount}
-                        batchExpanded={batchExpanded}
-                        scale={scale}
-                        renderNodeContent={renderNodeContent}
-                        pluginContext={pluginContext}
-                        mentionReferences={mentionReferences}
-                        onContentChange={onContentChange}
-                        onStopEditing={() => setIsEditingContent(false)}
-                        onRetry={onRetry}
-                        onToggleBatch={() => onToggleBatch?.(data.id)}
-                        onSetBatchPrimary={(itemId) => onSetBatchPrimary?.(data.id, itemId)}
-                        onDuplicateBatchImage={(imageId) => onDuplicateBatchImage?.(data, imageId)}
-                        onDownloadBatchImage={(imageId) => onDownloadBatchImage?.(data, imageId)}
-                        onRetryBatchImage={(imageId) => onRetryBatchImage?.(data, imageId)}
-                        onDeleteBatchImage={(imageId) => onDeleteBatchImage?.(data.id, imageId)}
-                        onViewBatchImage={(imageId) => onViewImage?.(data, imageId)}
-                        groupChildCount={groupChildCount}
-                    />
+                    {nodeContent}
                 </div>
 
                 {hasImageContent ? <ImageInfoBar node={data} showBytes={showImageInfo} /> : null}
@@ -459,13 +463,13 @@ export const CanvasNode = React.memo(function CanvasNode({
                 {!referenceSelectionState ? <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} /> : null}
             </div>
 
-            {!referenceSelectionState && data.type === "dxos:table" ? (data.metadata?.tableInputChannels || [{ id: "input-1" }, { id: "input-2" }]).map((channel, index, all) => <div key={channel.id} className="absolute -left-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: `calc(50% + ${(index - (all.length - 1) / 2) * 56}px)` }} data-node-handle data-table-port={channel.id} title={`输入 ${index + 1}：拖动连线到此处`} onMouseDown={(event) => onConnectStart(event, data.id, "target", channel.id)}><span className="grid size-5 place-items-center rounded-full border text-[10px]" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>{index + 1}</span></div>) : null}
-            {!referenceSelectionState && data.type === LOCAL_FUSION_NODE_TYPE ? <div data-node-handle data-fusion-port={FUSION_PATCH_PORT} title="局部修改输入：将带选区上下文的图片连接到这里" className="absolute -right-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: 40 }} onMouseDown={(event) => onConnectStart(event, data.id, "target", FUSION_PATCH_PORT)}><span className="grid size-5 place-items-center rounded-full border text-[10px]" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>局</span></div> : null}
+            {!referenceSelectionState && data.type === "dxos:table" ? (data.metadata?.tableInputChannels || [{ id: "input-1" }, { id: "input-2" }]).map((channel, index, all) => <div key={channel.id} className="absolute -left-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: `calc(50% + ${(index - (all.length - 1) / 2) * 56}px)` }} data-node-handle data-table-port={channel.id} title={`输入 ${index + 1}：拖动连线到此处`} onMouseDown={(event) => onConnectStart(event, data.id, "target", channel.id)}><span className="grid place-items-center rounded-full border" style={{ width: 28.8, height: 28.8, fontSize: 14.4, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>{index + 1}</span></div>) : null}
+            {!referenceSelectionState && data.type === LOCAL_FUSION_NODE_TYPE ? <div data-node-handle data-fusion-port={FUSION_PATCH_PORT} title="局部修改输入：将带选区上下文的图片连接到这里" className="absolute -right-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: 40 }} onMouseDown={(event) => onConnectStart(event, data.id, "target", FUSION_PATCH_PORT)}><span className="grid size-6 place-items-center rounded-full border text-xs" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>局</span></div> : null}
             {!referenceSelectionState && !isGroup && data.type !== "dxos:table" ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             {!referenceSelectionState && (definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config ? <ConnectionHandleDot side="right" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
 
             {/* Counter-scale the panel so its on-screen size stays constant while the canvas zooms. */}
-            {showPanel && !isGroup && renderPanel ? (
+            {showPanel && !isGroup && data.type !== CanvasNodeType.Config && getNodeDefinition(data.type)?.Panel && renderPanel ? (
                 <div className="absolute left-1/2 top-full z-[70] w-[600px] pt-4" style={{ transform: `translateX(-50%) scale(${1 / scale})`, transformOrigin: "top center" }} data-node-panel={data.id}>
                     {renderPanel(data)}
                 </div>
@@ -507,13 +511,10 @@ const nodeContentRenderers = {
 function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererProps) {
     const { t } = useTranslation();
     return (
-        <div className="pointer-events-none flex h-full w-full p-3">
-            <div className="flex h-7 max-w-full items-center gap-2 px-1 text-xs font-medium" style={{ color: theme.node.text }}>
-                <Group className="size-3.5 shrink-0" style={{ color: theme.node.muted }} />
-                <span className="truncate">{node.title || t("canvas.node.group")}</span>
-                <span className="shrink-0 text-[11px] font-normal" style={{ color: theme.node.muted }}>
-                    {t("canvas.node.nodeCount", { count: groupChildCount })}
-                </span>
+        <div className="pointer-events-none h-full w-full">
+            <div className="relative flex h-10 items-center justify-center" style={{ background: "color-mix(in srgb, " + (node.metadata?.groupColor || theme.node.muted) + " 12%, transparent)" }}>
+                <span className="h-1 w-8 rounded-full" style={{ background: "color-mix(in srgb, " + (node.metadata?.groupColor || theme.node.muted) + " 45%, transparent)" }} />
+                <span className="absolute right-3 flex items-center gap-1 text-[11px]" style={{ color: theme.node.muted }}><Group className="size-3.5" />{t("canvas.node.nodeCount", { count: groupChildCount })}</span>
             </div>
         </div>
     );
@@ -564,6 +565,7 @@ function MissingPluginContent({ theme, type }: Pick<NodeContentRendererProps, "t
 
 function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, batchExpanded, onContentChange, onStopEditing, onToggleBatch, onSetBatchPrimary }: NodeContentRendererProps) {
     const { t } = useTranslation();
+    const [expanded, setExpanded] = useState(false);
     const fontSize = node.metadata?.fontSize || 14;
     const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
     const texts = node.metadata?.texts || [];
@@ -572,7 +574,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
     const primaryTextId = node.metadata?.primaryTextId || texts[0]?.id;
     const primaryText = texts.find((text) => text.id === primaryTextId);
     const content = primaryText?.content || node.metadata?.content || "";
-    const paddingClass = isBatchRoot ? "px-4 pb-4 pt-14" : "p-4";
+    const paddingClass = "px-4 pb-4 pt-14";
 
     return (
         <BatchFrame batchCount={batchCount} batchExpanded={batchExpanded}>
@@ -581,7 +583,11 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                       .filter((text) => text.id !== primaryTextId)
                       .map((text, index) => <ExpandedTextCard key={text.id} node={node} text={text} index={index} onSetPrimary={() => onSetBatchPrimary?.(text.id)} />)
                 : null}
-            <div className="flex h-full w-full flex-col overflow-hidden rounded-3xl">
+            <button type="button" data-canvas-no-zoom className="absolute left-3 top-3 z-30 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setExpanded(true); }}><Maximize2 size={14} />放大编辑</button>
+            <Modal title={<div className="flex items-center justify-between pr-8"><span>{node.title || "文本"}</span><span className="text-xs font-normal opacity-60">{content.length.toLocaleString()} 字符 · 实时同步</span></div>} open={expanded} onCancel={() => setExpanded(false)} footer={null} width="min(1000px, 94vw)" centered destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}>
+                <CanvasResourceMentionTextarea className="thin-scrollbar block h-[65vh] w-full resize-none overflow-y-auto rounded-xl border p-5 outline-none" style={{ ...textStyle, background: theme.node.fill, borderColor: theme.node.stroke }} value={content} references={mentionReferences} highlightLabels={false} onChange={(value) => onContentChange(node.id, value)} />
+            </Modal>
+            <div className="flex h-full w-full flex-col overflow-hidden rounded-3xl" data-canvas-no-zoom>
                 {isEditingContent ? (
                     <CanvasResourceMentionTextarea
                         ref={textareaRef}

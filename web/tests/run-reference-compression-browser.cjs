@@ -1,0 +1,21 @@
+const { app, BrowserWindow, session } = require("electron");
+const fs = require("node:fs"), path = require("node:path");
+const root = path.resolve(__dirname, ".."), out = path.join(root, ".checks", "reference-compression");
+fs.mkdirSync(out, { recursive: true });
+app.setPath("appData", out); app.setPath("userData", path.join(out, "userData")); app.setPath("sessionData", path.join(out, "sessionData")); app.setPath("logs", path.join(out, "logs")); app.setPath("crashDumps", path.join(out, "crashes"));
+app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+let win;
+const finish = (result) => { fs.writeFileSync(path.join(out, "result.json"), JSON.stringify(result, null, 2)); app.exit(result.ok ? 0 : 1); };
+app.whenReady().then(async () => {
+    const partition = session.fromPartition("reference-compression-" + Date.now()), blocked = [], urls = [];
+    partition.webRequest.onBeforeRequest((details, callback) => { const allowed = /^(http:\/\/127\.0\.0\.1:3000\/|ws:\/\/127\.0\.0\.1:3000\/|blob:|data:|devtools:)/.test(details.url); urls.push(details.url); if (!allowed) blocked.push(details.url); callback({ cancel: !allowed }); });
+    win = new BrowserWindow({ width: 1100, height: 800, show: false, webPreferences: { session: partition, backgroundThrottling: false } });
+    win.webContents.on("console-message", (_event, _level, message) => { fs.appendFileSync(path.join(out, "console.log"), String(message) + "\n"); });
+    await win.loadURL("http://127.0.0.1:3000/tests/reference-compression.html");
+    const result = await win.webContents.executeJavaScript("window.__compressionCheck");
+    result.blockedExternalRequests = blocked;
+    result.localWorkerScriptRequested = urls.some(url => url.includes("browser-image-compression.js"));
+    fs.writeFileSync(path.join(out, "panel.png"), (await win.webContents.capturePage()).toPNG());
+    finish(result);
+}).catch(error => finish({ ok: false, error: String(error.stack || error) }));
+setTimeout(() => finish({ ok: false, error: "Test timed out" }), 120000);

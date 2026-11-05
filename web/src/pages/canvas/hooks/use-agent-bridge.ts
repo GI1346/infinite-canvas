@@ -16,6 +16,7 @@ import type { CanvasConnection, CanvasNodeData, ContextMenuState, ViewportTransf
 type GenerateNodeRef = MutableRefObject<((nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, signal?: AbortSignal) => Promise<string | void>) | null>;
 
 type AgentBridgeParams = {
+    isNodeDragging: boolean;
     projectId: string;
     title: string | undefined;
     nodes: CanvasNodeData[];
@@ -41,7 +42,7 @@ type AgentBridgeParams = {
  * Bridge the canvas to its floating channel-backed assistant. All members except applyAgentOps are internal.
  */
 export function useAgentBridge(params: AgentBridgeParams) {
-    const { projectId, title, nodes, connections, selectedNodeIds, viewport, getCanvasCenter, nodesRef, connectionsRef, selectedNodeIdsRef, viewportRef, generateNodeRef, pluginHostRef, setNodes, setConnections, setSelectedNodeIds, setSelectedConnectionId, setViewport, setContextMenu } =
+    const { isNodeDragging, projectId, title, nodes, connections, selectedNodeIds, viewport, getCanvasCenter, nodesRef, connectionsRef, selectedNodeIdsRef, viewportRef, generateNodeRef, pluginHostRef, setNodes, setConnections, setSelectedNodeIds, setSelectedConnectionId, setViewport, setContextMenu } =
         params;
     const setContext = useCanvasAssistantStore((state) => state.setContext);
     const agentUndoSnapshot = useRef<Array<{ before: CanvasAgentSnapshot; after: CanvasAgentSnapshot }>>([]);
@@ -122,7 +123,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
             if (!host) throw new Error("工作流运行器尚未就绪");
             return runWorkflowNode(nodeId, { ...host, applyOps: applyAgentOps, getConfig: () => useConfigStore.getState().config, isActive }, { signal, prompt });
         }
-        if (!["text", "image", "video", "audio"].includes(source.type)) throw new Error(`该节点没有专用运行器：${source.type}`);
+        if (!["config", "text", "image", "video", "audio"].includes(source.type)) throw new Error(`该节点没有专用运行器：${source.type}`);
         if (!generateNodeRef.current) throw new Error("生成器尚未就绪");
         if (source.metadata?.status === "loading") throw new Error("节点正在运行，请等待完成");
         const ids = new Set(before.nodes.map((node) => node.id));
@@ -145,7 +146,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
         if (!output && current === source) throw new Error("生成未启动，请检查模型、渠道及提示词");
         return output || current;
     }, [getSnapshot, applyAgentOps, projectId]);
-    useEffect(() => { const last = agentUndoSnapshot.current.at(-1); setContext({ snapshot: agentSnapshot, getSnapshot, getCreationCenter: getCanvasCenter, applyOps: applyAgentOps, undoOps: undoAgentOps, canUndo: Boolean(last && last.after.nodes === nodesRef.current && last.after.connections === connectionsRef.current), runNode }); }, [agentSnapshot, getSnapshot, getCanvasCenter, applyAgentOps, undoAgentOps, undoVersion, runNode, setContext]);
+    useEffect(() => { if (isNodeDragging) return; const last = agentUndoSnapshot.current.at(-1); setContext({ snapshot: agentSnapshot, getSnapshot, getCreationCenter: getCanvasCenter, applyOps: applyAgentOps, undoOps: undoAgentOps, canUndo: Boolean(last && last.after.nodes === nodesRef.current && last.after.connections === connectionsRef.current), runNode }); }, [isNodeDragging, agentSnapshot, getSnapshot, getCanvasCenter, applyAgentOps, undoAgentOps, undoVersion, runNode, setContext]);
     useEffect(() => () => setContext(null), [projectId, setContext]);
 
     return { applyAgentOps };

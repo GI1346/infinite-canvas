@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Blend, Table2, Layers, ImageIcon, List, Music2, Video, X } from "lucide-react";
+import { Blend, BrainCircuit, Settings2, Table2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -28,7 +28,8 @@ export function ConnectionCreateMenu({
     const { t } = useTranslation();
     return (
         <div
-            className="absolute z-[120] w-[240px] rounded-2xl border p-2 shadow-2xl backdrop-blur"
+            className="absolute z-[120] w-[300px] rounded-2xl border p-2 shadow-2xl backdrop-blur"
+            data-canvas-no-zoom
             data-connection-create-menu
             style={{ left: pending.position.x, top: pending.position.y, transform: `scale(${1 / scale})`, transformOrigin: "top left", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             onMouseDown={(event) => event.stopPropagation()}
@@ -43,12 +44,9 @@ export function ConnectionCreateMenu({
                 </button>
             </div>
             <div className="grid gap-0.5">
-                <ConnectionCreateOption theme={theme} icon={<Table2 className="size-4" />} title="多维表格" description="图片组与文本按输入列逐行组合" onClick={() => onCreate("dxos:table")} />
-                <ConnectionCreateOption theme={theme} icon={<Layers className="size-4" />} title="并发生成" description="接收表格，按行并发生成结果" onClick={() => onCreate("dxos:concurrent")} />
-                <ConnectionCreateOption theme={theme} icon={<List className="size-4" />} title={t("canvas.createMenu.text")} description={t("canvas.createMenu.textDescription")} onClick={() => onCreate(CanvasNodeType.Text)} />
-                <ConnectionCreateOption theme={theme} icon={<ImageIcon className="size-4" />} title={t("canvas.createMenu.image")} onClick={() => onCreate(CanvasNodeType.Image)} />
-                <ConnectionCreateOption theme={theme} icon={<Video className="size-4" />} title={t("canvas.createMenu.video")} onClick={() => onCreate(CanvasNodeType.Video)} />
-                <ConnectionCreateOption theme={theme} icon={<Music2 className="size-4" />} title={t("canvas.createMenu.audio")} onClick={() => onCreate(CanvasNodeType.Audio)} />
+                <ConnectionCreateOption theme={theme} icon={<Settings2 className="size-4" />} title="生成配置" description="连接图文，保留配置并新增图片结果" onClick={() => onCreate(CanvasNodeType.Config)} />
+                <ConnectionCreateOption theme={theme} icon={<Table2 className="size-4" />} title="多维表格" description="图片与文本按输入列逐行组合" onClick={() => onCreate("dxos:table")} />
+                <ConnectionCreateOption theme={theme} icon={<BrainCircuit className="size-4" />} title="LLM 多模态分析" description="分析图片与文本，输出文本或表格" onClick={() => onCreate("dxos:llm")} />
                 <ConnectionCreateOption theme={theme} icon={<Blend className="size-4" />} title="融合节点" description="将局部修改融合回原图" onClick={() => onCreate("blinkflow:fusion")} />
             </div>
         </div>
@@ -59,8 +57,8 @@ export function ConnectionCreateOption({ theme, icon, title, description, onClic
     return (
         <button
             type="button"
-            className="flex h-12 w-full cursor-pointer items-center gap-2.5 rounded-xl px-2 text-left transition"
-            style={{ color: theme.node.text }}
+            className="flex min-h-12 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition"
+            style={{ color: theme.node.text, overflow: "hidden", whiteSpace: "normal" }}
             onClick={onClick}
             onMouseEnter={(event) => (event.currentTarget.style.background = theme.node.fill)}
             onMouseLeave={(event) => (event.currentTarget.style.background = "transparent")}
@@ -68,10 +66,10 @@ export function ConnectionCreateOption({ theme, icon, title, description, onClic
             <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: theme.node.fill, color: theme.node.muted }}>
                 {icon}
             </span>
-            <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 text-sm font-medium leading-5">{title}</span>
+            <span className="min-w-0 flex-1" style={{ overflow: "hidden" }}>
+                <span className="block text-sm font-medium leading-5" style={{ overflowWrap: "anywhere" }}>{title}</span>
                 {description ? (
-                    <span className="mt-0.5 block truncate text-xs" style={{ color: theme.node.muted }}>
+                    <span className="mt-0.5 block text-xs leading-4" style={{ color: theme.node.muted, whiteSpace: "normal", overflowWrap: "anywhere" }}>
                         {description}
                     </span>
                 ) : null}
@@ -85,8 +83,8 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
     const { t } = useTranslation();
     useNodeRegistryVersion();
     const menuRef = useRef<HTMLDivElement>(null);
-    const order = [CanvasNodeType.Text, CanvasNodeType.Image, "dxos:table", "dxos:llm", "blinkflow:fusion", CanvasNodeType.Video, "dxos:concurrent", CanvasNodeType.Audio] as string[];
-    const definitions = listNodeDefinitions().filter((def) => def.showInCreateMenu !== false && def.type !== CanvasNodeType.Config && def.type !== CanvasNodeType.Group).sort((a, b) => {
+    const order = [CanvasNodeType.Text, CanvasNodeType.Config, "dxos:table", "dxos:llm", "blinkflow:fusion"] as string[];
+    const definitions = listNodeDefinitions().filter((def) => order.includes(def.type)).sort((a, b) => {
         const first = order.indexOf(a.type), second = order.indexOf(b.type);
         return (first < 0 ? order.length : first) - (second < 0 ? order.length : second);
     });
@@ -101,7 +99,7 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
     return (
         <div
             ref={menuRef}
-            className="absolute z-[120] max-h-[70vh] w-[240px] overflow-y-auto rounded-2xl border p-2 shadow-2xl backdrop-blur thin-scrollbar"
+            className="absolute z-[120] max-h-[70vh] w-[300px] overflow-y-auto rounded-2xl border p-2 shadow-2xl backdrop-blur thin-scrollbar"
             data-canvas-no-zoom
             style={{ left: position.x, top: position.y, transform: `scale(${1 / scale})`, transformOrigin: "top left", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             onPointerDown={(event) => event.stopPropagation()}

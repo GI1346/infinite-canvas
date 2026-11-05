@@ -1,7 +1,7 @@
 import { useAddImagesToHarness } from "@/services/api/deepseek-harness";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { App, Modal, Segmented, Tooltip } from "antd";
-import { Bot, Scan, Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video } from "lucide-react";
+import { Check, Palette, Bot, Scan, Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -155,7 +155,7 @@ export function CanvasNodeHoverToolbar({
 
     const baseToolbarTools: ToolbarTool[] = [
         { id: "addToAgent", title: "添加到 Agent", label: "添加到 Agent", icon: <Bot className="size-4" />, onClick: () => onAddToAgent(node) },
-        ...(isImage || node.type === CanvasNodeType.Group ? [{ id: "addToHarness", title: "添加到 Harness", label: "添加到 Harness", icon: <img src="/icons/deepseek.svg" alt="" className="size-4" />, onClick: () => addToHarness([node.id]) }] : []),
+        ...(isImage || isText || node.type === CanvasNodeType.Group ? [{ id: "addToHarness", title: "添加到 Harness", label: "添加到 Harness", icon: <img src="/icons/deepseek.svg" alt="" className="size-4" />, onClick: () => addToHarness([node.id]) }] : []),
         { id: "info", title: t("canvas.nodeToolbar.infoTitle"), label: t("canvas.nodeToolbar.info"), icon: <Info className="size-4" />, onClick: () => onInfo(node) },
         ...(node.type === CanvasNodeType.Group && onUngroup ? [{ id: "ungroup", title: t("canvas.nodeToolbar.ungroupTitle"), label: t("canvas.nodeToolbar.ungroup"), icon: <Ungroup className="size-4" />, onClick: () => onUngroup(node) }] : []),
         ...(node.type === CanvasNodeType.Group && onBatchDownload ? [{ id: "batchDownload", title: "批量下载图片（选择目录）", label: batchDownloading ? "打包中…" : "批量下载", icon: <Download className="size-4" />, onClick: () => onBatchDownload(node), disabled: batchDownloading }] : []),
@@ -328,6 +328,34 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
         <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3">
             <span className="opacity-50">{label}</span>
             <span className="min-w-0 whitespace-pre-wrap break-words">{value}</span>
+        </div>
+    );
+}
+
+const groupColors = [
+    { label: "默认灰", value: undefined }, { label: "绿色", value: "#84cc16" }, { label: "青绿", value: "#10b981" },
+    { label: "青色", value: "#06b6d4" }, { label: "蓝色", value: "#3b82f6" }, { label: "紫色", value: "#8b5cf6" },
+    { label: "黄色", value: "#f59e0b" }, { label: "橙色", value: "#f97316" }, { label: "红色", value: "#f43f5e" },
+];
+
+export function CanvasGroupColorToolbar({ node, viewport, onColorChange }: { node: CanvasNodeData; viewport: ViewportTransform; onColorChange: (color: string | undefined) => void }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!open) return;
+        const close = (event: PointerEvent) => { if (event.target instanceof Node && !ref.current?.contains(event.target)) setOpen(false); };
+        window.addEventListener("pointerdown", close, true);
+        return () => window.removeEventListener("pointerdown", close, true);
+    }, [open]);
+    return (
+        <div ref={ref} data-group-color-toolbar={node.id} data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="absolute z-[75] flex -translate-x-1/2 flex-col items-center gap-2"
+            style={{ left: viewport.x + (node.position.x + node.width / 2) * viewport.k, top: viewport.y + (node.position.y + node.height) * viewport.k + 12, color: theme.node.text }}
+            onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") setOpen(false); }} onWheel={(event) => event.stopPropagation()}>
+            <button type="button" aria-label="分组颜色" aria-expanded={open} title="设置分组颜色" className="flex size-9 items-center justify-center rounded-xl border" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, boxShadow: theme.toolbar.shadow }} onClick={() => setOpen((value) => !value)}><Palette size={18} /><span className="ml-0.5 size-1.5 rounded-full" style={{ background: node.metadata?.groupColor || theme.node.muted }} /></button>
+            {open && <div role="group" aria-label="选择分组颜色" className="grid grid-cols-3 gap-2 rounded-xl border p-2" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, boxShadow: theme.toolbar.shadow }}>
+                {groupColors.map((color) => <button key={color.label} type="button" aria-label={color.label} aria-pressed={node.metadata?.groupColor === color.value} title={color.label} className="grid size-7 place-items-center rounded-lg border" style={{ background: color.value || theme.node.muted, borderColor: theme.toolbar.border, color: theme.node.panel, outline: node.metadata?.groupColor === color.value ? "2px solid " + theme.node.text : undefined, outlineOffset: 2 }} onClick={() => onColorChange(color.value)}>{node.metadata?.groupColor === color.value && <Check size={18} />}</button>)}
+            </div>}
         </div>
     );
 }

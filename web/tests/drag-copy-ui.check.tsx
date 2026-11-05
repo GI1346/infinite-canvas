@@ -7,6 +7,7 @@ import { ProjectDragHarness } from "project-drag-harness";
 import { registerNodeDefinitions } from "../src/lib/canvas/node-registry";
 import { dxosNodeDefinitions } from "../src/components/canvas/nodes/dxos-workflow-nodes";
 import { emptyTable, TABLE_TYPE } from "../src/lib/canvas/dxos-table";
+import { useThemeStore } from "../src/stores/use-theme-store";
 import type { CanvasNodeData, CanvasConnection, ViewportTransform } from "../src/types/canvas";
 
 registerNodeDefinitions([...dxosNodeDefinitions, ...["image", "text", "group"].map(type => ({ type, title: type, icon: null, defaultSize: { width: 100, height: 80 }, hidePanel: true }))]);
@@ -37,6 +38,61 @@ async function mount(seed: Seed) {
 }
 async function main() {
     try {
+        await test("相连节点在明暗主题下仅悬停当前浅边、单击当前强边，连线不随节点高亮；保留连线直接选择和修饰键多选", async () => {
+            const oldTheme = useThemeStore.getState().theme;
+            try {
+                for (const theme of ["light", "dark"] as const) {
+                    useThemeStore.getState().setTheme(theme);
+                    const originals = [node("a"), node("b", 200, 40, "text"), node("c", 380)], connections = [edge("ab", "a", "b"), edge("bc", "b", "c")];
+                    const h = await mount({ nodes: originals, connections });
+                    const shell = (id: string) => h.find(id).querySelector<HTMLElement>(":scope > .border-2")!;
+                    const outlines = () => originals.map(n => ({ id: n.id, border: shell(n.id).style.borderColor, shadow: shell(n.id).style.boxShadow }));
+                    const edgeStyles = () => [...h.el.querySelectorAll<SVGPathElement>("[data-connection-paths] > path:last-child")].map(p => ({ stroke: p.getAttribute("stroke"), width: p.getAttribute("stroke-width"), opacity: p.getAttribute("stroke-opacity"), filter: p.style.filter }));
+                    const clickNode = async (id: string, modifiers = {}) => { await down(h.title(id), { clientX: 400, clientY: 300, ...modifiers }); await up({ clientX: 400, clientY: 300, ...modifiers }); await fire(h.title(id), mouse("click", { buttons: 0, ...modifiers })); };
+                    try {
+                        const neutral = outlines(), neutralEdges = edgeStyles();
+                        await fire(h.find("a"), mouse("mouseover"));
+                        const hovered = outlines();
+                        assert.notEqual(hovered[0].border, neutral[0].border); assert.notEqual(hovered[0].shadow, neutral[0].shadow);
+                        assert.deepEqual(hovered.slice(1), neutral.slice(1)); assert.deepEqual(h.state.selected, new Set()); assert.deepEqual(edgeStyles(), neutralEdges);
+                        await clickNode("a");
+                        assert.deepEqual(h.state.selected, new Set(["a"]));
+                        const selectedBorder = shell("a").style.borderColor;
+                        assert.notEqual(selectedBorder, hovered[0].border); assert.ok(!selectedBorder.startsWith("rgba"), "selected border is opaque");
+                        assert.ok(hovered[0].border.startsWith("rgba"), "hover border is translucent");
+                        assert.deepEqual(outlines().slice(1), neutral.slice(1)); assert.deepEqual(edgeStyles(), neutralEdges);
+                        await fire(h.find("a"), mouse("mouseout"));
+                        assert.equal(shell("a").style.borderColor, selectedBorder, "selection survives pointer exit");
+                        await fire(h.find("b"), mouse("mouseover"));
+                        assert.equal(shell("a").style.borderColor, selectedBorder); assert.equal(shell("b").style.borderColor, hovered[0].border); assert.deepEqual(outlines()[2], neutral[2]); assert.deepEqual(edgeStyles(), neutralEdges);
+                        await clickNode("b");
+                        assert.deepEqual(h.state.selected, new Set(["b"])); assert.deepEqual(outlines()[0], neutral[0]); assert.equal(shell("b").style.borderColor, selectedBorder); assert.deepEqual(outlines()[2], neutral[2]); assert.deepEqual(edgeStyles(), neutralEdges);
+                        await fire(h.find("b"), mouse("mouseout"));
+                        await clickNode("a", { ctrlKey: true });
+                        assert.deepEqual(h.state.selected, new Set(["a", "b"])); assert.equal(shell("a").style.borderColor, selectedBorder); assert.equal(shell("b").style.borderColor, selectedBorder); assert.deepEqual(outlines()[2], neutral[2]); assert.deepEqual(edgeStyles(), neutralEdges);
+                        await clickNode("b", { shiftKey: true }); assert.deepEqual(h.state.selected, new Set(["a"]));
+                        await fire(h.el.querySelector('[data-connection-id="ab"]')!, mouse("click", { buttons: 0 }));
+                        assert.deepEqual(h.state.selected, new Set()); assert.deepEqual(outlines(), neutral);
+                        assert.equal(edgeStyles()[0].width, "3"); assert.equal(edgeStyles()[0].opacity, "1"); assert.deepEqual(edgeStyles()[1], neutralEdges[1]);
+                        await clickNode("c"); assert.deepEqual(h.state.selected, new Set(["c"])); assert.deepEqual(edgeStyles(), neutralEdges);
+                        assert.deepEqual(h.state.nodes, originals); assert.deepEqual(h.state.connections, connections); assert.equal(h.state.history.past.length, 0);
+                    } finally { await h.close(); }
+                }
+            } finally { useThemeStore.getState().setTheme(oldTheme); }
+        });
+        await test("组框保留用户颜色，选择组不高亮其子节点或相连节点", async () => {
+            const group = { ...node("group", 0, 0, "group"), width: 400, height: 300, metadata: { groupColor: "#10b981" } }, child = node("child", 60, 80, "image", "group"), outside = node("outside", 600, 400);
+            const h = await mount({ nodes: [group, child, outside], connections: [edge("group-outside", "group", "outside")] });
+            const shell = (id: string) => h.find(id).querySelector<HTMLElement>(":scope > .border-2")!;
+            try {
+                const groupColor = shell("group").style.borderColor, fill = shell("group").style.background, childBorder = shell("child").style.borderColor, outsideBorder = shell("outside").style.borderColor;
+                await down(h.title("group"), { clientX: 400, clientY: 300 }); await up({ clientX: 400, clientY: 300 });
+                assert.deepEqual(h.state.selected, new Set(["group"])); assert.notEqual(shell("group").style.borderColor, groupColor); assert.equal(shell("group").style.background, fill);
+                assert.equal(shell("child").style.borderColor, childBorder); assert.equal(shell("outside").style.borderColor, outsideBorder); assert.equal(h.el.querySelector("[data-connection-paths] > path:last-child")!.getAttribute("stroke-width"), "2");
+                await down(h.title("outside"), { clientX: 400, clientY: 300 }); await up({ clientX: 400, clientY: 300 });
+                assert.equal(shell("group").style.borderColor, groupColor); assert.equal(shell("group").style.background, fill); assert.equal(shell("child").style.borderColor, childBorder);
+            } finally { await h.close(); }
+        });
         await test("Alt+单节点真实React DOM拖动阈值后仅复制一次，多帧及松Alt继续移动副本而非原件", async () => {
             const a = node("a"), h = await mount({ nodes: [a] });
             try {

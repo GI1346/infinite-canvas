@@ -1,3 +1,4 @@
+import { useAssistantCompressionStore } from "@/stores/use-assistant-compression-store";
 import { recordDiagnostic } from "@/services/diagnostics";
 import { isHarnessCanvasBusy } from "@/lib/canvas/harness-canvas-busy";
 import localforage from "localforage";
@@ -8,7 +9,7 @@ import { buildAssistantSkillPrompt } from "@/lib/canvas/canvas-assistant-skills"
 import { assistantContextMessages, DEFAULT_ASSISTANT_CONTEXT_WINDOW, normalizeAssistantContextWindow } from "@/lib/canvas/assistant-context-window";
 import { getAssistantSkill, loadAssistantSkills } from "@/stores/use-canvas-assistant-skill-store";
 import type { CanvasAgentOp, CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
-import { assistantPromptSourceIds, assistantRunMode, assistantRunTargets, assistantSystemPrompt, assistantWorkflowWithSources, executeAssistantTool, requestAssistantAction, type AssistantAction, type AssistantToolResult } from "@/services/api/canvas-assistant";
+import { assistantPromptSourceIds, assistantRunMode, assistantRunOutcome, assistantRunReceipt, assistantRunTargets, assistantSystemPrompt, assistantWorkflowWithSources, executeAssistantTool, requestAssistantAction, type AssistantAction, type AssistantToolResult } from "@/services/api/canvas-assistant";
 import type { AiTextMessage } from "@/services/api/image";
 import { selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
 import type { CanvasGenerationMode, CanvasNodeData } from "@/types/canvas";
@@ -109,24 +110,26 @@ function assertProject(context: CanvasAssistantContext, projectId: string, signa
 async function runGeneration(action: AssistantAction, context: CanvasAssistantContext, projectId: string, signal: AbortSignal, userDraft = ""): Promise<AssistantToolResult> {
     assertProject(context, projectId, signal);
     let targets = assistantRunTargets(action, context);
-    const outcomes = [];
     if (!targets.length) throw new Error("Agent 未指定可运行节点");
     // Validate every target before the first generation request, in either approval mode.
     const runModes = targets.map(assistantRunMode);
     const requirements = explicitAssistantImageRequirements(userDraft), config = useConfigStore.getState().config;
-    if (Object.keys(requirements).length) {
-        const ops = targets.flatMap((node, index): CanvasAgentOp[] => runModes[index] === "image" && node.type !== "blinkflow:fusion" ? [{ type: "update_node", id: node.id, metadata: assistantImageParameters(requirements, node.metadata || {}, config) }] : []);
+    {
+        const ops = targets.flatMap((node, index): CanvasAgentOp[] => runModes[index] === "image" && node.type !== "blinkflow:fusion" ? [{ type: "update_node", id: node.id, metadata: { ...assistantImageParameters(requirements, node.metadata || {}, config), ...useAssistantCompressionStore.getState().agent } }] : []);
         if (ops.length) { context.applyOps(ops); targets = assistantRunTargets(action, context); }
     }
-    for (const [index, node] of targets.entries()) {
+    const outcomes = await Promise.all(targets.map(async (node, index) => {
         assertProject(context, projectId, signal);
-        const output = await context.runNode(node.id, runModes[index], node.metadata?.composerContent || node.metadata?.prompt || "", signal);
-        assertProject(context, projectId, signal);
-        const graph = context.getSnapshot();
-        const current = output || graph.nodes.find((item) => item.id === node.id);
-        outcomes.push({ id: current?.id || node.id, sourceNodeId: node.id, width: current?.metadata?.naturalWidth, height: current?.metadata?.naturalHeight, parameters: { size: current?.metadata?.size, imageResolution: current?.metadata?.imageResolution, quality: current?.metadata?.quality }, exists: Boolean(current), status: current?.metadata?.status || "idle", error: current?.metadata?.errorDetails, images: current?.metadata?.images?.map((image) => ({ id: image.id, status: image.status, error: image.errorDetails, width: image.naturalWidth, height: image.naturalHeight })), hasOutput: Boolean(current?.metadata?.storageKey || current?.metadata?.content || current?.metadata?.images?.some((image) => image.status === "success")) });
-    }
-    return { value: { outcomes, note: "id是实际产物ID，sourceNodeId是输入节点。width/height为真实像素；参数不是产物证明。请按真实结果回答，必要时调用 read_results 查看实际产物ID，不要把旧输入图当作新结果。" } };
+        try {
+            const output = await context.runNode(node.id, runModes[index], node.metadata?.composerContent || node.metadata?.prompt || "", signal);
+            assertProject(context, projectId, signal);
+            return assistantRunOutcome(node.id, output, context.getSnapshot());
+        } catch (error) {
+            assertProject(context, projectId, signal);
+            return assistantRunOutcome(node.id, undefined, context.getSnapshot(), error);
+        }
+    }));
+    return { value: { ...assistantRunReceipt(outcomes), note: "全部目标已并发执行；逐图依据本次真实产物和错误报告，未确认不算成功。id 是产物节点，sourceNodeId 是配置；width/height 是真实像素。部分失败保留其他结果，不自动再次付费生成。" } };
 }
 async function loop(context: CanvasAssistantContext, initial: CanvasAssistantSession, transcript: AiTextMessage[], controller: AbortController) {
     const { projectId, id } = initial, signal = controller.signal;
@@ -141,20 +144,33 @@ async function loop(context: CanvasAssistantContext, initial: CanvasAssistantSes
             const proposed = await requestAssistantAction(config, session.model, [{ role: "system", content: assistantSystemPrompt(config, initial.turnModels || initial.models, useCanvasAssistantStore.getState().generationMode) + (initial.turnSkillPrompt || "") }, ...assistantContextMessages(transcript, initial.turnHistoryLength ?? transcript.length, session.contextWindow)], signal);
             assertProject(context, projectId, signal);
             const action = assistantWorkflowWithSources(proposed, context.getSnapshot(), session.turnPromptSourceIds || []);
+            if (action.tool === "run_nodes" && transcript.slice(initial.turnHistoryLength || 0).some((message) => {
+                if (message.role !== "assistant" || typeof message.content !== "string") return false;
+                try { const previous = JSON.parse(message.content); return previous.tool === "run_nodes" && Array.isArray(previous.args?.nodeIds) && Array.isArray(action.args.nodeIds) && JSON.stringify([...previous.args.nodeIds].sort()) === JSON.stringify([...action.args.nodeIds].sort()); } catch { return false; }
+            })) throw new Error("本轮已提交过这些生成节点，已阻止重复付费调用。已有结果保留；需要重试或再次生成时请另发要求。");
             const fingerprint = JSON.stringify(action), before = context.getSnapshot(), previous = seen.get(fingerprint);
             if (previous && previous.nodes === before.nodes && previous.connections === before.connections && previous.viewport === before.viewport && previous.selectedNodeIds.length === before.selectedNodeIds.length && previous.selectedNodeIds.every((nodeId, index) => nodeId === before.selectedNodeIds[index])) throw new Error("Agent 重复同一操作且画布没有变化，已停止。请调整要求或更换对话模型后继续。");
             seen.set(fingerprint, before);
             transcript = [...transcript, { role: "assistant", content: JSON.stringify(action) }];
             patch(projectId, id, (value) => ({ ...value, transcript: transcript.map(textOnly), status: action.tool === "run_nodes" && useCanvasAssistantStore.getState().generationMode === "auto" ? "正在生成" : actionName(action) }));
-            if (action.tool === "final") { append(projectId, id, "assistant", typeof action.args.message === "string" ? action.args.message : "已完成"); return; }
+            if (action.tool === "final") {
+                const receipts = transcript.slice(initial.turnHistoryLength || 0).flatMap((message) => {
+                    if (message.role !== "user" || typeof message.content !== "string" || !message.content.startsWith("工具 run_nodes 返回：")) return [];
+                    try { return [JSON.parse(message.content.slice("工具 run_nodes 返回：".length)) as { outcomes?: ReturnType<typeof assistantRunOutcome>[]; error?: string }]; } catch { return []; }
+                });
+                const outcomes = receipts.flatMap((receipt) => receipt.outcomes || []);
+                const summary = [outcomes.length ? assistantRunReceipt(outcomes).summary : "", ...receipts.flatMap((receipt) => receipt.error ? ["生成未执行：" + receipt.error] : [])].filter(Boolean).join("\n");
+                append(projectId, id, "assistant", summary || (typeof action.args.message === "string" ? action.args.message : "已完成")); return;
+            }
             if (action.tool === "run_nodes" && useCanvasAssistantStore.getState().generationMode === "manual") {
                 const targets = assistantRunTargets(action, context);
                 if (!targets.length) throw new Error("Agent 未指定可运行节点");
+                targets.forEach(assistantRunMode);
                 patch(projectId, id, (value) => ({ ...value, pending: action, running: false, status: "等待确认生成" }));
                 return;
             }
             let result: AssistantToolResult;
-            try { result = action.tool === "run_nodes" ? await runGeneration(action, context, projectId, signal, session.messages.findLast((item) => item.role === "user")?.draft || "") : await executeAssistantTool(action, context, config, initial.turnModels || initial.models, signal, session.knownNodeIds || []); }
+            try { result = action.tool === "run_nodes" ? await runGeneration(action, context, projectId, signal, session.messages.findLast((item) => item.role === "user")?.draft || "") : await executeAssistantTool(action, context, config, initial.turnModels || initial.models, signal, session.knownNodeIds || [], useAssistantCompressionStore.getState().agent); }
             catch (error) { if (signal.aborted) throw error; recordDiagnostic("Agent 工具", error, { projectId }); result = { value: { ok: false, error: error instanceof Error ? error.message : String(error) } }; }
             assertProject(context, projectId, signal);
             transcript = [...transcript, toolMessage(action, result)];
@@ -256,7 +272,7 @@ export const useCanvasAssistantStore = create<CanvasAssistantStore>((set, get) =
             patch(projectId, session.id, (item) => ({ ...item, running: true, draft: "", references: [], models: [], knownNodeIds, turnModels: models, turnSkillPrompt, turnHistoryLength, turnPromptSourceIds, title: item.messages.length ? item.title : displayText.trim().split("\n")[0], transcript, pending: undefined, messages: [...item.messages, { id: nanoid(), role: "user", text: displayText, draft, referenceLabels, references, models }] }));
             const inputNodeIds = [...new Set([...references, ...turnPromptSourceIds])];
             if (inputNodeIds.length) {
-                try { const result = await executeAssistantTool({ tool: "read_assets", args: { nodeIds: inputNodeIds } }, context, useConfigStore.getState().config, models, controller.signal, knownNodeIds);
+                try { const result = await executeAssistantTool({ tool: "read_assets", args: { nodeIds: inputNodeIds } }, context, useConfigStore.getState().config, models, controller.signal, knownNodeIds, useAssistantCompressionStore.getState().agent);
                     const readIds = ((result.value as { nodes?: Array<{ id: string }> })?.nodes || []).map((node) => node.id);
                     patch(projectId, session.id, (item) => ({ ...item, knownNodeIds: [...new Set([...(item.knownNodeIds || []), ...readIds])] }));
                     transcript = [...transcript, toolMessage({ tool: "read_assets", args: {} }, result)]; }

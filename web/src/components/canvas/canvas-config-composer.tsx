@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { Button, Image } from "antd";
 import { FileText, Group, Image as ImageIcon, Music2, Video, X } from "lucide-react";
@@ -6,8 +7,10 @@ import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { orderReferenceNodes } from "@/lib/canvas/canvas-resource-references";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
+import { stopWorkflowControlDrag } from "./workflow-node-interactions";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
 import type { CanvasNodeData } from "@/types/canvas";
 
@@ -19,6 +22,9 @@ type CanvasConfigComposerProps = {
     connectedNodes?: CanvasNodeData[];
     onChange: (value: string) => void;
     onClose: () => void;
+    embedded?: boolean;
+    expanded?: boolean;
+    onReorderReferences?: (nodeIds: string[]) => void;
     onDisconnectReference?: (fromNodeId: string, toNodeId: string) => void;
     onStartReferenceSelection?: (nodeId: string) => void;
 };
@@ -33,7 +39,7 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNodes = [], onChange, onClose, onDisconnectReference, onStartReferenceSelection }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], embedded = false, expanded = false, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences }: CanvasConfigComposerProps) {
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
@@ -41,6 +47,8 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
     const [mention, setMention] = useState<MentionState | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const referenceOrder = nodes.find((node) => node.id === nodeId)?.metadata?.referenceNodeOrder;
+    const inputs = useMemo(() => orderReferenceNodes(sourceInputs.map((input) => ({ ...input, id: input.nodeId })), referenceOrder), [sourceInputs, referenceOrder]);
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const candidates = useMemo(() => {
@@ -117,27 +125,31 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
     return (
         <div
             data-canvas-no-zoom
-            className="rounded-2xl border p-3 shadow-2xl backdrop-blur"
-            style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
-            onMouseDown={stopCanvasInteraction}
+            className={embedded ? "flex h-full min-h-0 flex-col" : "rounded-2xl border p-3 shadow-2xl backdrop-blur"}
+            style={{ background: embedded ? "transparent" : theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+            onMouseDown={stopWorkflowControlDrag}
             onPointerDown={stopCanvasInteraction}
             onWheel={(event) => event.stopPropagation()}
         >
-            <div className="mb-2 flex items-center justify-between gap-2">
+            {!embedded && <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-baseline gap-2">
                     <div className="shrink-0 text-xs font-semibold">{t("canvas.composer.title")}</div>
                     <div className="truncate text-[11px] opacity-55">{t("canvas.composer.description")}</div>
                 </div>
                 <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
-            </div>
-            <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} />
-            <div className="relative rounded-xl">
+            </div>}
+            <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onReorder={onReorderReferences} />
+            {embedded && <div data-config-text-inputs className="mb-2 flex shrink-0 flex-wrap gap-2">{inputs.flatMap((input) => input.type === "group" ? input.children : [input]).filter((input) => input.type === "text").map((input) => <span key={input.nodeId} title={input.text || input.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-3 py-1 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text }}><FileText size={12} /><span className="truncate">{input.title || "文本提示词"}</span></span>)}</div>}
+            <div data-config-composer className={embedded ? "relative min-h-0 flex-1 rounded-xl" : "relative rounded-xl"}>
                 {!value.trim() ? <div className="pointer-events-none absolute left-3 top-2 text-sm leading-7" style={{ color: theme.node.placeholder }}>{t("canvas.composer.placeholder")}</div> : null}
                 <div
                     ref={editorRef}
+                    role="textbox"
+                    aria-label="生成配置提示词"
+                    aria-multiline="true"
                     contentEditable
                     suppressContentEditableWarning
-                    className="thin-scrollbar min-h-28 max-h-72 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2 text-sm leading-7 outline-none"
+                    className={embedded ? `thin-scrollbar h-full min-h-16 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2 ${expanded ? "text-base leading-8" : "text-sm leading-7"} outline-none` : "thin-scrollbar min-h-28 max-h-72 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2 text-sm leading-7 outline-none"}
                     style={{ color: theme.node.text }}
                     onInput={() => {
                         if (!composingRef.current) syncFromEditor();
@@ -182,7 +194,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
                     }}
                     onBlur={() => window.setTimeout(closeMention, 120)}
                 />
-                {mention && candidates.length ? <MentionMenu inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} /> : null}
+                {mention && candidates.length ? <MentionMenu anchor={editorRef.current} inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} /> : null}
             </div>
             {imagePreview ? <Image src={imagePreview} alt={t("canvas.composer.imagePreview")} style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
@@ -190,8 +202,21 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
 
 }
 
-function MentionMenu({ inputs, allInputs, activeIndex, theme, onSelect }: { inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void }) {
+function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect }: { anchor: HTMLElement | null; inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void }) {
     const selectedRef = useRef(false);
+    const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
+    useLayoutEffect(() => {
+        if (!anchor) return;
+        const measure = () => {
+            const rect = anchor.getBoundingClientRect(), height = Math.min(224, window.innerHeight - 16);
+            const below = rect.bottom + 6;
+            setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)), top: below + height <= window.innerHeight ? below : Math.max(8, rect.top - height - 6), width: Math.min(320, window.innerWidth - 16), maxHeight: height });
+        };
+        measure();
+        window.addEventListener("resize", measure);
+        window.addEventListener("scroll", measure, true);
+        return () => { window.removeEventListener("resize", measure); window.removeEventListener("scroll", measure, true); };
+    }, [anchor]);
     const activeItemRef = useRef<HTMLButtonElement | null>(null);
 
     useEffect(() => {
@@ -205,7 +230,8 @@ function MentionMenu({ inputs, allInputs, activeIndex, theme, onSelect }: { inpu
     };
 
     return (
-        <div className="absolute left-2 top-[calc(100%+6px)] z-[90] max-h-56 w-64 overflow-y-auto rounded-xl border p-1 shadow-2xl" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }}>
+        createPortal(<div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="fixed z-[1100] overflow-y-auto overscroll-contain rounded-xl border p-1 shadow-2xl" style={{ ...position, background: theme.toolbar.panel, borderColor: theme.toolbar.border }} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+
             {inputs.map((input, index) => (
                 <button
                     key={input.nodeId}
@@ -226,7 +252,7 @@ function MentionMenu({ inputs, allInputs, activeIndex, theme, onSelect }: { inpu
                     </span>
                 </button>
             ))}
-        </div>
+        </div>, document.body)
     );
 }
 
@@ -282,7 +308,13 @@ function serializeNodes(nodes: NodeListOf<ChildNode>) {
         const nodeId = node.dataset.referenceNodeId;
         if (nodeId) result += `@[node:${nodeId}]`;
         else if (node.tagName === "BR") result += "\n";
-        else result += serializeNodes(node.childNodes);
+        else {
+            const block = node.tagName === "DIV" || node.tagName === "P";
+            if (block && node.previousSibling) result += "\n";
+            const content = serializeNodes(node.childNodes);
+            result += block && content === "\n" ? "" : content;
+            if (block && node.nextSibling && !(node.nextSibling instanceof HTMLElement && ["DIV", "P"].includes(node.nextSibling.tagName))) result += "\n";
+        }
     });
     return result;
 }

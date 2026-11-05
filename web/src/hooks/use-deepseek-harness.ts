@@ -4,11 +4,12 @@ import { recordDiagnostic } from "@/services/diagnostics";
 import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useHarnessModelStore } from "@/stores/use-harness-model-store";
+import { ensureHarnessBridge } from "@/lib/harness-browser-bridge";
 
 /** Listen outside the canvas route so a closed canvas returns an error instead of hanging. */
 export function useDeepSeekHarness() {
     useEffect(() => {
-        const harness = window.blinkflowHarness;
+        const harness = ensureHarnessBridge();
         if (!harness) return;
         let lastModels = "", lastSelection = "";
         const publishSelection = () => {

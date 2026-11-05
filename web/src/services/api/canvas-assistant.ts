@@ -1,3 +1,4 @@
+import type { ReferenceImageCompressionSettings } from "@/lib/canvas/reference-image-compression";
 import { centerAssistantNodes } from "@/lib/canvas/assistant-node-layout";
 import { assistantImageParameters } from "@/lib/canvas/assistant-image-parameters";
 import { editAssistantCanvas } from "@/services/api/canvas-assistant-edit";
@@ -28,7 +29,7 @@ export function assistantGraphSummary(snapshot: CanvasAgentSnapshot) {
 export function assistantSystemPrompt(config: AiConfig, selectedModels: string[], generationMode: "manual" | "auto" = "manual") {
     const models = (["text", "image", "video", "audio"] as const).flatMap((kind) => selectableModelsByCapability(config, kind).map((id) => ({ id, kind, label: modelOptionLabel(config, id) })));
     const nodeTypes = listNodeDefinitions().map((node) => ({ type: node.type, name: node.title, description: node.description || "", defaults: node.defaultMetadata, panel: node.useBuiltinPanel?.mode }));
-    return `你是 BlinkFlow 画布助手。理解用户需求，只使用用户主动引用的节点或本会话创建、运行的节点，创建有提示词、模型和连线的可执行工作流。不能扫描、读取或列出整张画布。只操作当前画布，不执行代码、命令、网络脚本或文件系统操作。\n每次回复必须是单个JSON对象，不要Markdown围栏，形状为 {"tool":"工具名","args":{...}}。\n工具契约：\nread_assets:{nodeIds:string[]}，只读取用户主动引用或本会话创建、运行的节点的正文、参数及图片视觉内容；read_results:{nodeIds:string[]}，只读上述节点的实际运行产物和错误，不可用它们遍历画布；\napply_workflow:{nodes:[{key:string,type:string,title?:string,prompt?:string,model?:string,mode?:"image"|"video"|"text"|"audio",parameters?:object}],connections:[{from:string,to:string,toPort?:string}]}。key仅在这次计划内部使用，连线两端可用key或已有真实节点id。工作流一次落地，返回key到真实id的映射，之后必须用真实id。不要重复创建已经成功创建的节点。\nupdate_nodes:{nodeIds:string[],parameters:object}，修改生成参数，不能覆盖已有图片或提示词；run_nodes:{nodeIds:string[]}，请求运行这些真实节点，${generationMode === "auto" ? "用户已选择自动生成，直接执行并等候真实结果，不必再次询问审批" : "界面会先让用户确认，取消不会删除已建工作流"}；final:{message:string}，给用户最终中文回答。\nedit_canvas 操作契约：{action:"update",nodes:[{id,title?,x?,y?,width?,height?,text?,prompt?,model?,parameters?}]} 修改节点，text 只改文本节点正文，prompt 改生成提示词；{action:"delete"|"copy"|"select"|"group"|"ungroup",nodeIds:string[],dx?:number,dy?:number}，复制保留连线与参数；{action:"grid",nodeIds:string[],columns:number,gap:number} 宫格；{action:"disconnect",connectionIds:string[]} 断线；{action:"viewport",x:number,y:number,zoom:number} 平移缩放；{action:"extract_region",nodeIds:[原图ID],x:number,y:number,width:number,height:number,ratio?:string} 按原图像素提取；{action:"undo"} 撤销最近 Agent 编辑。建节点和连接仍用 apply_workflow（nodes可以为空以连接已有节点）；融合先建 blinkflow:fusion、连接原图及patch再run_nodes。不要求用户手工操作已有工具能够完成的画布操作。用户指令不明确或缺少选区坐标等必要参数时先 final 提问，不猜测删除对象。只在用户要求时删除或改已有产物；任何生成都必须走run_nodes，保留手动确认和自动执行两模式。\n图片尺寸契约：用户明确的比例、分辨率必须在首次 run_nodes 之前写入节点 parameters，不能只写进提示词。优先 imageAspectRatio（如2:3、9:16）+ imageResolution（1k/2k/4k/auto），系统将换算真实size；精确像素用size（宽x高），不得与比例冲突。没有明确要求才沿用默认。不要用图片显示宽高代替生成尺寸，不为修正尺寸自动重复付费生成；实际不符要如实报告，不能声称已达标。\n图片质量档位：auto=自动、low=低、medium=中、high=高、xhigh=极高、max=最高。用户说“质量最高”必须设 quality=\"max\"，不得把 high 当作最高；不支持该档位时报告接口错误，不擅自降级或重试。\n合法生成参数键：${parameterNames.join(",")}。文本正文放prompt，图片/视频节点的prompt是生成要求，text节点的prompt是正文。模型id必须逐字使用下列真实id，包含渠道编码；不自行发明模型、不跨渠道回退。没有所需图片/视频/对话模型时明确说明应配置哪类模型。多枚用户模型引用表示用这些模型组成流程，不是只挑其中一枚忽略其他。图片和视频模型用于生成，text模型只用于分析/对话。融合节点 blinkflow:fusion 本地回贴，不需要模型；完整原图连默认端口（不写toPort），局部修改图连toPort="patch"；不要为融合节点指定生成模式。多维表格不是普通图片生成器；run_nodes 只可直接运行text/image/video/audio、blinkflow:fusion、dxos:llm与dxos:concurrent，其他节点仅用于数据/连接或手工操作。当前用户指定的生成模型：${JSON.stringify(selectedModels)}。没有指定时可用对应全局默认：${JSON.stringify({ image: config.imageModel, video: config.videoModel, audio: config.audioModel, text: config.textModel })}。\n可用模型：${JSON.stringify(models)}\n已注册节点：${JSON.stringify(nodeTypes)}\n保留已有节点、产物及连线；除非用户明确要求改动它们。先看输入素材再描述它；不要声称已生成而没有运行结果。run_nodes返回后检查真实结果。用户提到选中的图就是消息附带的nodeIds，可连接为新生成节点的上游。用户要求将已有文本或刚创建的提示词生成为图片时，必须将对应文本节点连接到图片节点，并从该文本读取正文，不得只抄写后建一个孤立图片节点。本次提示词源节点ID若非空，应在connections使用这些真实ID作为图片上游；已有明确文本连线时不重复连接。若不能确定对应哪一段文本，先询问，不随意连接其他画布文本。系统不会提供整张画布或节点列表。只能使用用户主动@、添加、粘贴的引用，以及本会话创建、运行返回的节点ID。需要其正文、参数或图片视觉内容时用read_assets；未引用或不知道ID的已有节点须请用户先添加引用，不猜测ID、不遍历画布。历史工具内容可能过时，以指定引用的实际回读为准。可分步使用引用、建图、运行和回读结果。`;
+    return `你是 BlinkFlow 画布助手。理解用户需求，只使用用户主动引用的节点或本会话创建、运行的节点，创建有提示词、模型和连线的可执行工作流。不能扫描、读取或列出整张画布。只操作当前画布，不执行代码、命令、网络脚本或文件系统操作。\n每次回复必须是单个JSON对象，不要Markdown围栏，形状为 {"tool":"工具名","args":{...}}。\n工具契约：\nread_assets:{nodeIds:string[]}，只读取用户主动引用或本会话创建、运行的节点的正文、参数及图片视觉内容；read_results:{nodeIds:string[]}，只读上述节点的实际运行产物和错误，不可用它们遍历画布；\napply_workflow:{nodes:[{key:string,type:string,title?:string,prompt?:string,model?:string,mode?:"image"|"video"|"text"|"audio",parameters?:object}],connections:[{from:string,to:string,toPort?:string}]}。key仅在这次计划内部使用，连线两端可用key或已有真实节点id。工作流一次落地，返回key到真实id的映射，之后必须用真实id。不要重复创建已经成功创建的节点。\nupdate_nodes:{nodeIds:string[],parameters:object}，修改生成参数，不能覆盖已有图片或提示词；run_nodes:{nodeIds:string[]}，请求运行这些真实节点，${generationMode === "auto" ? "用户已选择自动生成，直接执行并等候真实结果，不必再次询问审批" : "界面会先让用户确认，取消不会删除已建工作流"}；final:{message:string}，给用户最终中文回答。\nedit_canvas 操作契约：{action:"update",nodes:[{id,title?,x?,y?,width?,height?,text?,prompt?,model?,parameters?}]} 修改节点，text 只改文本节点正文，prompt 改生成提示词；{action:"delete"|"copy"|"select"|"group"|"ungroup",nodeIds:string[],dx?:number,dy?:number}，复制保留连线与参数；{action:"grid",nodeIds:string[],columns:number,gap:number} 宫格；{action:"disconnect",connectionIds:string[]} 断线；{action:"viewport",x:number,y:number,zoom:number} 平移缩放；{action:"extract_region",nodeIds:[原图ID],x:number,y:number,width:number,height:number,ratio?:string} 按原图像素提取；{action:"undo"} 撤销最近 Agent 编辑。建节点和连接仍用 apply_workflow（nodes可以为空以连接已有节点）；融合先建 blinkflow:fusion、连接原图及patch再run_nodes。不要求用户手工操作已有工具能够完成的画布操作。用户指令不明确或缺少选区坐标等必要参数时先 final 提问，不猜测删除对象。只在用户要求时删除或改已有产物；任何生成都必须走run_nodes，保留手动确认和自动执行两模式。\n多图执行：先一次创建所有必要的生成配置，把已就绪且彼此独立的节点 ID 放在同一次 run_nodes.nodeIds 中并发运行，不要每张单独调用并等待。相同提示词多张可设 count，并行请求会逐图回执；有依赖的先完成上游。等待整批结束后逐图报告成功、失败和未确认，不自动重试；最终生图结论以工具 summary 为准。\n执行顺序：先理解本轮目标并读取用户引用，复用已有提示词与配置，再一次创建必要节点和连线，校验后运行，最后依据真实产物回执总结。不要重复创建已成功落地的节点；生成失败或未返回已确认的产物时，如实说明各项结果，不自动重新付费生成。run_nodes 返回 ok=false 不代表可以自行重试。\n图片尺寸契约：用户明确的比例、分辨率必须在首次 run_nodes 之前写入节点 parameters，不能只写进提示词。优先 imageAspectRatio（如2:3、9:16）+ imageResolution（1k/2k/4k/auto），系统将换算真实size；精确像素用size（宽x高），不得与比例冲突。没有明确要求才沿用默认。不要用图片显示宽高代替生成尺寸，不为修正尺寸自动重复付费生成；实际不符要如实报告，不能声称已达标。\n图片质量档位：auto=自动、low=低、medium=中、high=高、xhigh=极高、max=最高。用户说“质量最高”必须设 quality=\"max\"，不得把 high 当作最高；不支持该档位时报告接口错误，不擅自降级或重试。\n合法生成参数键：${parameterNames.join(",")}。文本正文放prompt，图片/视频节点的prompt是生成要求，text节点的prompt是正文。模型id必须逐字使用下列真实id，包含渠道编码；不自行发明模型、不跨渠道回退。没有所需图片/视频/对话模型时明确说明应配置哪类模型。多枚用户模型引用表示用这些模型组成流程，不是只挑其中一枚忽略其他。图片和视频模型用于生成，text模型只用于分析/对话。融合节点 blinkflow:fusion 本地回贴，不需要模型；完整原图连默认端口（不写toPort），局部修改图连toPort="patch"；不要为融合节点指定生成模式。多维表格不是普通图片生成器；新建生图流程使用 config（生成配置），保留它并在旁边新增图片结果；文本内容放 text，分析用 dxos:llm。run_nodes 可直接运行config、text/image/video/audio、blinkflow:fusion、dxos:llm与dxos:concurrent，其他节点仅用于数据/连接或手工操作。当前用户指定的生成模型：${JSON.stringify(selectedModels)}。没有指定时可用对应全局默认：${JSON.stringify({ image: config.imageModel, video: config.videoModel, audio: config.audioModel, text: config.textModel })}。\n可用模型：${JSON.stringify(models)}\n已注册节点：${JSON.stringify(nodeTypes)}\n保留已有节点、产物及连线；除非用户明确要求改动它们。先看输入素材再描述它；不要声称已生成而没有运行结果。run_nodes返回后检查真实结果。用户提到选中的图就是消息附带的nodeIds，可连接为新生成节点的上游。用户要求将已有文本或刚创建的提示词生成为图片时，必须将对应文本节点连接到图片节点，并从该文本读取正文，不得只抄写后建一个孤立图片节点。本次提示词源节点ID若非空，应在connections使用这些真实ID作为图片上游；已有明确文本连线时不重复连接。若不能确定对应哪一段文本，先询问，不随意连接其他画布文本。系统不会提供整张画布或节点列表。只能使用用户主动@、添加、粘贴的引用，以及本会话创建、运行返回的节点ID。需要其正文、参数或图片视觉内容时用read_assets；未引用或不知道ID的已有节点须请用户先添加引用，不猜测ID、不遍历画布。历史工具内容可能过时，以指定引用的实际回读为准。可分步使用引用、建图、运行和回读结果。`;
 }
 
 export async function requestAssistantAction(config: AiConfig, model: string, messages: AiTextMessage[], signal: AbortSignal): Promise<AssistantAction> {
@@ -71,7 +72,7 @@ export function assistantWorkflowWithSources(action: AssistantAction, snapshot: 
     const nodes = action.args.nodes as Array<Record<string, unknown>>, connections = action.args.connections as Array<Record<string, unknown>>;
     const sources = sourceIds.filter((id) => snapshot.nodes.some((node) => node.id === id && node.type === CanvasNodeType.Text));
     const isText = (id: unknown) => nodes.some((node) => node?.key === id && node?.type === CanvasNodeType.Text) || snapshot.nodes.some((node) => node.id === id && node.type === CanvasNodeType.Text);
-    const added = nodes.flatMap((node) => node?.type === CanvasNodeType.Image && typeof node.key === "string" && !connections.some((edge) => edge?.to === node.key && isText(edge.from)) ? sources.map((from) => ({ from, to: node.key })) : []);
+    const added = nodes.flatMap((node) => (node?.type === CanvasNodeType.Image || node?.type === CanvasNodeType.Config) && typeof node.key === "string" && !connections.some((edge) => edge?.to === node.key && isText(edge.from)) ? sources.map((from) => ({ from, to: node.key })) : []);
     return added.length ? { ...action, args: { ...action.args, connections: [...connections, ...added] } } : action;
 }
 
@@ -102,11 +103,34 @@ export function assistantRunTargets(action: AssistantAction, context: CanvasAssi
 export function assistantRunMode(node: CanvasNodeData): CanvasGenerationMode {
     if (node.type === "dxos:llm") return "text";
     if (node.type === LOCAL_FUSION_NODE_TYPE) return "image"; // The canvas bridge executes this locally, never as an API image request.
-    if (node.type === CONCURRENT_TYPE || ["image", "video", "text", "audio"].includes(node.type)) return node.metadata?.generationMode || (node.type === "video" ? "video" : node.type === "text" ? "text" : node.type === "audio" ? "audio" : "image");
+    if (node.type === CONCURRENT_TYPE || ["config", "image", "video", "text", "audio"].includes(node.type)) return node.metadata?.generationMode || (node.type === "video" ? "video" : node.type === "text" ? "text" : node.type === "audio" ? "audio" : "image");
     throw new Error(`Agent 尚不支持直接运行节点类型：${node.type}`);
 }
 
-export async function executeAssistantTool(action: AssistantAction, context: CanvasAssistantContext, config: AiConfig, selectedModels: string[], signal: AbortSignal, readableNodeIds: string[] = []): Promise<AssistantToolResult> {
+/** A completed tool must report its own returned artifact, never reuse an old successful input. */
+export function assistantRunOutcome(sourceNodeId: string, output: CanvasNodeData | undefined, snapshot: CanvasAgentSnapshot, error?: unknown) {
+    const current = output && snapshot.nodes.find((node) => node.id === output.id);
+    const meta = current?.metadata;
+    const hasOutput = Boolean(meta?.storageKey || meta?.content || meta?.table || meta?.images?.some((image) => image.status === "success"));
+    const status = error ? "error" : meta?.status || (current ? "idle" : "unconfirmed");
+    const images = meta?.images?.map((image) => ({ id: image.id, nodeId: current!.id, status: image.status, ok: image.status === "success" && Boolean(image.content || image.storageKey), error: image.errorDetails, width: image.naturalWidth, height: image.naturalHeight }));
+    return { id: current?.id || sourceNodeId, title: current?.title, sourceNodeId, sourceTitle: snapshot.nodes.find((node) => node.id === sourceNodeId)?.title, exists: Boolean(current), ok: status === "success" && hasOutput && (!images?.length || images.every((image) => image.ok)), status, hasOutput,
+        error: error ? error instanceof Error ? error.message : String(error) : current ? meta?.errorDetails : "执行器未返回本次实际产物；已有输入和历史成功状态不代表本次生成成功。请检查运行结果，不要自动再次付费生成。",
+        model: meta?.model, width: meta?.naturalWidth, height: meta?.naturalHeight,
+        parameters: { size: meta?.size, imageResolution: meta?.imageResolution, imageAspectRatio: meta?.imageAspectRatio, quality: meta?.quality },
+        images,
+    };
+}
+
+export function assistantRunReceipt(outcomes: ReturnType<typeof assistantRunOutcome>[]) {
+    const items = outcomes.flatMap((outcome) => outcome.images?.length
+        ? outcome.images.map((image, index) => ({ ok: image.ok, status: image.status, error: image.error, label: (outcome.sourceTitle || outcome.sourceNodeId) + " · 第" + (index + 1) + "张（节点 " + outcome.id + " / 图片 " + image.id + "）" }))
+        : [{ ok: outcome.ok, status: outcome.status, error: outcome.error, label: (outcome.sourceTitle || outcome.sourceNodeId) + "（节点 " + outcome.id + "）" }]);
+    const succeeded = items.filter((item) => item.ok).length, failed = items.filter((item) => !item.ok && item.status === "error").length;
+    return { ok: outcomes.every((item) => item.ok), outcomes, notRunNodeIds: [], summary: "生成结果：成功 " + succeeded + "，失败 " + failed + "，未确认 " + (items.length - succeeded - failed) + "。\n" + items.map((item) => (item.ok ? "成功" : item.status === "error" ? "失败" : "未确认") + "：" + item.label + (item.ok ? "" : "；" + (item.error || "未取得本次有效产物"))).join("\n") };
+}
+
+export async function executeAssistantTool(action: AssistantAction, context: CanvasAssistantContext, config: AiConfig, selectedModels: string[], signal: AbortSignal, readableNodeIds: string[] = [], compression?: ReferenceImageCompressionSettings): Promise<AssistantToolResult> {
     if (signal.aborted) throw new DOMException("已停止", "AbortError");
     const snapshot = context.getSnapshot();
     if (action.tool === "edit_canvas") return { value: await editAssistantCanvas(action.args, context, config, signal, parametersOf) };
@@ -132,6 +156,11 @@ export async function executeAssistantTool(action: AssistantAction, context: Can
             }
             results.push({ ...(action.tool === "read_assets" ? summaries.get(node.id) : {}), id: node.id, title: node.title, type: node.type, status: node.metadata?.status || "idle", error: node.metadata?.errorDetails, text: resource?.text || (node.type === "text" ? node.metadata?.content : undefined), width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight, hasOutput: Boolean(url || node.metadata?.storageKey), images: node.metadata?.images?.map((image) => ({ id: image.id, status: image.status, error: image.errorDetails, width: image.naturalWidth, height: image.naturalHeight })) });
         }
+        if (images.length && compression?.imageCompressionEnabled) {
+            const { compressReferenceImages } = await import("@/lib/canvas/reference-image-compression");
+            const compressed = await compressReferenceImages(images.map((image) => ({ id: image.nodeId, name: image.nodeId + ".png", type: image.url.slice(5, image.url.indexOf(";")), dataUrl: image.url })), compression, signal);
+            return { value: { nodes: results }, images: compressed.map((image) => ({ nodeId: image.id, url: image.dataUrl })) };
+        }
         return { value: { nodes: results }, ...(images.length ? { images } : {}) };
     }
     if (action.tool === "update_nodes") {
@@ -154,9 +183,9 @@ export async function executeAssistantTool(action: AssistantAction, context: Can
         const prompt = typeof item.prompt === "string" ? item.prompt : "";
         if (item.mode !== undefined && item.mode !== "image" && item.mode !== "video" && item.mode !== "text" && item.mode !== "audio") throw new Error("生成模式必须是 image、video、text 或 audio");
         const explicitMode = item.mode === "image" || item.mode === "video" || item.mode === "text" || item.mode === "audio" ? item.mode : undefined;
-        if (explicitMode && !["image", "video", "audio", "text", "dxos:llm", CONCURRENT_TYPE].includes(type) && !getNodeDefinition(type)?.useBuiltinPanel) throw new Error("该节点不是 API 生成节点，不能指定生成模式");
-        const mode = explicitMode || (type === "image" ? "image" : type === "video" ? "video" : type === "audio" ? "audio" : type === "dxos:llm" ? "text" : type === "dxos:concurrent" ? "image" : getNodeDefinition(type)?.useBuiltinPanel?.mode);
-        if ((type === "image" && mode !== "image") || (type === "video" && mode !== "video") || (type === "audio" && mode !== "audio") || (type === "dxos:llm" && mode !== "text")) throw new Error("生成节点类型和模型能力不匹配");
+        if (explicitMode && !["config", "image", "video", "audio", "text", "dxos:llm", CONCURRENT_TYPE].includes(type) && !getNodeDefinition(type)?.useBuiltinPanel) throw new Error("该节点不是 API 生成节点，不能指定生成模式");
+        const mode = explicitMode || (type === "config" || type === "image" ? "image" : type === "video" ? "video" : type === "audio" ? "audio" : type === "dxos:llm" ? "text" : type === "dxos:concurrent" ? "image" : getNodeDefinition(type)?.useBuiltinPanel?.mode);
+        if (((type === "config" || type === "image") && mode !== "image") || (type === "video" && mode !== "video") || (type === "audio" && mode !== "audio") || (type === "dxos:llm" && mode !== "text")) throw new Error("生成节点类型和模型能力不匹配");
         let model = typeof item.model === "string" ? item.model : "";
         if (mode) {
             if (!model) model = selectedModels.find((value) => modelCapabilityOf(config, value) === mode) || (mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel);

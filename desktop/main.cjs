@@ -181,20 +181,8 @@ else {
           const bridge = await ensureHarnessBridge();
           harness = await startHarness({ runtimeDirectory: app.isPackaged ? path.join(process.resourcesPath, 'harness-runtime') : path.join(__dirname, 'harness-runtime'), dataDirectory: path.join(dataDirectory, 'Harness'), bridgeUrl: bridge.url, bridgeToken: bridge.token, openExternal: openHarnessExternal });
         }
-        if (!harnessWindow || harnessWindow.isDestroyed()) {
-          harnessWindow = new BrowserWindow({ parent: win, width: 1100, height: 850, minWidth: 620, minHeight: 520, show: false, title: 'DeepSeek Harness · BlinkFlow', icon: path.join(__dirname, 'assets', 'blinkflow.ico'), webPreferences: { preload: path.join(__dirname, 'harness-preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, partition: 'persist:blinkflow-harness' } });
-          const harnessOrigin = new URL(harness.url).origin;
-          harnessWindow.webContents.setWindowOpenHandler(({ url }) => { if (url === 'about:blank') return { action: 'deny' }; void openHarnessExternal(url).catch((error) => dialog.showErrorBox('无法打开登录页面', error.message)); return { action: 'deny' }; });
-          harnessWindow.webContents.on('will-navigate', (navigation, url) => { if (new URL(url).origin !== harnessOrigin) { navigation.preventDefault(); void openHarnessExternal(url).catch((error) => dialog.showErrorBox('无法打开外部页面', error.message)); } });
-          harnessWindow.on('close', (close) => { if (!quitting) { close.preventDefault(); harnessWindow.hide(); } });
-          harnessWindow.setMenuBarVisibility(false);
-          try { await harnessWindow.loadURL(harness.url); }
-          catch (error) { harnessWindow.destroy(); harnessWindow = null; throw error; }
-        }
         publishHarnessModels();
-        if (harnessWindow.isMinimized()) harnessWindow.restore();
-        harnessWindow.show(); harnessWindow.focus();
-        return { url: new URL(harness.url).origin };
+        return { url: harness.url };
       })();
       try { return await harnessOpening; }
       finally { harnessOpening = null; }

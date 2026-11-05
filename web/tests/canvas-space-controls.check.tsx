@@ -55,6 +55,10 @@ async function main() {
         console.log(`PASS normal Space typing remains untouched in ${textFields.length} node/Agent/portal text fields.`);
         const input = host.querySelector<HTMLTextAreaElement>("[data-node-text]")!, node = host.querySelector("[data-node-empty]")!, start = { ...viewport };
         input.focus(); assert.equal((await space("keydown", input)).defaultPrevented, false);
+        await fire(ref.current!, pointer("pointerdown")); await fire(window, pointer("pointerup"));
+        assert.notEqual(document.activeElement, input, "background click exits text editing before navigation resumes");
+        assert.equal((await space("keyup", document.body)).defaultPrevented, false);
+        assert.equal((await space("keydown", document.body)).defaultPrevented, true);
         await fire(node, pointer("pointerdown")); await fire(node, new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
         await fire(window, pointer("pointermove", { clientX: 160, clientY: 130 })); await fire(window, pointer("pointerup"));
         assert.equal((await space("keyup", document.body)).defaultPrevented, true);

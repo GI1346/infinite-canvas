@@ -1,5 +1,5 @@
 import { LOCAL_FUSION_NODE_TYPE, FUSION_PATCH_PORT, fusionConnectionPort, fusionTargetAnchor } from "@/lib/canvas/canvas-fusion-ports";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import { memo, type MouseEvent as ReactMouseEvent } from "react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -7,7 +7,7 @@ import type { CanvasConnection, CanvasNodeData, ConnectionHandle, Position } fro
 import { connectionCurve, curvePath } from "@/lib/canvas/canvas-connection-geometry";
 import { tableConnectionPort } from "@/lib/canvas/canvas-table-port";
 
-export function ConnectionPath({
+export const ConnectionPath = memo(function ConnectionPath({
     connection,
     from,
     to,
@@ -19,14 +19,14 @@ export function ConnectionPath({
     from: CanvasNodeData;
     to: CanvasNodeData;
     active: boolean;
-    onSelect: () => void;
-    onContextMenu?: (event: ReactMouseEvent<SVGPathElement>) => void;
+    onSelect: (connectionId: string) => void;
+    onContextMenu?: (event: ReactMouseEvent<SVGPathElement>, connectionId: string) => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const pathD = curvePath(connectionCurve(connection, from, to));
 
     return (
-        <g>
+        <g data-connection-paths={connection.id}>
             <path
                 data-connection-id={connection.id}
                 d={pathD}
@@ -36,12 +36,12 @@ export function ConnectionPath({
                 style={{ cursor: "pointer", pointerEvents: "stroke" }}
                 onClick={(event) => {
                     event.stopPropagation();
-                    onSelect();
+                    onSelect(connection.id);
                 }}
                 onContextMenu={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    onContextMenu?.(event);
+                    onContextMenu?.(event, connection.id);
                 }}
             />
             <path
@@ -54,7 +54,7 @@ export function ConnectionPath({
             />
         </g>
     );
-}
+});
 
 export function connectionDragNodeIds(handle: ConnectionHandle) {
     return handle.handleType === "source" && handle.sourceNodeIds?.length ? handle.sourceNodeIds : [handle.nodeId];

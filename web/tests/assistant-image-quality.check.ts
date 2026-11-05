@@ -51,7 +51,7 @@ function fixture(projectId: string) {
     const context: CanvasAssistantContext = { snapshot, getSnapshot: () => snapshot, applyOps: ops => snapshot = applyCanvasAgentOps(snapshot, ops), runNode: async (id, mode) => {
         assert.equal(mode, "image"); const node = snapshot.nodes.find(n => n.id === id)!;
         const result = await requestGeneration({ ...config, ...node.metadata, model: imageModel }, "rabbit");
-        const output = { ...node, id: id + "-output", metadata: { ...node.metadata, status: "success" as const, content: result[0].dataUrl, naturalWidth: 1360, naturalHeight: 2048 } };
+        const output = { ...node, id: id + "-output-" + crypto.randomUUID(), metadata: { ...node.metadata, status: "success" as const, content: result[0].dataUrl, naturalWidth: 1360, naturalHeight: 2048 } };
         snapshot = { ...snapshot, nodes: [...snapshot.nodes, output] }; return output;
     } };
     return context;

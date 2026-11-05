@@ -12,6 +12,7 @@ export function createGenerationBranch(source: CanvasNodeData | undefined, nodes
         model: config.model, reasoningEffort: config.reasoningEffort,
         size: config.size, imageResolution: config.imageResolution, imageAspectRatio: old.imageAspectRatio,
         quality: config.quality, background: config.background, count: Number(config.count),
+        imageCompressionEnabled: old.imageCompressionEnabled, imageCompressionResolution: old.imageCompressionResolution, imageCompressionMaxMb: old.imageCompressionMaxMb,
         textCount: old.textCount, fontSize: old.fontSize,
         seconds: config.videoSeconds, vquality: config.vquality, generateAudio: config.videoGenerateAudio,
         watermark: config.videoWatermark, videoMode: config.videoMode,

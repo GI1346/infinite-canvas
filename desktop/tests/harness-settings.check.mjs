@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+const root = resolve(import.meta.dirname, '..');
+const runtimeRoot = join(root, 'harness-runtime/runtime');
+await import(pathToFileURL(join(runtimeRoot, 'canonical-imports.mjs')));
+const home = resolve(process.argv[2] || join(root, '.checks/harness-settings-regression'));
+process.env.DSH_HOME = home;
+process.env.DSH_AGENTS_HOME = join(home, 'Agents');
+process.env.DSH_TELEMETRY_DISABLED = '1';
+process.env.TEMP = process.env.TMP = process.env.TMPDIR = join(home, 'Temp');
+await mkdir(process.env.TEMP, { recursive: true });
+const { createRequire } = await import('node:module');
+const require = createRequire(join(runtimeRoot, 'package.json'));
+const { runProfile } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh/profile-boot')));
+const { loadLayeredEnv } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')));
+const { ConfigEditor } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-config-editor')));
+const patch = join(home, 'test.patch.yml');
+await writeFile(patch, JSON.stringify([{ id: 'web-runtime', config: { openBrowser: false, printUrl: false, surfaceContext: false } }]));
+const boot = () => runProfile({ environment: loadLayeredEnv('dsh'), profile: 'web', patchFiles: [patch], args: ['--no-open', '--host', '127.0.0.1', '--port', '0'] });
+let runtime;
+try {
+  runtime = await boot();
+  await runtime.ctx.get('loader').await();
+  assert(runtime.ctx.get('configEditor') instanceof ConfigEditor, 'Boot and plugins must share one ConfigEditor module');
+  const settings = runtime.ctx.get('settings');
+  await settings.mutate('ui-settings-general', [{ op: 'set', path: ['welcomeNoticeVersion'], value: 'regression-test' }]);
+  assert.equal(settings.describe().find(x => x.ns === 'ui-settings-general').value.welcomeNoticeVersion, 'regression-test');
+  assert.match(await readFile(join(home, 'profiles/web/cordis.patch.yml'), 'utf8'), /regression-test/);
+  await runtime.shutdown.shutdown(0); runtime = undefined;
+  runtime = await boot();
+  await runtime.ctx.get('loader').await();
+  assert.equal(runtime.ctx.get('settings').describe().find(x => x.ns === 'ui-settings-general').value.welcomeNoticeVersion, 'regression-test', 'Saved setting must survive restart');
+  console.log('PASS: canonical module identity, real settings mutation, patch persistence, runtime restart');
+} finally { if (runtime) await runtime.shutdown.shutdown(0); }

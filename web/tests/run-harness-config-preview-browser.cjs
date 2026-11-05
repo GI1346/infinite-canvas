@@ -1,0 +1,27 @@
+const { app, BrowserWindow, session } = require("electron");
+const fs=require("node:fs"),path=require("node:path");
+const root=path.resolve(__dirname,".."),out=path.join(root,".checks","harness-config-preview");
+fs.mkdirSync(out,{recursive:true});
+for(const [name,dir] of Object.entries({appData:out,userData:path.join(out,"userData"),sessionData:path.join(out,"sessionData"),logs:path.join(out,"logs"),crashDumps:path.join(out,"crashes")})) app.setPath(name,dir);
+app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+let done=false;
+const finish=result=>{if(done)return;done=true;fs.writeFileSync(path.join(out,"result.json"),JSON.stringify(result,null,2));console.log(JSON.stringify(result));app.exit(result.ok?0:1);};
+app.whenReady().then(async()=>{
+ const partition=session.fromPartition("harness-config-preview-"+Date.now()),blocked=[];
+ partition.webRequest.onBeforeRequest((d,cb)=>{const allowed=/^(http:\/\/127\.0\.0\.1:3000\/|ws:\/\/127\.0\.0\.1:3000\/|blob:|data:|devtools:)/.test(d.url);if(!allowed)blocked.push(d.url);cb({cancel:!allowed});});
+ const win=new BrowserWindow({width:1560,height:1000,show:false,webPreferences:{session:partition,backgroundThrottling:false}});
+ win.webContents.on("console-message",(_e,_l,m)=>fs.appendFileSync(path.join(out,"console.log"),String(m)+"\n"));
+ await win.loadURL("http://127.0.0.1:3000/tests/harness-config-preview.html");
+ await win.webContents.executeJavaScript("window.__checkReady").catch(async e=>{fs.writeFileSync(path.join(out,"failure.png"),(await win.webContents.capturePage()).toPNG());throw e;});
+ const harness=await win.webContents.executeJavaScript("window.runHarnessCheck()");await new Promise(r=>setTimeout(r,250));
+ fs.writeFileSync(path.join(out,"generation-chain.png"),(await win.webContents.capturePage()).toPNG());
+ const preview=await win.webContents.executeJavaScript("window.openPreview()");await new Promise(r=>setTimeout(r,250));
+ fs.writeFileSync(path.join(out,"thumbnails-light.png"),(await win.webContents.capturePage()).toPNG());
+ const navigation=await win.webContents.executeJavaScript("window.checkNavigation()");
+ win.setSize(900,760);await new Promise(r=>setTimeout(r,200));
+ fs.writeFileSync(path.join(out,"thumbnails-dark-narrow.png"),(await win.webContents.capturePage()).toPNG());
+ const parallel=await win.webContents.executeJavaScript("window.runParallelCheck()");
+ fs.writeFileSync(path.join(out,"parallel-results.png"),(await win.webContents.capturePage()).toPNG());
+ finish({ok:true,harness,preview,navigation,parallel,blockedExternalRequests:blocked,paidApiRequests:0});
+}).catch(e=>finish({ok:false,error:String(e.stack||e)}));
+setTimeout(()=>finish({ok:false,error:"Test timed out"}),120000);

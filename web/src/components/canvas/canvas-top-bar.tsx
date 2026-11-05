@@ -10,6 +10,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { DOCS_URL } from "@/constant/env";
+import { useHarnessSidebarStore } from "@/stores/use-harness-sidebar-store";
 import { openDeepSeekHarness } from "@/services/api/deepseek-harness";
 import { recordDiagnostic } from "@/services/diagnostics";
 import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
@@ -146,7 +147,7 @@ export function CanvasTopBar({
 
                 <div className="thin-scrollbar pointer-events-auto flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap [&>*]:shrink-0">
                     <Tooltip title={agentOpen ? "收起 Agent" : "打开 Agent"}>
-                        <button type="button" aria-label={agentOpen ? "收起 Agent" : "打开 Agent"} aria-expanded={agentOpen} className="grid size-8 place-items-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} onClick={() => useCanvasAssistantStore.getState().setOpen(!agentOpen)}><Bot className="size-5" /></button>
+                        <button type="button" aria-label={agentOpen ? "收起 Agent" : "打开 Agent"} aria-expanded={agentOpen} className="grid size-8 place-items-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} onClick={() => { const wasAgent = useHarnessSidebarStore.getState().tab === "agent"; useHarnessSidebarStore.setState({ tab: "agent" }); useCanvasAssistantStore.getState().setOpen(!agentOpen || !wasAgent); }}><Bot className="size-5" /></button>
                     </Tooltip>
                     <Tooltip title="打开 DeepSeek Harness（官方账号登录）">
                         <button type="button" aria-label="打开 DeepSeek Harness" disabled={harnessOpening} className="grid size-8 place-items-center rounded-lg transition hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10" onClick={async () => {
