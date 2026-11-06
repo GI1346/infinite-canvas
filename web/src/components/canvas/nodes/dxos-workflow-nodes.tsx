@@ -1,3 +1,4 @@
+import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
 import { isWorkflowNodeRunning, runWorkflowNode, stopWorkflowNode } from "@/lib/canvas/canvas-workflow-runner";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Layers, Table2 } from "lucide-react";
@@ -8,7 +9,7 @@ import { stopWorkflowControlDrag } from "@/components/canvas/workflow-node-inter
 import { TABLE_TYPE, CONCURRENT_TYPE, channelsFor, channelItems, itemAt, emptyTable, readTable, tableRows, generationRows, selectedGenerationRows, deleteTableRow, type DxTable } from "@/lib/canvas/dxos-table";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions } from "@/lib/media-size";
 import { workflowDisplayMetadata } from "@/lib/canvas/workflow-display-size";
-import { useEffectiveConfig } from "@/stores/use-config-store";
+import { resolveModelForCapability, useEffectiveConfig } from "@/stores/use-config-store";
 
 const button = "rounded px-2 py-1 text-2xl hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40";
 const stop = (event: { stopPropagation(): void }) => event.stopPropagation();
@@ -70,6 +71,7 @@ function TableContent({ ctx }: { ctx: CanvasNodeContext }) {
 function ConcurrentContent({ ctx }: { ctx: CanvasNodeContext }) {
     const config = useEffectiveConfig();
     const { node, theme } = ctx, meta = node.metadata || {}, rows = generationRows(node, ctx.getNodes(), ctx.getConnections());
+    const model = resolveModelForCapability(config, meta.model, "image"), qualityOptions = imageQualityOptions(model), quality = imageQualityForModel(model, meta.quality || config.quality);
     const current = useRef(ctx); current.current = ctx;
     const controller = useRef<AbortController | null>(null);
     const mounted = useRef(true);
@@ -88,11 +90,11 @@ function ConcurrentContent({ ctx }: { ctx: CanvasNodeContext }) {
     };
     return <div className="flex h-full min-h-0 flex-col gap-3 p-4 text-2xl" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag} onPointerDown={stop} onKeyDown={stop}>
         <div className="flex items-center justify-between"><strong className="cursor-grab" data-node-drag-handle>生成输入 · {rows.length} 行</strong><span>图像生成</span></div>
-        <select aria-label="模型与中转站" disabled={running} style={input} value={meta.model || ""} onChange={(e) => ctx.updateMetadata({ model: e.target.value || undefined })}><option value="">使用画布默认模型</option>{meta.model && !ctx.ai.listModels("image").some((m) => m.value === meta.model) && <option value={meta.model}>缺失模型：{meta.model}</option>}{ctx.ai.listModels("image").map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select>
+        <select aria-label="模型与中转站" disabled={running} style={input} value={meta.model || ""} onChange={(e) => ctx.updateMetadata({ model: e.target.value || undefined, quality: imageQualityForModel(resolveModelForCapability(config, e.target.value, "image"), quality) })}><option value="">使用画布默认模型</option>{meta.model && !ctx.ai.listModels("image").some((m) => m.value === meta.model) && <option value={meta.model}>缺失模型：{meta.model}</option>}{ctx.ai.listModels("image").map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select>
         <div className="grid grid-cols-2 gap-2">
             <label>比例<select aria-label="生成比例" disabled={running} className="w-full" style={input} value={meta.imageAspectRatio || inferMediaRatio(size)} onChange={(e) => ctx.updateMetadata({ imageAspectRatio: e.target.value, imageResolution: meta.imageResolution || inferMediaScale(size), size: computeMediaSize(meta.imageResolution || inferMediaScale(size), e.target.value) })}>{mediaRatioOptions.map((r) => <option key={r.value} value={r.value}>{r.value}</option>)}</select></label>
             <label>分辨率<select aria-label="生成分辨率" disabled={running} className="w-full" style={input} value={meta.imageResolution || inferMediaScale(size)} onChange={(e) => ctx.updateMetadata({ imageResolution: e.target.value, size: computeMediaSize(e.target.value, meta.imageAspectRatio || inferMediaRatio(size)) })}>{mediaScaleOptions.map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}</select></label>
-            <label className="col-span-2">质量<select aria-label="生成质量" className="w-full" disabled={running} style={input} value={meta.quality || "auto"} onChange={(e) => ctx.updateMetadata({ quality: e.target.value })}>{["auto", "low", "medium", "high", "xhigh", "max"].map((q) => <option key={q} value={q}>{q}</option>)}</select></label>
+            <label className="col-span-2">质量<select aria-label="生成质量" className="w-full disabled:cursor-not-allowed disabled:opacity-40" disabled={running || !qualityOptions.length} style={input} value={quality} onChange={(e) => ctx.updateMetadata({ quality: e.target.value })}>{(qualityOptions.length ? qualityOptions : ["auto"]).map((q) => <option key={q} value={q}>{q}</option>)}</select></label>
         </div>
         <div data-node-scroll className="min-h-0 flex-1 space-y-3 overflow-auto overscroll-contain">{!rows.length && <p data-node-no-drag className="select-text" style={{ color: theme.node.muted }}>将多维表格的右侧输出连接到这里。图片组和文本在表格中按行配对。</p>}{rows.map((row) => {
             const task = meta.tableBatchRun?.tasks.find((t) => t.rowNumber === row.rowNumber);

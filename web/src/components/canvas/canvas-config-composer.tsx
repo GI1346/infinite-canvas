@@ -24,6 +24,7 @@ type CanvasConfigComposerProps = {
     onClose: () => void;
     embedded?: boolean;
     expanded?: boolean;
+    fontSize?: number;
     onReorderReferences?: (nodeIds: string[]) => void;
     onDisconnectReference?: (fromNodeId: string, toNodeId: string) => void;
     onStartReferenceSelection?: (nodeId: string) => void;
@@ -39,7 +40,7 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], embedded = false, expanded = false, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], embedded = false, expanded = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences }: CanvasConfigComposerProps) {
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
@@ -69,9 +70,9 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                 return;
             }
             const input = referenceById.get(token.nodeId);
-            if (input) editor.append(createReferenceChip(input, inputs, theme, setImagePreview));
+            if (input) editor.append(createReferenceChip(input, inputs, theme, setImagePreview, fontSize));
         });
-    }, [inputs, referenceById, theme, tokens]);
+    }, [fontSize, inputs, referenceById, theme, tokens]);
 
     const syncFromEditor = () => {
         const editor = editorRef.current;
@@ -101,7 +102,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
         const editor = editorRef.current;
         if (!editor) return;
         removeActiveMention();
-        const chip = createReferenceChip(input, inputs, theme, setImagePreview);
+        const chip = createReferenceChip(input, inputs, theme, setImagePreview, fontSize);
         const space = document.createTextNode(" ");
         const selection = window.getSelection();
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
@@ -126,7 +127,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
         <div
             data-canvas-no-zoom
             className={embedded ? "flex h-full min-h-0 flex-col" : "rounded-2xl border p-3 shadow-2xl backdrop-blur"}
-            style={{ background: embedded ? "transparent" : theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+            style={{ background: embedded ? "transparent" : theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text, fontSize }}
             onMouseDown={stopWorkflowControlDrag}
             onPointerDown={stopCanvasInteraction}
             onWheel={(event) => event.stopPropagation()}
@@ -138,10 +139,10 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                 </div>
                 <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
             </div>}
-            <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onReorder={onReorderReferences} />
-            {embedded && <div data-config-text-inputs className="mb-2 flex shrink-0 flex-wrap gap-2">{inputs.flatMap((input) => input.type === "group" ? input.children : [input]).filter((input) => input.type === "text").map((input) => <span key={input.nodeId} title={input.text || input.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-3 py-1 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text }}><FileText size={12} /><span className="truncate">{input.title || "文本提示词"}</span></span>)}</div>}
+            <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onReorder={onReorderReferences} fontSize={fontSize} />
+            {embedded && <div data-config-text-inputs className="mb-2 flex shrink-0 flex-wrap gap-2">{inputs.flatMap((input) => input.type === "group" ? input.children : [input]).filter((input) => input.type === "text").map((input) => <span key={input.nodeId} title={input.text || input.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-3 py-1 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}><FileText size={fontSize || 12} /><span className="truncate">{input.title || "文本提示词"}</span></span>)}</div>}
             <div data-config-composer className={embedded ? "relative min-h-0 flex-1 rounded-xl" : "relative rounded-xl"}>
-                {!value.trim() ? <div className="pointer-events-none absolute left-3 top-2 text-sm leading-7" style={{ color: theme.node.placeholder }}>{t("canvas.composer.placeholder")}</div> : null}
+                {!value.trim() ? <div className="pointer-events-none absolute left-3 top-2 text-sm leading-7" style={{ color: theme.node.placeholder, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.composer.placeholder")}</div> : null}
                 <div
                     ref={editorRef}
                     role="textbox"
@@ -150,7 +151,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                     contentEditable
                     suppressContentEditableWarning
                     className={embedded ? `thin-scrollbar h-full min-h-16 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2 ${expanded ? "text-base leading-8" : "text-sm leading-7"} outline-none` : "thin-scrollbar min-h-28 max-h-72 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2 text-sm leading-7 outline-none"}
-                    style={{ color: theme.node.text }}
+                    style={{ color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}
                     onInput={() => {
                         if (!composingRef.current) syncFromEditor();
                     }}
@@ -194,7 +195,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                     }}
                     onBlur={() => window.setTimeout(closeMention, 120)}
                 />
-                {mention && candidates.length ? <MentionMenu anchor={editorRef.current} inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} /> : null}
+                {mention && candidates.length ? <MentionMenu anchor={editorRef.current} inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} fontSize={fontSize} onSelect={insertReference} /> : null}
             </div>
             {imagePreview ? <Image src={imagePreview} alt={t("canvas.composer.imagePreview")} style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
@@ -202,7 +203,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
 
 }
 
-function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect }: { anchor: HTMLElement | null; inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void }) {
+function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, fontSize, onSelect }: { anchor: HTMLElement | null; inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; fontSize?: number; onSelect: (input: NodeGenerationInput) => void }) {
     const selectedRef = useRef(false);
     const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
     useLayoutEffect(() => {
@@ -238,7 +239,7 @@ function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect }
                     ref={index === activeIndex ? activeItemRef : undefined}
                     type="button"
                     className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition"
-                    style={{ background: index === activeIndex ? theme.toolbar.activeBg : "transparent", color: index === activeIndex ? theme.toolbar.activeText : theme.node.text }}
+                    style={{ background: index === activeIndex ? theme.toolbar.activeBg : "transparent", color: index === activeIndex ? theme.toolbar.activeText : theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}
                     onMouseDown={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -268,12 +269,12 @@ function ResourcePreview({ input }: { input: NodeGenerationInput }) {
     );
 }
 
-function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationInput[], theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void) {
+function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationInput[], theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void, fontSize?: number) {
     const wrapper = document.createElement("span");
     wrapper.contentEditable = "false";
     wrapper.dataset.referenceNodeId = input.nodeId;
     wrapper.className = "mx-px inline-flex h-7 max-w-40 items-center justify-center overflow-hidden rounded-md border px-1 text-xs leading-none align-middle";
-    Object.assign(wrapper.style, chipStyle(theme));
+    Object.assign(wrapper.style, chipStyle(theme), fontSize ? { fontSize: `${fontSize}px`, height: "1.25em", maxWidth: "10em" } : {});
     if (input.type === "image" && input.image) {
         const image = document.createElement("img");
         image.src = input.image.dataUrl;

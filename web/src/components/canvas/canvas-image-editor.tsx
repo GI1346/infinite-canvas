@@ -1,3 +1,4 @@
+import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { App, Button, Checkbox, Input, Slider, Tooltip } from "antd";
@@ -70,6 +71,7 @@ export function CanvasImageEditor({ node, onClose, onSave, readCopiedImages }: P
     const [model, setModel] = useState(initial.model);
     const [resolution, setResolution] = useState(() => inferMediaScale(initial.size, initial.imageResolution));
     const [quality, setQuality] = useState(initial.quality);
+    const supportedQualities = imageQualityOptions(model), effectiveQuality = imageQualityForModel(model, quality);
     const [mode, setMode] = useState<ImageEditMode>("region");
     const [tool, setTool] = useState<"move" | "select">("select");
     const [size, setSize] = useState<ImageSize | null>(null);
@@ -221,7 +223,7 @@ export function CanvasImageEditor({ node, onClose, onSave, readCopiedImages }: P
             const output = mode === "expand" ? { width: outputWidth, height: outputHeight } : size;
             const prepared = await prepareEditorEdit(source, { mode, prompt, rect, outputWidth: output.width, outputHeight: output.height, horizontalAngle, pitchAngle }); check();
             const target = mode === "region" && rect ? rect : output;
-            const requestConfig = { ...buildGenerationConfig(liveConfig, node, "image"), model, quality, imageResolution: resolution, size: requestSize(target, resolution), count: "1" };
+            const requestConfig = { ...buildGenerationConfig(liveConfig, node, "image"), model, quality: effectiveQuality, imageResolution: resolution, size: requestSize(target, resolution), count: "1" };
             const requestPrompt = references.length ? `${prepared.prompt}\n参考图1是本次待编辑的${mode === "region" ? "精确选区" : "底图"}；参考图2起为补充参考素材，仅按修改要求使用，不替换待编辑底图。` : prepared.prompt;
             const results = await requestEdit(requestConfig, requestPrompt, [...prepared.references, ...references], { signal: controller.signal }); check();
             if (!results[0]?.dataUrl) throw new Error("模型没有返回图片，请检查所选模型是否支持图像编辑");
@@ -331,9 +333,9 @@ export function CanvasImageEditor({ node, onClose, onSave, readCopiedImages }: P
                         <p className="mb-2 mt-0 text-xs" style={{ color: theme.node.muted }}>第一张是待编辑{mode === "region" ? "选区" : "底图"}；可在输入框粘贴图片作为后续补充参考，原图和图层不受影响。</p>
                         <Input.TextArea aria-label="图像编辑要求" value={prompt} disabled={Boolean(busy)} onPaste={pasteReferences} onChange={(event) => { setPrompt(event.target.value); setDirty(true); }} autoSize={{ minRows: 2, maxRows: 5 }} placeholder={mode === "region" ? "先框选需要修改的区域，再输入修改要求；选区外像素保持不变" : mode === "expand" ? "描述需要延展的背景，原图在中央保留" : mode === "angle" ? "可补充视角、背景和主体要求；视角由模型重建" : "描述需要对整张图片进行的修改"} />
                         <div className="mt-3 flex flex-wrap items-center gap-3">
-                            <fieldset disabled={Boolean(busy)} className="min-w-36 flex-1" style={{ pointerEvents: busy ? "none" : undefined }}><ModelPicker config={config} value={model} onChange={setModel} capability="image" groupByChannel fullWidth /></fieldset>
+                            <fieldset disabled={Boolean(busy)} className="min-w-36 flex-1" style={{ pointerEvents: busy ? "none" : undefined }}><ModelPicker config={config} value={model} onChange={(next) => { setModel(next); setQuality(imageQualityForModel(next, quality)); }} capability="image" groupByChannel fullWidth /></fieldset>
                             <label className="flex items-center gap-2 text-xs">分辨率<select aria-label="分辨率" style={{ ...fieldStyle, width: 85 }} value={resolution} disabled={Boolean(busy)} onChange={(event) => setResolution(event.target.value as typeof resolution)}>{mediaScaleOptions.map((value) => <option key={value} value={value}>{value === "auto" ? "自动" : value.toUpperCase()}</option>)}</select></label>
-                            <label className="flex items-center gap-2 text-xs">质量<select aria-label="质量" style={{ ...fieldStyle, width: 82 }} value={quality} disabled={Boolean(busy)} onChange={(event) => setQuality(event.target.value)}>{qualities.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+                            <label className="flex items-center gap-2 text-xs">质量<select aria-label="质量" style={{ ...fieldStyle, width: 82 }} value={effectiveQuality} disabled={Boolean(busy) || !supportedQualities.length} className="disabled:cursor-not-allowed disabled:opacity-40" onChange={(event) => setQuality(event.target.value)}>{qualities.filter((item) => supportedQualities.length ? supportedQualities.includes(item.value) : item.value === "auto").map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
                             <span className="text-xs" style={{ color: theme.node.muted }}>1 张 · 生成后保持工作区像素尺寸</span>
                             {generating ? <Button danger icon={<Square size={15} />} onClick={() => controllerRef.current?.abort()}>停止生成</Button> : <Button type="primary" icon={<Send size={15} />} disabled={Boolean(busy) || !canGenerate} onClick={() => void generate()}>{busy || "生成新图层"}</Button>}
                         </div>

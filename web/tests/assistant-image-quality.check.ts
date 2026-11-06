@@ -12,7 +12,7 @@ import { defaultConfig, encodeChannelModel, useConfigStore } from "../src/stores
 
 const imageModel = encodeChannelModel("fixture-image", "gpt-image-2.5-sunburst"), textModel = encodeChannelModel("fixture-text", "chat");
 const config = { ...defaultConfig, proxyEnabled: false, imageModel, textModel, models: [imageModel, textModel], channels: [
-    { id: "fixture-image", name: "fixture-image", baseUrl: "https://offline-image.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: [{ name: "gpt-image-2.5-sunburst", capability: "image" as const }] },
+    { id: "fixture-image", name: "fixture-image", baseUrl: "https://offline-image.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: ["gpt-image-2.5-sunburst", "gpt-image-2", "gemini-nano-banana-2.1"].map(name => ({name, capability: "image" as const})) },
     { id: "fixture-text", name: "fixture-text", baseUrl: "https://offline-text.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: [{ name: "chat", capability: "text" as const, script: relayChatScript }] },
 ] };
 const cases: Array<[string, string | undefined]> = [
@@ -43,14 +43,14 @@ axios.defaults.adapter = async request => {
     return { config: request, status: 200, statusText: "OK", headers: {}, data: { data: [{ b64_json: "aW1hZ2U=" }] } };
 };
 const action = (tool: string, args: unknown) => JSON.stringify({ tool, args });
-function fixture(projectId: string) {
+function fixture(projectId: string, chosenModel = imageModel) {
     let snapshot: CanvasAgentSnapshot = { projectId, title: "quality", selectedNodeIds: ["image"], viewport: { x: 0, y: 0, k: 1 }, connections: [], nodes: [
-        { id: "image", type: "image", title: "image", position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { prompt: "rabbit", model: imageModel, quality: "high", size: "1360x2048", imageResolution: "2k", imageAspectRatio: "2:3" } },
+        { id: "image", type: "image", title: "image", position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { prompt: "rabbit", model: chosenModel, quality: "high", size: "1360x2048", imageResolution: "2k", imageAspectRatio: "2:3" } },
         { id: "untouched", type: "text", title: "text", position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { prompt: "最高质量", quality: "low" } },
     ] };
     const context: CanvasAssistantContext = { snapshot, getSnapshot: () => snapshot, applyOps: ops => snapshot = applyCanvasAgentOps(snapshot, ops), runNode: async (id, mode) => {
         assert.equal(mode, "image"); const node = snapshot.nodes.find(n => n.id === id)!;
-        const result = await requestGeneration({ ...config, ...node.metadata, model: imageModel }, "rabbit");
+        const result = await requestGeneration({ ...config, ...node.metadata, model: node.metadata?.model || chosenModel }, "rabbit");
         const output = { ...node, id: id + "-output-" + crypto.randomUUID(), metadata: { ...node.metadata, status: "success" as const, content: result[0].dataUrl, naturalWidth: 1360, naturalHeight: 2048 } };
         snapshot = { ...snapshot, nodes: [...snapshot.nodes, output] }; return output;
     } };
@@ -80,6 +80,23 @@ async function main() {
         assert.equal((result.value as any).outcomes[0].parameters.quality, expected, "Harness returns actual quality");
     }
     const before = outgoing.length; await call("生成图片", "low"); assert.equal(outgoing.at(-1)!.quality, "low"); assert.equal(outgoing.length, before + 1);
+    await state().clearHistory();
+    for (const [name, expected] of [["gpt-image-2", "high"], ["gemini-nano-banana-2.1", undefined]] as const) {
+        for (const owner of ["agent", "harness"]) {
+            await state().clearHistory(); state().setGenerationMode("auto");
+            const projectId = "quality-" + owner + "-" + name;
+            state().setContext(fixture(projectId, encodeChannelModel("fixture-image", name)));
+            await new Promise(resolve => setTimeout(resolve, 25)); const start = outgoing.length;
+            if (owner === "agent") {
+                state().setDraft("质量最高，生成图片");
+                replies = [action("run_nodes", { nodeIds: ["image"] }), action("final", { message: "done" })];
+                await state().send();
+            } else {
+                await executeHarnessCanvasTool({ id: "fixture", projectId, tool: "run_nodes", args: { nodeIds: ["image"], requirements: "质量最高，生成图片" } }, new AbortController().signal);
+            }
+            assert.equal(outgoing.length, start + 1); assert.equal(outgoing.at(-1)!.quality, expected, owner + " " + name + " highest/no-quality actual JSON");
+        }
+    }
     await state().clearHistory();
     console.log("PASS " + cases.length + " parsing cases; Agent manual/auto + Harness first-call JSON max/xhigh/high, actual quality feedback, preserved dimensions/defaults/unrelated nodes; all requests intercepted, no paid API used.");
 }

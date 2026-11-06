@@ -1,3 +1,4 @@
+import { imageRequestQuality } from "@/lib/image-quality";
 import axios from "axios";
 
 import i18n from "@/i18n";
@@ -98,7 +99,7 @@ type GeminiPayload = {
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
 type RequestOptions = { signal?: AbortSignal; agent?: boolean; imageCompression?: import("@/lib/canvas/reference-image-compression").ReferenceImageCompressionSettings };
 
-const IMAGE_QUALITY_VALUES = ["low", "medium", "high", "xhigh", "max"];
+
 const DEFAULT_IMAGE_SHORT_SIDE = 1024;
 const IMAGE_SIZE_STEP = 16;
 const IMAGE_MIN_PIXELS = 655360;
@@ -110,11 +111,6 @@ const IMAGE_OUTPUT_FORMAT = "png";
 const IMAGE_REQUEST_TIMEOUT_MS = 10 * 60_000;
 
 const GEMINI_SUPPORTED_RATIOS = ["1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"];
-
-function normalizeQuality(quality: string) {
-    const value = quality.trim().toLowerCase();
-    return IMAGE_QUALITY_VALUES.includes(value) ? value : undefined;
-}
 
 /** Only "transparent" is forwarded; any other value (incl. empty) means keep the default opaque background. */
 function normalizeBackground(background: string | undefined) {
@@ -697,7 +693,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const script = resolveModelScript(config, config.model || config.imageModel);
     if (script) {
-        const quality = normalizeQuality(config.quality);
+        const quality = imageRequestQuality(requestConfig.model, config.quality);
         const requestSize = resolveRequestSize(config.size);
         const background = normalizeBackground(config.background);
         try {
@@ -707,7 +703,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 config: requestConfig,
                 prompt: withSystemPrompt(requestConfig, prompt),
                 images: [],
-                params: { size: requestSize, resolution: config.imageResolution || inferMediaScale(config.size), quality, count: n, ...(background ? { background } : {}) },
+                params: { size: requestSize, resolution: config.imageResolution || inferMediaScale(config.size), ...(quality ? { quality } : {}), count: n, ...(background ? { background } : {}) },
                 signal: options?.signal,
             });
             return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
@@ -722,7 +718,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
     }
-    const quality = normalizeQuality(config.quality);
+    const quality = imageRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(config.size);
     const background = normalizeBackground(config.background);
     try {
@@ -762,7 +758,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const requestPrompt = buildImageReferencePromptText(prompt, references);
     const script = resolveModelScript(config, config.model || config.imageModel);
     if (script) {
-        const quality = normalizeQuality(config.quality);
+        const quality = imageRequestQuality(requestConfig.model, config.quality);
         const requestSize = resolveRequestSize(config.size);
         const background = normalizeBackground(config.background);
         const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
@@ -773,7 +769,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
                 config: requestConfig,
                 prompt: withSystemPrompt(requestConfig, requestPrompt),
                 images: refs,
-                params: { size: requestSize, resolution: config.imageResolution || inferMediaScale(config.size), quality, count: n, ...(background ? { background } : {}) },
+                params: { size: requestSize, resolution: config.imageResolution || inferMediaScale(config.size), ...(quality ? { quality } : {}), count: n, ...(background ? { background } : {}) },
                 signal: options?.signal,
             });
             return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
@@ -789,7 +785,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         }
     }
 
-    const quality = normalizeQuality(config.quality);
+    const quality = imageRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(config.size);
     const background = normalizeBackground(config.background);
     const formData = new FormData();

@@ -1,6 +1,8 @@
 import type { CanvasNodeData } from "@/types/canvas";
 
 export const IMAGE_NODE_MAX_EDGE = 640;
+export const CONFIG_NODE_DEFAULT_SIZE = { width: Math.ceil(IMAGE_NODE_MAX_EDGE * 4 / 3), height: Math.ceil(IMAGE_NODE_MAX_EDGE * 4 / 3) };
+export const TEXT_NODE_DEFAULT_SIZE = { width: Math.ceil(IMAGE_NODE_MAX_EDGE * 2 / 3), height: Math.ceil(IMAGE_NODE_MAX_EDGE * 2 / 3) };
 
 export function fitNodeSize(width: number, height: number, maxWidth = IMAGE_NODE_MAX_EDGE, maxHeight = IMAGE_NODE_MAX_EDGE) {
     const w = Math.max(1, width);

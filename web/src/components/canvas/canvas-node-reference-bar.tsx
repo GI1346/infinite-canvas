@@ -10,7 +10,7 @@ import { getImagePreviewRevision, previewUrlFor, subscribeImagePreviews } from "
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
-export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDisconnect, onStartSelection, onReorder }: { nodeId: string; nodes: CanvasNodeData[]; connectedNodes: CanvasNodeData[]; onDisconnect?: (fromNodeId: string, toNodeId: string) => void; onStartSelection?: (nodeId: string) => void; onReorder?: (nodeIds: string[]) => void }) {
+export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDisconnect, onStartSelection, onReorder, fontSize }: { nodeId: string; nodes: CanvasNodeData[]; connectedNodes: CanvasNodeData[]; onDisconnect?: (fromNodeId: string, toNodeId: string) => void; onStartSelection?: (nodeId: string) => void; onReorder?: (nodeIds: string[]) => void; fontSize?: number }) {
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [dragged, setDragged] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDiscon
     };
     return (
         <div className="mb-2">
-            <div className="mb-1.5 text-[11px] font-medium" style={{ color: theme.node.muted }}>{t("canvas.references.title")}</div>
+            <div className="mb-1.5 text-[11px] font-medium" style={{ color: theme.node.muted, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.references.title")}</div>
             <div className="thin-scrollbar flex min-h-12 gap-2 overflow-x-auto pb-1">
                 {references.map(({ node, sourceNodeId }) => <div key={sourceNodeId + ":" + node.id} data-reference-node-id={node.id} draggable={Boolean(onReorder)} title={onReorder ? "拖动调整参考顺序" : undefined}
                     className="shrink-0" style={{ cursor: onReorder ? "grab" : undefined, opacity: dragged === node.id ? 0.5 : 1 }}

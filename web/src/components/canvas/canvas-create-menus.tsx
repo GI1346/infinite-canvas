@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Blend, BrainCircuit, Settings2, Table2, X } from "lucide-react";
+import { Blend, BrainCircuit, Settings2, Table2, FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -44,6 +44,7 @@ export function ConnectionCreateMenu({
                 </button>
             </div>
             <div className="grid gap-0.5">
+                <ConnectionCreateOption theme={theme} icon={<FileText className="size-4" />} title="文本" description="输入和编辑文字" onClick={() => onCreate(CanvasNodeType.Text)} />
                 <ConnectionCreateOption theme={theme} icon={<Settings2 className="size-4" />} title="生成配置" description="连接图文，保留配置并新增图片结果" onClick={() => onCreate(CanvasNodeType.Config)} />
                 <ConnectionCreateOption theme={theme} icon={<Table2 className="size-4" />} title="多维表格" description="图片与文本按输入列逐行组合" onClick={() => onCreate("dxos:table")} />
                 <ConnectionCreateOption theme={theme} icon={<BrainCircuit className="size-4" />} title="LLM 多模态分析" description="分析图片与文本，输出文本或表格" onClick={() => onCreate("dxos:llm")} />

@@ -1,3 +1,4 @@
+import { imageQualityForModel } from "@/lib/image-quality";
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import i18n from "@/i18n";
 import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
@@ -107,7 +108,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         ...config,
         model: resolveModelForCapability(config, node?.metadata?.model, mode),
         reasoningEffort: node?.metadata?.reasoningEffort || config.reasoningEffort || defaultConfig.reasoningEffort,
-        quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
+        quality: mode === "image" ? imageQualityForModel(resolveModelForCapability(config, node?.metadata?.model, mode), node?.metadata?.quality || config.quality) : config.quality,
         size: node?.metadata?.size || config.size || defaultConfig.size,
         imageResolution: node?.metadata?.imageResolution || config.imageResolution,
         background: node?.metadata?.background ?? config.background ?? defaultConfig.background,

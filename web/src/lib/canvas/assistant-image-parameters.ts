@@ -1,9 +1,16 @@
+import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, parsePixelSize } from "@/lib/media-size";
-import type { AiConfig } from "@/stores/use-config-store";
+import { resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasNodeMetadata } from "@/types/canvas";
 
 // Agent and UI use the same presets. A ratio is not a request size by itself.
 export function assistantImageParameters(patch: CanvasNodeMetadata, current: CanvasNodeMetadata, config: AiConfig): CanvasNodeMetadata {
+    const model = resolveModelForCapability(config, patch.model || current.model, "image");
+    if (patch.quality !== undefined || patch.model !== undefined) {
+        const options = imageQualityOptions(model);
+        const quality = patch.quality === "max" && options.length ? options[options.length - 1] : imageQualityForModel(model, patch.quality ?? current.quality ?? config.quality);
+        patch = { ...patch, quality };
+    }
     if (patch.size === undefined && patch.imageAspectRatio === undefined && patch.imageResolution === undefined) return patch;
     const resolution = patch.imageResolution?.trim().toLowerCase();
     if (resolution && !["auto", "1k", "2k", "4k"].includes(resolution)) throw new Error("imageResolution 必须是 auto、1k、2k 或 4k");

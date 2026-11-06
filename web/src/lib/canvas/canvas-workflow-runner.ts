@@ -1,3 +1,4 @@
+import { imageQualityForModel } from "@/lib/image-quality";
 import { nanoid } from "nanoid";
 
 import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
@@ -143,7 +144,7 @@ async function runConcurrent(node: CanvasNodeData, host: CanvasWorkflowHost, opt
                 if (row.media.some((media) => media.mediaType !== "image")) throw new Error("此批量入口当前只接收图片参考；视频或音频素材请使用画布原生对应节点");
                 let output: CanvasNodeMetadata;
                 if (mode === "image") {
-                    const result = await host.ai.generateImage(prompt, { model, references, count: 1, size: meta.imageAspectRatio === "auto" ? "auto" : meta.size, resolution: meta.imageResolution, quality: meta.quality, signal });
+                    const result = await host.ai.generateImage(prompt, { model, references, count: 1, size: meta.imageAspectRatio === "auto" ? "auto" : meta.size, resolution: meta.imageResolution, quality: imageQualityForModel(model, meta.quality || host.getConfig().quality), signal });
                     assertRun(host, node.id, run);
                     if (!result.images.length) throw new Error("中转站未返回图片");
                     output = { ...imageMetadata(await uploadImage(result.images[0], { signal })), cropContext };
