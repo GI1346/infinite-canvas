@@ -406,7 +406,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             <div
                 className="relative h-full w-full overflow-visible rounded-3xl border-2"
                 style={{
-                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text && theme === canvasThemes.light ? "#ffffff" : theme.node.fill,
+                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text ? (theme === canvasThemes.light ? "#ffffff" : theme.node.panel) : theme.node.fill,
                     borderColor: isActive || isGroupDropTarget ? selectionBlue : hovered ? `${selectionBlue}66` : isGroup ? groupColor : hasImageContent || transparentBg ? "transparent" : theme.node.stroke,
                     borderStyle: "solid",
                     borderWidth: isGroup ? 2.5 : undefined,
@@ -442,7 +442,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot || data.type === CanvasNodeType.Text ? "overflow-visible" : "overflow-hidden"}`}
                     style={
                         {
-                            background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text && theme === canvasThemes.light ? "#ffffff" : theme.node.fill,
+                            background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text ? (theme === canvasThemes.light ? "#ffffff" : theme.node.panel) : theme.node.fill,
                             pointerEvents: contentInteractive ? undefined : "none",
                         } as React.CSSProperties
                     }

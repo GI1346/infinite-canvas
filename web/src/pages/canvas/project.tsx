@@ -47,6 +47,7 @@ import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "@/components
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
 import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import { CanvasGroupColorToolbar, CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "@/components/canvas/canvas-node-hover-toolbar";
+import { collectDownloadImages } from "@/lib/canvas/canvas-batch-download";
 import { CanvasSelectionToolbar } from "@/components/canvas/canvas-selection-toolbar";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Minimap } from "@/components/canvas/canvas-mini-map";
@@ -3771,6 +3772,25 @@ function InfiniteCanvasPage() {
                         onGroup={groupSelection}
                         onUngroup={ungroupSelection}
                         onArrange={(mode) => setNodes((current) => arrangeSelection(current, selectedNodeIdsRef.current, mode, connectionsRef.current))}
+                        onSaveAssets={() => void (async () => {
+                            const images = collectDownloadImages(selectedNodeIdsRef.current, nodesRef.current);
+                            if (!images.length) { message.warning("所选节点中没有可保存的图片"); return; }
+                            let saved = 0, skipped = 0, failed = 0;
+                            for (const item of images) {
+                                if (useAssetStore.getState().assets.some(asset => asset.kind === "image" && (item.storageKey ? asset.data.storageKey === item.storageKey : asset.data.dataUrl === item.content))) { skipped++; continue; }
+                                try {
+                                    const blob = item.storageKey ? await getImageBlob(item.storageKey) : null;
+                                    if (item.storageKey && !blob) throw new Error("图片原文件不存在");
+                                    const node = nodesRef.current.find(node => node.id === item.nodeId);
+                                    const source = item.index ? node?.metadata?.images?.[item.index - 1] : node?.metadata;
+                                    const image = blob ? { url: await resolveImageUrl(item.storageKey), storageKey: item.storageKey, width: source?.naturalWidth || node?.width || 0, height: source?.naturalHeight || node?.height || 0, bytes: blob.size, mimeType: blob.type || item.mimeType || "image/png" } : await uploadImage(item.content);
+                                    addAsset({ kind: "image", title: item.index ? `${item.title} ${item.index}` : item.title, coverUrl: image.url, tags: [], source: "Canvas", data: { dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType }, metadata: { source: "canvas", nodeId: item.nodeId, prompt: node?.metadata?.prompt } });
+                                    saved++;
+                                } catch { failed++; }
+                            }
+                            if (failed) message.warning(`已存入 ${saved} 张，${skipped} 张已收藏，${failed} 张保存失败`);
+                            else message.success(`已存入图片库 ${saved} 张${skipped ? `，${skipped} 张已收藏` : ""}`);
+                        })()}
                         onSaveToResources={() => {
                             const ids = expandDragNodeIds(selectedNodeIdsRef.current, nodesRef.current);
                             const savedNodes = nodesRef.current.filter(node => ids.has(node.id));

@@ -32,8 +32,8 @@ export const canvasThemes = {
         },
     },
     dark: {
-        canvas: { background: "#0e141e", dot: "rgba(167,188,218,.18)", line: "rgba(167,188,218,.08)", selectionStroke: "#7aa7ff", selectionFill: "rgba(122,167,255,.18)" },
-        node: { label: "#a4b3c7", fill: "#1c2737", panel: "#151e2c", stroke: "#344156", activeStroke: "#7aa7ff", placeholder: "#8494aa", text: "#e6edf7", muted: "#a4b3c7", faint: "#8494aa" },
+        canvas: { background: "#0c0f13", dot: "rgba(167,188,218,.18)", line: "rgba(167,188,218,.08)", selectionStroke: "#7aa7ff", selectionFill: "rgba(122,167,255,.18)" },
+        node: { label: "#a4b3c7", fill: "#222830", panel: "#1b2026", stroke: "#344156", activeStroke: "#7aa7ff", placeholder: "#8494aa", text: "#e6edf7", muted: "#a4b3c7", faint: "#8494aa" },
         toolbar: { panel: "rgba(21,30,44,.98)", border: "#344156", item: "#a4b3c7", itemHover: "#202c3e", shadow: "0 8px 28px rgba(0,0,0,.26)", activeBg: "#243958", activeText: "#abcaff" },
     },
 } as const;

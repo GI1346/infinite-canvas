@@ -11,11 +11,11 @@ import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "@/t
 
 const SELECTION_PAD = 14;
 export function CanvasSelectionToolbar({
-    nodes, viewport, showToolbar, canGroup, canUngroup, onGroup, onUngroup, onArrange, onSaveToResources, onDownload, onAddToAgent, downloading = false,
+    nodes, viewport, showToolbar, canGroup, canUngroup, onGroup, onUngroup, onArrange, onSaveAssets, onSaveToResources, onDownload, onAddToAgent, downloading = false,
 }: {
     nodes: CanvasNodeData[]; viewport: ViewportTransform; showToolbar: boolean;
     canGroup: boolean; canUngroup: boolean; onGroup: () => void; onUngroup: () => void;
-    onArrange: (mode: SelectionLayout) => void; onSaveToResources: () => void;
+    onArrange: (mode: SelectionLayout) => void; onSaveAssets: () => void; onSaveToResources: () => void;
     onDownload?: () => void; onAddToAgent: () => void; downloading?: boolean;
 }) {
     const { t } = useTranslation();
@@ -41,6 +41,7 @@ export function CanvasSelectionToolbar({
             {onDownload && nodes.some(node => node.type === "image" || node.type === "group") && <SelectionAction title={downloading ? "打包中…" : "导出图片"} icon={<Download className="size-4" />} onClick={onDownload} disabled={downloading} />}
             {canGroup && <SelectionAction title={t("canvas.nodeToolbar.groupTitle")} label={t("canvas.nodeToolbar.group")} icon={<Group className="size-4" />} onClick={onGroup} />}
             {canUngroup && <SelectionAction title={t("canvas.nodeToolbar.ungroupTitle")} label={t("canvas.nodeToolbar.ungroup")} icon={<Ungroup className="size-4" />} onClick={onUngroup} />}
+            <SelectionAction title="存资产" label="存资产" icon={<FolderPlus className="size-4" />} onClick={onSaveAssets} />
             <SelectionAction title="保存到资源管理器" label="保存到资源管理器" icon={<FolderPlus className="size-4" />} onClick={onSaveToResources} />
         </div>}
     </>;
