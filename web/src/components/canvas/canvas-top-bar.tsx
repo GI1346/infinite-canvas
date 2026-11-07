@@ -1,13 +1,12 @@
 import { CanvasLogsModal } from "./canvas-logs-modal";
 import { CanvasWheelSensitivity } from "./canvas-wheel-sensitivity";
 import { useEffect, useRef, useState } from "react";
-import { Bot, BookOpen, Download, Eraser, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
+import { Bot, BookOpen, Download, Eraser, Home, Images, Menu, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
 import { App, Button, Dropdown, Modal, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { DOCS_URL } from "@/constant/env";
 import { useHarnessSidebarStore } from "@/stores/use-harness-sidebar-store";
@@ -33,7 +32,6 @@ export function CanvasTopBar({
     onImportImage,
     onOpenPlugins,
     onOpenCleanup,
-    onOpenGrid,
     onUndo,
     onRedo,
 }: {
@@ -54,7 +52,6 @@ export function CanvasTopBar({
     onImportImage: () => void;
     onOpenPlugins: () => void;
     onOpenCleanup: () => void;
-    onOpenGrid: () => void;
     onUndo: () => void;
     onRedo: () => void;
 }) {
@@ -66,9 +63,7 @@ export function CanvasTopBar({
     const [logsOpen, setLogsOpen] = useState(false);
     const [harnessOpening, setHarnessOpening] = useState(false);
     const { message } = App.useApp();
-    const sidePanelOpen = useCanvasSidePanelStore((state) => state.panelOpen);
     const agentOpen = useCanvasAssistantStore((state) => state.open);
-    const toggleSidePanel = useCanvasSidePanelStore((state) => state.togglePanel);
 
     useEffect(() => {
         if (!isTitleEditing) return;
@@ -83,17 +78,6 @@ export function CanvasTopBar({
         <>
             <div className="pointer-events-auto absolute left-1/2 top-2 z-50 flex h-12 w-max max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-3 rounded-2xl border px-3 shadow-sm" data-canvas-overlay data-canvas-no-zoom data-canvas-top-toolbar style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}>
                 <div className="pointer-events-auto flex min-w-[120px] shrink-0 items-center gap-1">
-                    <Tooltip title={sidePanelOpen ? t("canvas.collapsePanel") : t("canvas.expandPanel")}>
-                        <button
-                            type="button"
-                            onClick={toggleSidePanel}
-                            aria-label={sidePanelOpen ? t("canvas.collapsePanel") : t("canvas.expandPanel")}
-                            className="grid size-7 place-items-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/10"
-                            style={{ color: theme.node.text }}
-                        >
-                            {sidePanelOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
-                        </button>
-                    </Tooltip>
                     <Dropdown
                         trigger={["click"]}
                         menu={{
@@ -161,7 +145,6 @@ export function CanvasTopBar({
                     <Tooltip title={t("canvas.undo")}><Button type="text" aria-label={t("canvas.undo")} disabled={!canUndo} icon={<Undo2 className="size-4" />} onClick={onUndo} /></Tooltip>
                     <Tooltip title={t("canvas.redo")}><Button type="text" aria-label={t("canvas.redo")} disabled={!canRedo} icon={<Redo2 className="size-4" />} onClick={onRedo} /></Tooltip>
                     <Tooltip title={t("canvas.home")}><Button type="text" aria-label={t("canvas.home")} icon={<Home className="size-4" />} onClick={onHome} /></Tooltip>
-                    <Button type="text" onClick={onOpenGrid}>宫格布局</Button>
                     <Button type="text" onClick={() => setLogsOpen(true)}>日志</Button>
                     <Button type="text" icon={<Eraser className="size-4" />} onClick={onOpenCleanup}>清理</Button>
                     <UserStatusActions variant="canvas" onOpenShortcuts={() => setShortcutsOpen(true)} onOpenPlugins={onOpenPlugins} />

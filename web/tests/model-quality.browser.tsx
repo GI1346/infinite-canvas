@@ -22,6 +22,13 @@ const results: string[] = [], seen: any[] = [];
 function check(value: unknown, message: string): asserts value { if (!value) throw Error(message); }
 const equal = (a: unknown, b: unknown, message: string) => check(JSON.stringify(a) === JSON.stringify(b), message + ": " + JSON.stringify({a,b}));
 const tick = () => new Promise(r => setTimeout(r, 60));
+async function click(element: HTMLElement) {
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, button: 0, buttons: 1 }));
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1 }));
+    element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, button: 0 }));
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+    element.click(); await tick();
+}
 const names = ["gpt-image-1", "gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-native", "gpt-image-2.6-flare", "gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-nano-banana-2.1"];
 const modelId = (name: string) => encodeChannelModel("offline", name);
 const config = {...defaultConfig, proxyEnabled: false, model: modelId(names[2]), imageModel: modelId(names[2]), models: names.map(modelId), channels: [{ id: "offline", name: "offline", baseUrl: "https://offline.invalid", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: names.map(name => ({name,capability: "image" as const})) }]};
@@ -67,8 +74,9 @@ async function main() {
     for (const name of names) {
         const n={...newConfig,metadata:{...newConfig.metadata,model:modelId(name)}};
         root.render(<ConfigProvider><div data-fixture style={{width:854,height:854}}><CanvasConfigNodePanel node={n} nodes={[n]} inputs={[]} connectedNodes={[]} isRunning={false} onConfigChange={()=>{}} onGenerate={()=>{}} onStop={()=>{}} onDisconnectReference={()=>{}} onStartReferenceSelection={()=>{}} /></div></ConfigProvider>); await tick();
-        const select=document.querySelector<HTMLSelectElement>('[aria-label="生成配置质量"]')!, options=imageQualityOptions(modelId(name));
-        equal(select.disabled,!options.length,"Config enabled follows model " + name); equal([...select.options].map(o=>o.value),options.length?options:["auto"],"Config options " + name);
+        const select=document.querySelector<HTMLButtonElement>('[aria-label="生成配置质量"]')!, options=imageQualityOptions(modelId(name));
+        equal(select.disabled,!options.length,"Config enabled follows model " + name);
+        if(options.length) { await click(select); const menu=document.querySelector<HTMLElement>('[aria-label="质量选项"]')!; check(menu?.hasAttribute("data-canvas-overlay"),"Quality portal guards"); equal([...menu.querySelectorAll('button')].map(o=>o.textContent),options,"Config options " + name); await click(menu.querySelector<HTMLElement>('button')!); }
         for(const selector of ['[aria-label="生成配置质量"]','[aria-label="生成配置比例"]','.canvas-composer-model-picker','[aria-label="生成配置提示词"]']) { const element=document.querySelector(selector); check(element,"Missing font selector " + selector); equal(getComputedStyle(element).fontSize,"24px","Real CSS font " + name); }
         check(!document.body.textContent?.includes("该模型不支持质量设置"),"No extra unsupported text");
         const panel=document.querySelector('[data-fixture]')!.firstElementChild! as HTMLElement;
@@ -78,7 +86,7 @@ async function main() {
     const Content=dxosNodeDefinitions.find(n=>n.type==="dxos:concurrent")!.Content!;
     for(const name of ["gpt-image-2.5-sunburst","gemini-3-pro-image","gpt-image-2"]) {
         const n={...node(),type:"dxos:concurrent",metadata:{model:modelId(name),quality:"max"}};
-        const ctx:any={node:n,theme:canvasThemes[useThemeStore.getState().theme],getNodes:()=>[n],getConnections:()=>[],getNode:()=>n,updateMetadata:()=>{},ai:{listModels:()=>names.map(name=>({value:modelId(name),label:name}))}};
+        const ctx:any={node:n,theme:canvasThemes[useThemeStore.getState().theme],getNodes:()=>[n],getConnections:()=>[],getNode:()=>n,on:()=>()=>{},updateMetadata:()=>{},ai:{listModels:()=>names.map(name=>({value:modelId(name),label:name}))}};
         root.render(<Content ctx={ctx}/>);await tick();const select=document.querySelector<HTMLSelectElement>('[aria-label="生成质量"]')!,options=imageQualityOptions(modelId(name));
         equal(select.disabled,!options.length,"Batch quality disabled " + name);equal([...select.options].map(o=>o.value),options.length?options:["auto"],"Batch quality options " + name);
     }

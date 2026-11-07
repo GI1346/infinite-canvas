@@ -40,12 +40,14 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     cuttingRef.current = isCuttingConnections;
     const viewportRef = useRef(viewport);
     const paintedRef = useRef<HTMLDivElement>(null);
+    const worldRef = useRef<HTMLDivElement>(null);
     const gridRef = useRef<HTMLDivElement>(null);
     const committedRef = useRef(viewport);
     const callbacks = useRef({ onViewportChange, onCanvasDeselect });
     callbacks.current = { onViewportChange, onCanvasDeselect };
     const paint = (next: ViewportTransform) => {
-        if (paintedRef.current) paintedRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${next.k})`;
+        if (paintedRef.current) { paintedRef.current.style.left = `${next.x}px`; paintedRef.current.style.top = `${next.y}px`; }
+        if (worldRef.current) worldRef.current.style.zoom = String(next.k);
         const grid = gridRef.current?.firstElementChild as HTMLElement | null;
         if (grid) {
             const size = gridSpacing(next.k);
@@ -73,6 +75,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     };
     const [isSpacePressed, setIsSpacePressed] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
+    const [isCtrlPressed, setIsCtrlPressed] = useState(false);
 
     useLayoutEffect(() => {
         if (panState.current.isPanning) return;
@@ -113,7 +116,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
             event.stopImmediatePropagation(); // Stop native button activation and other global shortcut listeners, including repeats/keyup.
         };
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (document.querySelector("[data-canvas-image-editor]")) { spaceRef.current = false; typingSpaceRef.current = false; setIsSpacePressed(false); return; }
+            if (event.key === "Control") setIsCtrlPressed(true);
             if (event.code !== "Space" || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (!spaceRef.current && !isCanvasKeyTarget(event.target))) return;
             if (isTextEditing(event.target) || isTextEditing(document.activeElement)) {
                 spaceRef.current = false; typingSpaceRef.current = false; setIsSpacePressed(false);
@@ -127,14 +130,16 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
         };
 
         const handleKeyUp = (event: KeyboardEvent) => {
+            if (event.key === "Control") setIsCtrlPressed(false);
             if (event.code !== "Space") return;
-            if (spaceRef.current && !document.querySelector("[data-canvas-image-editor]")) captureSpace(event);
+            if (spaceRef.current) captureSpace(event);
             typingSpaceRef.current = false;
             spaceRef.current = false;
             setIsSpacePressed(false);
         };
 
         const handleBlur = () => {
+            setIsCtrlPressed(false);
             const wasPanning = panState.current.isPanning;
             const hadWheelFrame = wheelCommitRef.current;
             spaceRef.current = false;
@@ -311,12 +316,14 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     }, [containerRef]);
 
     const activeTool = isSpacePressed ? "pan" : tool;
-    const cursor = isCuttingConnections ? "crosshair" : isPanning ? "grabbing" : activeTool === "pan" ? "grab" : undefined;
+    const whaleCursor = `url("${import.meta.env.BASE_URL}whale-cursor.png") 0 0, auto`;
+    const cursor = isCtrlPressed || isCuttingConnections ? whaleCursor : isPanning ? "grabbing" : activeTool === "pan" ? "grab" : undefined;
 
     return (
         <div
             ref={containerRef}
             className="relative h-full w-full select-none overflow-clip"
+            data-cut-cursor={isCtrlPressed || isCuttingConnections ? "" : undefined}
             style={{ background, cursor }}
             onPointerDownCapture={handlePointerDown}
             onMouseDownCapture={(event) => { if (panState.current.isPanning || cuttingRef.current) { event.preventDefault(); event.stopPropagation(); } }}
@@ -325,16 +332,12 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
             onDragOver={(event) => event.preventDefault()}
             onDrop={onDrop}
         >
+            {isCtrlPressed || isCuttingConnections ? <style>{`[data-cut-cursor], [data-cut-cursor] * { cursor: ${whaleCursor} !important; }`}</style> : null}
             <div ref={gridRef} className="pointer-events-none absolute inset-0"><CanvasGrid viewport={viewport} mode={backgroundMode} /></div>
-            <div
-                ref={paintedRef}
-                data-canvas-world
-                className="absolute origin-top-left will-change-transform"
-                style={{
-                    transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.k})`,
-                }}
-            >
-                {children}
+            <div ref={paintedRef} className="absolute" style={{ left: viewport.x, top: viewport.y }}>
+                <div ref={worldRef} data-canvas-world style={{ zoom: viewport.k }}>
+                    {children}
+                </div>
             </div>
         </div>
     );

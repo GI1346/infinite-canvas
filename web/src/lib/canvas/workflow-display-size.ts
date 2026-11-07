@@ -1,4 +1,4 @@
-import { CONFIG_NODE_DEFAULT_SIZE, TEXT_NODE_DEFAULT_SIZE } from "./canvas-node-size";
+import { CONFIG_NODE_DEFAULT_SIZE, LLM_NODE_DEFAULT_SIZE, TEXT_NODE_DEFAULT_SIZE } from "./canvas-node-size";
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 
 export const workflowDisplayMetadata = { workflowDisplayVersion: 1 };
@@ -8,6 +8,8 @@ export const isEnlargedWorkflowType = (type: string) => ["dxos:table", "dxos:llm
 export function enlargeWorkflowNodes(nodes: CanvasNodeData[]): CanvasNodeData[] {
     let changed = false;
     const result = nodes.map((node) => {
+        const llmDefault = node.type === "dxos:llm" && ((node.width === 430 && node.height === 540) || (node.width === 645 && node.height === 810));
+        if (llmDefault) { changed = true; return { ...node, ...LLM_NODE_DEFAULT_SIZE, metadata: { ...node.metadata, ...workflowDisplayMetadata } }; }
         const defaultSize = node.type === "config" && node.width === 540 && node.height === 440 ? CONFIG_NODE_DEFAULT_SIZE : node.type === "text" && [320, 340].includes(node.width) && node.height === 240 ? TEXT_NODE_DEFAULT_SIZE : null;
         if (defaultSize) { changed = true; return { ...node, ...defaultSize }; }
         const metadata = node.metadata as (CanvasNodeMetadata & { workflowDisplayVersion?: number }) | undefined;

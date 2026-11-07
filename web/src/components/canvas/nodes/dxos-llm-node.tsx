@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { BrainCircuit, FileText } from "lucide-react";
-import { decodeChannelModel, useEffectiveConfig } from "@/stores/use-config-store";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Button } from "antd";
+import { BrainCircuit, FileText, Play, Square } from "lucide-react";
+import { ModelPicker } from "@/components/model-picker";
+import { decodeChannelModel, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { collectLlmInputs, LLM_TYPE } from "@/lib/canvas/dxos-llm";
 import { isWorkflowNodeRunning, runWorkflowNode, stopWorkflowNode } from "@/lib/canvas/canvas-workflow-runner";
 import type { CanvasNodeContext, CanvasNodeDefinition } from "@/types/canvas-plugin";
 import { stopWorkflowControlDrag } from "@/components/canvas/workflow-node-interactions";
 import { workflowDisplayMetadata } from "@/lib/canvas/workflow-display-size";
+import { LLM_NODE_DEFAULT_SIZE } from "@/lib/canvas/canvas-node-size";
 import { getImagePreviewRevision, previewUrlFor, subscribeImagePreviews } from "@/services/image-storage";
 
-const button = "rounded px-2 py-1 text-2xl hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40";
 const stop = (event: { stopPropagation(): void }) => event.stopPropagation();
 
 function readLlmInputs(ctx: CanvasNodeContext) {
@@ -37,10 +39,7 @@ export function LlmContent({ ctx }: { ctx: CanvasNodeContext }) {
     const running = localRunning || (meta.status === "loading" && isWorkflowNodeRunning(node.id));
     useEffect(() => { mounted.current = true; return () => { mounted.current = false; controller.current?.abort(); }; }, [node.id]);
     const mode = meta.llmOutputMode === "list" ? "list" : "text";
-    const models = ctx.ai.listModels("text"), model = meta.model ?? ctx.ai.defaultModel("text"), decoded = decodeChannelModel(model);
-    const channelId = meta.llmChannelId ?? decoded?.channelId ?? "";
-    const channelModels = models.filter((option) => decodeChannelModel(option.value)?.channelId === channelId);
-    const input: CSSProperties = { background: theme.node.panel, color: theme.node.text, border: "1px solid " + theme.node.stroke, borderRadius: 6, padding: 8, minWidth: 0, fontSize: "inherit", lineHeight: "inherit" };
+    const model = meta.model ?? ctx.ai.defaultModel("text");
     const summary = incoming.error || (incoming.inputs ? incoming.inputs.references.length + " 张图片 · " + (incoming.inputs.text ? "含文本输入" : "无文本输入") : "连接图片、图片组或文本到左侧输入");
     const images = incoming.inputs?.previews?.filter((item) => item.type === "image") || [], textInputs = incoming.inputs?.previews?.filter((item) => item.type === "text") || [];
 
@@ -53,37 +52,33 @@ export function LlmContent({ ctx }: { ctx: CanvasNodeContext }) {
         finally { if (controller.current === abort) { controller.current = null; if (mounted.current) setRunning(false); } }
     };
     const cancel = () => { controller.current?.abort(); stopWorkflowNode(node.id); controller.current = null; setRunning(false); if (current.current.getNode(node.id)) current.current.updateMetadata({ status: "idle", errorDetails: undefined }); };
-    return <div className="flex h-full min-h-0 w-full flex-col gap-3 p-5 text-2xl" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag} onPointerDown={stop} onKeyDown={stop}>
-        <strong className="cursor-grab" data-node-drag-handle>LLM 多模态分析</strong>
-        <div className="grid grid-cols-2 gap-3">
-            <label>平台<select aria-label="LLM 平台" disabled={running} className="mt-1 w-full" style={input} value={channelId} onChange={(event) => ctx.updateMetadata({ llmChannelId: event.target.value, model: "" })}>
-                <option value="">请选择平台</option>{channelId && !config.channels.some((channel) => channel.id === channelId) && <option value={channelId}>缺失平台</option>}{config.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
-            </select></label>
-            <label>模型<select aria-label="LLM 模型" disabled={running} className="mt-1 w-full" style={input} value={model} onChange={(event) => ctx.updateMetadata({ model: event.target.value })}>
-                <option value="">请选择文本模型</option>{model && !channelModels.some((option) => option.value === model) && <option value={model}>模型不属于当前平台或已缺失</option>}{channelModels.map((option) => <option key={option.value} value={option.value}>{decodeChannelModel(option.value)?.model || option.label}</option>)}
-            </select></label>
+    return <div data-llm-chat className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-3xl text-2xl" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag} onPointerDown={stop} onKeyDown={stop}>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-6">
+            {!!incoming.inputs?.previews?.length && <div data-node-scroll data-node-no-drag aria-label="LLM 输入素材" className="max-h-44 shrink-0 overflow-auto overscroll-contain">
+                {!!images.length && <div className="flex flex-wrap gap-3">{images.map((item, index) => <div key={item.id} className="w-20 min-w-0" title={item.title}>
+                    <img src={previewUrlFor(item.storageKey) || item.content} alt={item.title} className="h-20 w-full rounded-xl border object-contain" style={{ borderColor: theme.node.stroke }} decoding="async" draggable={false} />
+                    <span className="mt-1 block truncate text-lg" style={{ color: theme.node.muted }}>{index + 1}. {item.title}</span>
+                </div>)}</div>}
+                {textInputs.map((item) => <div key={item.id} className="mt-3 min-w-0 select-text">
+                    <div className="inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1" style={{ background: theme.toolbar.activeBg }}><FileText className="size-5 shrink-0" /><span className="truncate" title={item.title}>{item.title}</span></div>
+                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-lg" style={{ color: theme.node.muted }}>{item.content || "文本节点暂无内容"}</p>
+                </div>)}
+            </div>}
+            <textarea aria-label="LLM 提示词" disabled={running} className="min-h-28 w-full flex-1 resize-none overscroll-contain border-0 bg-transparent leading-relaxed outline-none" style={{ color: theme.node.text, fontSize: "inherit" }} placeholder="例如：分析已连接图片；输入你的分析要求…" value={meta.prompt || ""} onChange={(event) => ctx.updateMetadata({ prompt: event.target.value })} />
+            {(meta.content || running) && <div data-node-scroll data-node-no-drag aria-label="LLM 分析结果" className="max-h-48 shrink-0 select-text overflow-auto overscroll-contain border-t pt-3 whitespace-pre-wrap break-words" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>{running ? "正在分析…" : meta.content}</div>}
+            {incoming.error && <p role="alert" className="break-words" style={{ color: theme.node.muted }}>{summary}</p>}
         </div>
-        <label>输出方式<select aria-label="LLM 输出模式" disabled={running} className="mt-1 w-full" style={input} value={mode} onChange={(event) => ctx.updateMetadata({ llmOutputMode: event.target.value as "text" | "list" })}><option value="text">文本</option><option value="list">列表 / 多维表格</option></select></label>
-        <p data-node-no-drag className="select-text break-words" style={{ color: theme.node.muted }}>已连接输入：{summary}</p>
-        {!!incoming.inputs?.previews?.length && <div data-node-scroll data-node-no-drag aria-label="LLM 输入素材" className="max-h-40 shrink-0 overflow-auto overscroll-contain rounded p-3" style={{ border: "1px solid " + theme.node.stroke }}>
-            {!!images.length && <div className="flex flex-wrap gap-2">{images.map((item, index) => <div key={item.id} className="w-24 min-w-0" title={item.title}>
-                <img src={previewUrlFor(item.storageKey) || item.content} alt={item.title} className="h-20 w-full rounded object-contain" loading="lazy" decoding="async" draggable={false} />
-                <span className="mt-1 block truncate" style={{ color: theme.node.muted }}>{index + 1}. {item.title}</span>
-            </div>)}</div>}
-            {textInputs.map((item) => <div key={item.id} className="mt-1 min-w-0 select-text">
-                <div className="flex min-w-0 items-center gap-1"><FileText className="size-6 shrink-0" /><span className="truncate" title={item.title}>{item.title}</span></div>
-                <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words" style={{ color: theme.node.muted }}>{item.content || "文本节点暂无内容"}</p>
-            </div>)}
-        </div>}
-        <textarea aria-label="LLM 提示词" rows={4} disabled={running} className="min-h-28 resize-none overscroll-contain" style={input} placeholder="输入分析要求；图片和文本从连线读取" value={meta.prompt || ""} onChange={(event) => ctx.updateMetadata({ prompt: event.target.value })} />
-        <div data-node-scroll className="min-h-0 flex-1 overflow-auto overscroll-contain rounded p-3 whitespace-pre-wrap break-words" style={{ border: "1px solid " + theme.node.stroke, color: theme.node.muted }}><span data-node-no-drag className="select-text">{running ? "正在分析…" : meta.content || "分析完成后自动创建并连接文本或可编辑表格，表格可继续连接并发生成节点。"}</span></div>
-        {(error || meta.errorDetails) && <p role="alert" className="break-words">{error || meta.errorDetails}</p>}
-        <div className="flex justify-between gap-2"><span style={{ color: theme.node.faint }}>{running ? "运行中" : meta.status === "loading" ? "上次运行已中断" : meta.status === "success" ? "已完成" : "就绪"}</span>{running ? <button className={button} onClick={cancel}>停止</button> : <button className={button} onClick={() => void run()}>开始分析</button>}</div>
+        <div className="shrink-0 space-y-3 border-t p-5" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
+            <fieldset aria-label="LLM 输出模式" disabled={running} className="inline-flex min-w-0 gap-1 rounded-full border p-1" style={{ borderColor: theme.node.stroke }}>{([['text', '文本'], ['list', '多维表格']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} className="rounded-full px-4 py-0.5 disabled:opacity-50" style={mode === value ? { background: theme.canvas.selectionStroke, color: theme.node.panel } : { color: theme.node.muted }} onClick={() => ctx.updateMetadata({ llmOutputMode: value })}>{label}</button>)}</fieldset>
+            <div className="flex min-w-0 items-center gap-3"><div className="min-w-0 flex-1"><ModelPicker config={config} value={model} capability="text" groupByChannel="list" fullWidth disabled={running} ariaLabel="LLM 模型" className="!h-14 !text-2xl" placeholder="选择分析模型" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} onChange={(value) => ctx.updateMetadata({ model: value, llmChannelId: decodeChannelModel(value)?.channelId || "" })} /></div><Button type="primary" shape="circle" aria-label={running ? "停止分析" : "开始分析"} danger={running} style={{ width: 56, height: 56, flexShrink: 0 }} icon={running ? <Square size={24} /> : <Play size={26} />} onClick={() => running ? cancel() : void run()} /></div>
+            {(error || meta.errorDetails) && <p role="alert" className="break-words">{error || meta.errorDetails}</p>}
+            {(running || meta.status === "success" || meta.status === "loading") && <p role="status" className="text-lg" style={{ color: theme.node.muted }}>{running ? "运行中" : meta.status === "loading" ? "上次运行已中断" : "已完成"}</p>}
+        </div>
     </div>;
 }
 
 export const llmNodeDefinition: CanvasNodeDefinition = {
     type: LLM_TYPE, title: "LLM 多模态分析", icon: <BrainCircuit className="size-4" />,
-    defaultSize: { width: 645, height: 810 }, defaultMetadata: { ...workflowDisplayMetadata, llmOutputMode: "text" },
+    defaultSize: LLM_NODE_DEFAULT_SIZE, defaultMetadata: { ...workflowDisplayMetadata, llmOutputMode: "text" },
     hidePanel: true, hasSourceHandle: true, Content: LlmContent,
 };

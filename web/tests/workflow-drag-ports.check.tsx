@@ -7,7 +7,9 @@ import { InfiniteCanvas } from "../src/components/canvas/infinite-canvas";
 import { dxosNodeDefinitions } from "../src/components/canvas/nodes/dxos-workflow-nodes";
 import { llmNodeDefinition } from "../src/components/canvas/nodes/dxos-llm-node";
 import { registerNodeDefinitions } from "../src/lib/canvas/node-registry";
-import { TABLE_TYPE, CONCURRENT_TYPE, emptyTable } from "../src/lib/canvas/dxos-table";
+import { TABLE_TYPE, CONCURRENT_TYPE, emptyTable, readTable, tableRows, deleteTableRow } from "../src/lib/canvas/dxos-table";
+import { useAssetStore } from "../src/stores/use-asset-store";
+import { emitCanvasEvent } from "../src/lib/canvas/canvas-event-bus";
 import { LLM_TYPE } from "../src/lib/canvas/dxos-llm";
 import { tableConnectionPort } from "../src/lib/canvas/canvas-table-port";
 import { connectionCurve } from "../src/lib/canvas/canvas-connection-geometry";
@@ -40,17 +42,17 @@ async function main() {
         ai: { listModels: () => [], defaultModel: () => "", generateImage: async () => { requests++; return { images: [] }; }, generateVideo: async () => { requests++; return { url: "" }; }, generateText: async () => { requests++; return { text: "" }; } },
     };
     const ref = createRef<HTMLDivElement>();
-    function Harness() { const [, update] = useState(0), [v, setV] = useState(viewport); render = () => update((n) => n + 1); return <InfiniteCanvas containerRef={ref} viewport={v} tool="select" onViewportChange={(next) => { viewport = next; setV(next); }}>{state.nodes.filter((node) => node.id !== image.id).map((node) => <CanvasNode key={node.id} {...base} data={node} pluginHost={host} onMouseDown={(_, id) => drags.push(id)} onConnectStart={(event, nodeId, handleType, portId) => { event.stopPropagation(); starts.push({ nodeId, handleType, portId }); }} />)}</InfiniteCanvas>; }
+    function Harness() { const [, update] = useState(0), [v, setV] = useState(viewport); render = () => update((n) => n + 1); return <InfiniteCanvas containerRef={ref} viewport={v} tool="select" onViewportChange={(next) => { viewport = next; setV(next); }}>{state.nodes.filter((node) => node.id !== image.id).map((node) => <CanvasNode key={node.id} {...base} data={node} pluginHost={host} onContentChange={(id, value) => host.updateMetadata(id, { content: value })} onMouseDown={(_, id) => drags.push(id)} onConnectStart={(event, nodeId, handleType, portId) => { event.stopPropagation(); starts.push({ nodeId, handleType, portId }); }} />)}</InfiniteCanvas>; }
     const el = document.createElement("div"); document.body.append(el); const root = createRoot(el);
     await act(async () => { root.render(<Harness />); await tick(); });
     const box = { left: 265, top: 92, width: 1000, height: 800 };
     ref.current!.getBoundingClientRect = () => ({ ...box, x: box.left, y: box.top, right: box.left + box.width, bottom: box.top + box.height, toJSON: no });
     const nodeEl = (id: string) => el.querySelector<HTMLElement>(`[data-node-id="${id}"]`)!;
-    const content = (id: string) => { let current = nodeEl(id).querySelector<HTMLElement>("[data-node-drag-handle]")!; while (!current.classList.contains("text-2xl")) current = current.parentElement!; return current; };
+    const content = (id: string) => { const chat = nodeEl(id).querySelector<HTMLElement>("[data-llm-chat]"); if (chat) return chat; let current = nodeEl(id).querySelector<HTMLElement>("[data-node-drag-handle]")!; while (!current.classList.contains("text-2xl")) current = current.parentElement!; return current; };
     try {
         await test("LLM/表格/并发根留白和标题旁间隙真实DOM鼠标按下可拖动，不再仅限标题", async () => {
             for (const node of [table, batch, llm]) {
-                const body = content(node.id), heading = body.querySelector<HTMLElement>("[data-node-drag-handle]")!;
+                const body = content(node.id), heading = body.querySelector<HTMLElement>("[data-node-drag-handle]") || nodeEl(node.id).querySelector<HTMLElement>("[data-node-title] button")!;
                 for (const target of [body, heading.parentElement!, heading]) { const before = drags.length; await down(target); await fire(window, mouse("mouseup")); assert.equal(drags.length, before + 1, node.id); assert.equal(drags.at(-1), node.id); }
             }
         });
@@ -61,7 +63,7 @@ async function main() {
             assert.equal(drags.length, before); assert.equal(requests, 0);
         });
         await test("可滚动区域不拖动，非溢出空白允许拖动且滚轮缩放不移动节点", async () => {
-            for (const node of [table, batch, llm]) {
+            for (const node of [table, batch]) {
                 const scroll = nodeEl(node.id).querySelector<HTMLElement>("[data-node-scroll]")!;
                 Object.defineProperties(scroll, { clientHeight: { configurable: true, value: 100 }, scrollHeight: { configurable: true, value: 300 }, clientWidth: { configurable: true, value: 100 }, scrollWidth: { configurable: true, value: 100 } });
                 const before = drags.length; await down(scroll); assert.equal(drags.length, before);
@@ -175,7 +177,84 @@ async function main() {
             assert.equal(actualCallback(pointer("pointerdown"), "reference", null, focusAnimRef, cancelAnimationFrame, cutter), false);
             assert.equal(actualCallback(pointer("pointerdown"), null, { nodeId: "connecting" }, focusAnimRef, cancelAnimationFrame, cutter), false); assert.equal(starts, 1);
         });
-        console.log(`Workflow drag and ports: ${passed}/${passed} passed (real React DOM events; jsdom layout/hit-testing supplied, no live API)`);
+        await test("上游图片接线与内容更新通过图事件立即刷新表格和并发缩略图", async () => {
+            state = applyCanvasAgentOps(state, [
+                { type: "delete_connections", ids: state.connections.filter((edge) => edge.fromNodeId === image.id && edge.toNodeId === table.id && edge.toPort !== "input-1").map((edge) => edge.id) },
+                { type: "update_node", id: image.id, metadata: { content: "data:image/png;base64,AA==", status: "success" } },
+                { type: "add_node", id: "upstream-text", nodeType: "text", metadata: { content: "上游原文" } },
+                { type: "connect_nodes", fromNodeId: "upstream-text", toNodeId: table.id, toPort: "input-2" },
+            ]);
+            // The existing table/batch nodes retain their identities, as they do behind React.memo.
+            await act(async () => { render(); await tick(); emitCanvasEvent("canvas:graph-changed"); await tick(); });
+            assert.ok(content(table.id).querySelector('img[src="data:image/png;base64,AA=="]'));
+            assert.ok(content(batch.id).querySelector('img[src="data:image/png;base64,AA=="]'));
+            state = applyCanvasAgentOps(state, [{ type: "update_node", id: image.id, metadata: { content: "data:image/png;base64,AQ==" } }]);
+            await act(async () => { emitCanvasEvent("canvas:graph-changed"); await tick(); });
+            assert.ok(content(table.id).querySelector('img[src="data:image/png;base64,AQ=="]'));
+            assert.ok(content(batch.id).querySelector('img[src="data:image/png;base64,AQ=="]'));
+        });
+        await test("任意输入列逐行覆盖上游文本并保留连线，空字符串覆盖不回退原文，真实生成读取修改值", async () => {
+            const textEditor = () => content(table.id).querySelector<HTMLTextAreaElement>('textarea[aria-label="第 1 行输入 2 文本"]')!;
+            assert.equal(textEditor().value, "上游原文");
+            const edit = async (text: string) => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textEditor(), text); await fire(textEditor(), new Event("input", { bubbles: true })); };
+            await edit("本行独立提示词");
+            let currentTable = state.nodes.find((node) => node.id === table.id)!;
+            assert.equal(readTable(currentTable).inputTexts?.["input-2"]?.[0], "本行独立提示词");
+            assert.ok(tableRows(currentTable, state.nodes, state.connections)[0].text.includes("本行独立提示词"));
+            assert.ok(!tableRows(currentTable, state.nodes, state.connections)[0].text.includes("上游原文"));
+            assert.ok(state.connections.some((edge) => edge.fromNodeId === "upstream-text" && edge.toNodeId === table.id && edge.toPort === "input-2"));
+            await edit(""); currentTable = state.nodes.find((node) => node.id === table.id)!;
+            assert.ok(!tableRows(currentTable, state.nodes, state.connections)[0].text.includes("上游原文"));
+            const moved = deleteTableRow({ ...emptyTable(), inputTexts: { "input-5": { 0: "删除", 1: "保留", 2: "" } } }, 0);
+            assert.deepEqual(moved.inputTexts, { "input-5": { 0: "保留", 1: "" } });
+        });
+        await test("并发独立选择整张卡片切换，复选框仅切换一次，空格拖动卡片不选任务", async () => {
+            await act(async () => { host.updateMetadata(batch.id, { tableBatchManualSelection: true, tableBatchSelectedRows: [] }); await tick(); });
+            const card = () => content(batch.id).querySelector<HTMLElement>('[role="group"][aria-label="第 1 行输入"]')!;
+            const selected = () => state.nodes.find((node) => node.id === batch.id)!.metadata!.tableBatchSelectedRows!;
+            await fire(card(), mouse("click")); assert.deepEqual(selected(), [1]);
+            await fire(card().querySelector("img")!, mouse("click")); assert.deepEqual(selected(), []);
+            await fire(card().querySelector("input")!, mouse("click")); assert.deepEqual(selected(), [1]);
+            await fire(card().querySelector("input")!, mouse("click")); assert.deepEqual(selected(), []);
+            const old = { ...viewport };
+            await fire(window, new KeyboardEvent("keydown", { bubbles: true, cancelable: true, code: "Space", key: " " }));
+            await down(card(), { clientX: 500, clientY: 300 }); await fire(window, pointer("pointermove", { clientX: 530, clientY: 320 })); await fire(window, pointer("pointerup")); await fire(card(), mouse("click"));
+            await fire(window, new KeyboardEvent("keyup", { bubbles: true, cancelable: true, code: "Space", key: " " }));
+            assert.deepEqual(selected(), []); assert.equal(viewport.x, old.x + 30); assert.equal(viewport.y, old.y + 20);
+        });
+        await test("文本悬停工具条使用真实提示词库，放大编辑16px并同步正文，默认正文20px", async () => {
+            Object.assign(globalThis, { CustomEvent: window.CustomEvent, NodeFilter: window.NodeFilter, MutationObserver: window.MutationObserver });
+            const previousAssets = useAssetStore.getState().assets;
+            try {
+                await act(async () => {
+                    useAssetStore.setState({ assets: [], hydrated: true });
+                    useAssetStore.getState().addAsset({ kind: "text", title: "工作流不可显示", coverUrl: "", tags: [], data: { content: "workflow" }, metadata: { resourceType: "workflow", workflow: { nodes: [], connections: [] } } });
+                    state.nodes.push(makeNode("prompt-node", "text", { content: "提示词正文" })); render(); await tick();
+                });
+                const current = () => nodeEl("prompt-node");
+                const button = (text: string) => [...current().querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
+                const normalText = [...current().querySelectorAll<HTMLElement>("div")].find((item) => item.textContent === "提示词正文" && item.style.fontSize)!;
+                assert.equal(normalText.style.fontSize, "20px");
+                assert.ok(button("放大编辑").closest('[data-canvas-overlay]')!.className.includes("group-hover/node:opacity-100"));
+                await fire(button("加入提示词库"), mouse("click"));
+                const saved = useAssetStore.getState().assets.find((asset) => asset.metadata?.resourceType === "prompt")!;
+                assert.equal(saved.kind, "text"); assert.equal((saved as any).data.content, "提示词正文");
+                assert.equal(button("加入提示词库").disabled, true);
+                await fire(button("提示词库"), mouse("click"));
+                const popup = document.querySelector<HTMLElement>('[aria-label="提示词库内容"]')!; assert.ok(popup);
+                assert.ok(!popup.textContent!.includes("工作流不可显示"));
+                await act(async () => { host.updateMetadata("prompt-node", { content: "临时内容" }); await tick(); });
+                await fire(popup.querySelector("button")!, mouse("click"));
+                assert.equal(state.nodes.find((node) => node.id === "prompt-node")!.metadata!.content, "提示词正文");
+                await fire(button("放大编辑"), mouse("click"));
+                const editor = document.querySelector<HTMLTextAreaElement>(".ant-modal textarea")!;
+                assert.ok(editor); assert.equal(editor.style.fontSize, "16px"); assert.equal(editor.value, "提示词正文");
+                Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "放大编辑同步后的正文");
+                await fire(editor, new Event("input", { bubbles: true }));
+                assert.equal(state.nodes.find((node) => node.id === "prompt-node")!.metadata!.content, "放大编辑同步后的正文");
+                await fire(document.querySelector<HTMLButtonElement>(".ant-modal-close")!, mouse("click"));
+            } finally { await act(async () => { useAssetStore.setState({ assets: previousAssets }); await tick(); }); }
+        });        console.log(`Workflow drag and ports: ${passed}/${passed} passed (real React DOM events; jsdom layout/hit-testing supplied, no live API)`);
     } finally { await act(async () => root.unmount()); el.remove(); globalThis.fetch = network; }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

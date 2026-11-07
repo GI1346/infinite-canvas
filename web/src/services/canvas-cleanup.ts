@@ -4,6 +4,7 @@ import { zip, unzip, strToU8, strFromU8 } from "fflate";
 import { cleanAssets, cleanProject, type CleanupOptions } from "@/lib/canvas/canvas-cleanup";
 import { useCanvasStore, flushCanvasStorage, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { flushGenerationHistory } from "@/stores/use-generation-history-store";
 
 const imageStores = ["image_files", "image_previews"];
 const logStores = ["image_generation_logs", "video_generation_logs", "relay_tasks"];
@@ -34,6 +35,7 @@ export async function prepareCleanup(projectId: string, options: CleanupOptions,
     if (!options.images && !options.history && !options.logs && !options.diagnostics) throw new Error("请至少选择一项清理内容");
     if (!useCanvasStore.getState().hydrated || !useAssetStore.getState().hydrated) throw new Error("本地数据尚未加载完成");
     await flushCanvasStorage();
+    await flushGenerationHistory();
     const { projects, deletedProjects } = useCanvasStore.getState();
     const assets = useAssetStore.getState().assets;
     const affected = projects.filter((p) => options.allProjects || p.id === projectId);
@@ -124,6 +126,7 @@ export async function restoreCleanupBackup(file: File) {
     if (backup.projects.some((p) => typeof p.id !== "string" || !Array.isArray(p.nodes) || !Array.isArray(p.connections) || !Array.isArray(p.chatSessions)) || backup.assets.some((a) => typeof a.id !== "string" || a.kind !== "image") || backup.records.some((r) => !allowedStores.includes(r.store) || typeof r.key !== "string")) throw new Error("备份包含不允许恢复的数据");
     for (const store of allowedStores) await storeFor(store).ready();
     await flushCanvasStorage();
+    await flushGenerationHistory();
     const state = useCanvasStore.getState();
     const projects = [...state.projects.filter((p) => !backup.projects.some((b) => b.id === p.id)), ...backup.projects];
     const assets = [...useAssetStore.getState().assets.filter((a) => !backup.assets.some((b) => b.id === a.id)), ...backup.assets];

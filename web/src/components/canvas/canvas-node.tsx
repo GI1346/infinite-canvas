@@ -1,8 +1,9 @@
 import { LOCAL_FUSION_NODE_TYPE, FUSION_PATCH_PORT } from "@/lib/canvas/canvas-fusion-ports";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Maximize2, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
+import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Maximize2, Music2, Plus, Puzzle, RefreshCw, Sparkles, Star, Trash2, Video } from "lucide-react";
 import { Modal } from "antd";
+import { Popover } from "radix-ui";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -12,6 +13,7 @@ import { previewUrlFor, subscribeImagePreviews } from "@/services/image-storage"
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { useAssetStore, type TextAsset } from "@/stores/use-asset-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeImage, type CanvasNodeText, type Position } from "@/types/canvas";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/types/canvas-plugin";
@@ -132,7 +134,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const isImage = data.type === CanvasNodeType.Image;
-    const largeTitle = ["dxos:table", "dxos:llm", "dxos:concurrent"].includes(data.type);
+    const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent"].includes(data.type);
     const titleName = isImage ? canvasTitleWithoutExtension(data.title || "") : data.title || "";
     const [titleDraft, setTitleDraft] = useState(titleName);
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
@@ -331,10 +333,11 @@ export const CanvasNode = React.memo(function CanvasNode({
     return (
         <div
             data-node-id={data.id}
+            data-text-node={data.type === CanvasNodeType.Text ? "" : undefined}
             className={`node-element group/node absolute flex select-none flex-col transition-shadow duration-200 ${isGroup ? "z-[5]" : isSelected ? "z-50" : "z-10"} ${referenceSelectionState === "available" ? "cursor-pointer" : referenceSelectionState ? "cursor-not-allowed" : ""}`}
             style={{
-                transform: `translate3d(${data.position.x}px, ${data.position.y}px, 0)`,
-                willChange: isDragging ? "transform" : undefined,
+                ...(data.type === CanvasNodeType.Text ? { left: data.position.x, top: data.position.y } : { transform: `translate3d(${data.position.x}px, ${data.position.y}px, 0)` }),
+                willChange: isDragging && data.type !== CanvasNodeType.Text ? "transform" : undefined,
                 width: data.width,
                 height: data.height,
                 transition: "box-shadow 200ms ease",
@@ -403,7 +406,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             <div
                 className="relative h-full w-full overflow-visible rounded-3xl border-2"
                 style={{
-                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
+                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text && theme === canvasThemes.light ? "#ffffff" : theme.node.fill,
                     borderColor: isActive || isGroupDropTarget ? selectionBlue : hovered ? `${selectionBlue}66` : isGroup ? groupColor : hasImageContent || transparentBg ? "transparent" : theme.node.stroke,
                     borderStyle: "solid",
                     borderWidth: isGroup ? 2.5 : undefined,
@@ -436,10 +439,10 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }}
             >
                 <div
-                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot ? "overflow-visible" : "overflow-hidden"}`}
+                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot || data.type === CanvasNodeType.Text ? "overflow-visible" : "overflow-hidden"}`}
                     style={
                         {
-                            background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
+                            background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text && theme === canvasThemes.light ? "#ffffff" : theme.node.fill,
                             pointerEvents: contentInteractive ? undefined : "none",
                         } as React.CSSProperties
                     }
@@ -449,7 +452,7 @@ export const CanvasNode = React.memo(function CanvasNode({
 
                 {hasImageContent ? <ImageInfoBar node={data} showBytes={showImageInfo} /> : null}
 
-                {!isGroup && !hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
+                {!isGroup && data.type !== CanvasNodeType.Text && !hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
 
                 {referenceSelectionState && (referenceSelectionState !== "available" || hovered) ? (
                     <div className="pointer-events-none absolute inset-0 z-[60] grid place-items-center rounded-[inherit]" style={{ background: `color-mix(in srgb, ${theme.canvas.background} ${referenceSelectionState === "target" ? 78 : referenceSelectionState === "disabled" ? 60 : 34}%, transparent)`, boxShadow: referenceSelectionState === "available" ? `inset 0 0 0 2px ${selectionBlue}` : undefined }}>
@@ -460,7 +463,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 {!referenceSelectionState ? <ResizeHandle corner="top-left" onMouseDown={handleResizeMouseDown} /> : null}
                 {!referenceSelectionState ? <ResizeHandle corner="top-right" onMouseDown={handleResizeMouseDown} /> : null}
                 {!referenceSelectionState ? <ResizeHandle corner="bottom-left" onMouseDown={handleResizeMouseDown} /> : null}
-                {!referenceSelectionState ? <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} /> : null}
+                {!referenceSelectionState ? <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} visible={data.type === CanvasNodeType.Text} color={theme.node.muted} /> : null}
             </div>
 
             {!referenceSelectionState && data.type === "dxos:table" ? (data.metadata?.tableInputChannels || [{ id: "input-1" }, { id: "input-2" }]).map((channel, index, all) => <div key={channel.id} className="absolute -left-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: `calc(50% + ${(index - (all.length - 1) / 2) * 56}px)` }} data-node-handle data-table-port={channel.id} title={`输入 ${index + 1}：拖动连线到此处`} onMouseDown={(event) => onConnectStart(event, data.id, "target", channel.id)}><span className="grid place-items-center rounded-full border" style={{ width: 28.8, height: 28.8, fontSize: 14.4, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>{index + 1}</span></div>) : null}
@@ -566,15 +569,21 @@ function MissingPluginContent({ theme, type }: Pick<NodeContentRendererProps, "t
 function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, batchExpanded, onContentChange, onStopEditing, onToggleBatch, onSetBatchPrimary }: NodeContentRendererProps) {
     const { t } = useTranslation();
     const [expanded, setExpanded] = useState(false);
-    const fontSize = node.metadata?.fontSize || 14;
-    const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
+    const fontSize = node.metadata?.fontSize || 20;
+    const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, fontFamily: '"Microsoft YaHei", "PingFang SC", sans-serif', textRendering: "optimizeLegibility", WebkitFontSmoothing: "antialiased", boxSizing: "border-box" } as React.CSSProperties;
     const texts = node.metadata?.texts || [];
     const batchCount = texts.length;
     const isBatchRoot = batchCount > 1;
     const primaryTextId = node.metadata?.primaryTextId || texts[0]?.id;
     const primaryText = texts.find((text) => text.id === primaryTextId);
     const content = primaryText?.content || node.metadata?.content || "";
-    const paddingClass = "px-4 pb-4 pt-14";
+    const paddingClass = "p-5";
+    const [promptLibraryOpen, setPromptLibraryOpen] = useState(false);
+    const [savedPrompt, setSavedPrompt] = useState(false);
+    const assets = useAssetStore((state) => state.assets);
+    const addAsset = useAssetStore((state) => state.addAsset);
+    const prompts = useMemo(() => assets.filter((asset): asset is TextAsset => asset.kind === "text" && asset.metadata?.resourceType !== "workflow"), [assets]);
+    useEffect(() => setSavedPrompt(false), [content]);
 
     return (
         <BatchFrame batchCount={batchCount} batchExpanded={batchExpanded}>
@@ -583,15 +592,32 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                       .filter((text) => text.id !== primaryTextId)
                       .map((text, index) => <ExpandedTextCard key={text.id} node={node} text={text} index={index} onSetPrimary={() => onSetBatchPrimary?.(text.id)} />)
                 : null}
-            <button type="button" data-canvas-no-zoom className="absolute left-3 top-3 z-30 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setExpanded(true); }}><Maximize2 size={14} />放大编辑</button>
-            <Modal title={<div className="flex items-center justify-between pr-8"><span>{node.title || "文本"}</span><span className="text-xs font-normal opacity-60">{content.length.toLocaleString()} 字符 · 实时同步</span></div>} open={expanded} onCancel={() => setExpanded(false)} footer={null} width="min(1000px, 94vw)" centered destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}>
-                <CanvasResourceMentionTextarea className="thin-scrollbar block h-[65vh] w-full resize-none overflow-y-auto rounded-xl border p-5 outline-none" style={{ ...textStyle, background: theme.node.fill, borderColor: theme.node.stroke }} value={content} references={mentionReferences} highlightLabels={false} onChange={(value) => onContentChange(node.id, value)} />
+            <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore data-node-no-drag className={`absolute left-1/2 top-full z-[70] -translate-x-1/2 pt-4 transition-opacity ${promptLibraryOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0 group-hover/node:pointer-events-auto group-hover/node:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"}`} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+                <div className="flex w-max items-center gap-1 rounded-full border p-2 text-xl shadow-lg" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}>
+                    <button type="button" className="inline-flex items-center gap-2 rounded-full px-4 py-2 hover:opacity-70" onClick={() => setExpanded(true)}><Maximize2 size={20} />放大编辑</button>
+                    <span className="h-5 border-l" style={{ borderColor: theme.toolbar.border }} />
+                    <Popover.Root open={promptLibraryOpen} onOpenChange={setPromptLibraryOpen}>
+                        <Popover.Trigger asChild><button type="button" aria-label="提示词库" className="inline-flex items-center gap-2 rounded-full px-4 py-2 hover:opacity-70" style={promptLibraryOpen ? { background: theme.node.activeStroke, color: theme.node.panel } : undefined}><Sparkles size={20} />提示词库</button></Popover.Trigger>
+                        <Popover.Portal><Popover.Content aria-label="提示词库内容" data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="z-[1200] w-80 max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border shadow-xl outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} side="top" align="center" sideOffset={10} collisionPadding={12} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+                            <div className="flex items-center gap-2 border-b px-4 py-3 text-sm font-medium" style={{ borderColor: theme.node.stroke }}><Sparkles size={16} />提示词库</div>
+                            <div className="thin-scrollbar max-h-80 min-h-28 overflow-y-auto overscroll-contain p-2">
+                                {prompts.length ? prompts.map((prompt) => <button key={prompt.id} type="button" className="group/prompt flex w-full min-w-0 items-start gap-2 rounded-xl p-3 text-left transition hover:opacity-70" style={{ background: theme.node.fill }} onClick={() => { onContentChange(node.id, prompt.data.content); setPromptLibraryOpen(false); }}><Sparkles size={16} className="mt-0.5 shrink-0" style={{ color: theme.node.activeStroke }} /><span className="min-w-0"><span className="block truncate text-sm font-medium">{prompt.title}</span><span className="mt-1 block truncate text-xs" style={{ color: theme.node.muted }}>{prompt.data.content}</span></span></button>) : <div className="grid min-h-28 place-items-center px-4 text-sm" style={{ color: theme.node.muted }}>提示词库暂无内容</div>}
+                            </div>
+                        </Popover.Content></Popover.Portal>
+                    </Popover.Root>
+                    <span className="h-5 border-l" style={{ borderColor: theme.toolbar.border }} />
+                    <button type="button" title={savedPrompt ? "已加入提示词库" : "加入提示词库"} disabled={!content.trim() || savedPrompt} className="inline-flex items-center gap-2 rounded-full px-4 py-2 hover:opacity-70 disabled:opacity-40" onClick={() => { addAsset({ kind: "text", title: node.title?.trim() && !["文本", "文本提示词"].includes(node.title.trim()) ? node.title.trim() : content.trim().split(/\r?\n/)[0].slice(0, 40) || "文本提示词", coverUrl: "", tags: [], source: "画布", data: { content }, metadata: { resourceType: "prompt" } }); setSavedPrompt(true); }}><Plus size={20} />加入提示词库</button>
+                    {savedPrompt ? <span role="status" className="sr-only">已加入提示词库</span> : null}
+                </div>
+            </div>
+            <Modal title={<div className="flex items-center justify-between pr-8"><span>{node.title || "文本"}</span><span className="text-xs font-normal opacity-60">{content.length.toLocaleString()} 字符 · 实时同步</span></div>} open={expanded} onCancel={() => setExpanded(false)} footer={null} width="min(1000px, 94vw)" centered destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}>
+                <CanvasResourceMentionTextarea className="thin-scrollbar block h-[65vh] w-full resize-none overflow-y-auto rounded-xl border p-5 outline-none" style={{ ...textStyle, fontSize: 16, lineHeight: "27px", background: theme.node.fill, borderColor: theme.node.stroke }} value={content} references={mentionReferences} highlightLabels={false} onChange={(value) => onContentChange(node.id, value)} />
             </Modal>
             <div className="flex h-full w-full flex-col overflow-hidden rounded-3xl" data-canvas-no-zoom>
                 {isEditingContent ? (
                     <CanvasResourceMentionTextarea
                         ref={textareaRef}
-                        className={`thin-scrollbar block h-full w-full resize-none overflow-y-auto whitespace-pre-wrap break-words border-none bg-transparent m-0 font-mono outline-none select-text appearance-none ${paddingClass}`}
+                        className={`thin-scrollbar block h-full w-full resize-none overflow-y-auto whitespace-pre-wrap break-words border-none bg-transparent m-0 font-sans outline-none select-text appearance-none ${paddingClass}`}
                         style={textStyle}
                         value={content}
                         references={mentionReferences}
@@ -606,13 +632,13 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                         onWheel={(event) => event.stopPropagation()}
                     />
                 ) : content ? (
-                    <div className={`thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent font-mono ${paddingClass}`} style={textStyle} onWheel={(event) => event.stopPropagation()}>
+                    <div className={`thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent font-sans ${paddingClass}`} style={textStyle} onWheel={(event) => event.stopPropagation()}>
                         {content}
                     </div>
                 ) : primaryText ? (
                     <TextSlotStatus text={primaryText} />
                 ) : (
-                    <div className="p-4 font-mono" style={{ color: theme.node.placeholder }}>
+                    <div className="p-5 font-sans" style={{ ...textStyle, color: theme.node.placeholder }}>
                         {t("canvas.node.editText")}
                     </div>
                 )}
@@ -671,7 +697,7 @@ function ExpandedTextCard({ node, text, index, onSetPrimary }: { node: CanvasNod
         >
             {text.content ? (
                 <>
-                    <div className="thin-scrollbar h-full overflow-y-auto whitespace-pre-wrap break-words px-4 pb-4 pt-14 font-mono text-sm leading-6" style={{ color: theme.node.text }} onWheel={(event) => event.stopPropagation()}>
+                    <div className="thin-scrollbar h-full overflow-y-auto whitespace-pre-wrap break-words px-4 pb-4 pt-14 font-sans" style={{ color: theme.node.text, fontSize: node.metadata?.fontSize || 20, lineHeight: 1.65 }} onWheel={(event) => event.stopPropagation()}>
                         {text.content}
                     </div>
                     <button type="button" className="pointer-events-none absolute right-2.5 top-2.5 flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium opacity-0 transition duration-150 hover:bg-black/5 group-hover/node:pointer-events-auto group-hover/node:opacity-100 dark:hover:bg-white/10" style={{ color: theme.node.text }} onClick={(event) => (event.stopPropagation(), onSetPrimary())}>
@@ -1014,7 +1040,7 @@ function BatchFrame({ batchCount, batchExpanded, children }: { batchCount: numbe
         </div>
     );
 }
-function ResizeHandle({ corner, onMouseDown }: { corner: ResizeCorner; onMouseDown: (event: React.MouseEvent, corner: ResizeCorner) => void }) {
+function ResizeHandle({ corner, onMouseDown, visible, color }: { corner: ResizeCorner; onMouseDown: (event: React.MouseEvent, corner: ResizeCorner) => void; visible?: boolean; color?: string }) {
     const positionClass = {
         "top-left": "-left-[14px] -top-[14px] cursor-nwse-resize",
         "top-right": "-right-[14px] -top-[14px] cursor-nesw-resize",
@@ -1022,7 +1048,7 @@ function ResizeHandle({ corner, onMouseDown }: { corner: ResizeCorner; onMouseDo
         "bottom-right": "-bottom-[14px] -right-[14px] cursor-nwse-resize",
     }[corner];
 
-    return <div className={`absolute z-50 size-7 ${positionClass}`} onMouseDown={(event) => onMouseDown(event, corner)} />;
+    return <div className={`absolute z-50 size-7 ${positionClass}`} title={visible ? "调整节点大小" : undefined} onMouseDown={(event) => onMouseDown(event, corner)}>{visible ? <span className="absolute bottom-5 right-5 size-3 rounded-full" style={{ background: color }} /> : null}</div>;
 }
 
 function ConnectionHandleDot({ side, visible, onMouseDown }: { side: "left" | "right"; visible: boolean; onMouseDown: (event: React.MouseEvent) => void }) {

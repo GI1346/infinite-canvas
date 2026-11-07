@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { withLocalProxy } from "@/stores/use-config-store";
 import { createImageThumbnail } from "@/lib/image-thumbnail";
+import { flushGenerationHistory } from "@/stores/use-generation-history-store";
 
 export type UploadedImage = {
     url: string;
@@ -241,6 +242,7 @@ export async function deleteStoredImages(keys: Iterable<string>) {
 }
 
 export async function cleanupUnusedImages(usedData: unknown) {
+    await flushGenerationHistory();
     const usedKeys = collectImageStorageKeys(usedData);
     await Promise.all([
         imageLogStore.iterate((value) => {

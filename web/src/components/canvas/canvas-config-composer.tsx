@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
-import { Button, Image } from "antd";
-import { FileText, Group, Image as ImageIcon, Music2, Video, X } from "lucide-react";
+import { App, Button, Image } from "antd";
+import { FileText, Group, History, Image as ImageIcon, Images, Music2, Upload, Video, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
@@ -13,6 +13,8 @@ import type { NodeGenerationInput } from "./canvas-node-generation";
 import { stopWorkflowControlDrag } from "./workflow-node-interactions";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
 import type { CanvasNodeData } from "@/types/canvas";
+import type { GalleryImage } from "@/pages/gallery/gallery-data";
+import { CanvasReferenceImagePicker } from "./canvas-reference-image-picker";
 
 type CanvasConfigComposerProps = {
     nodeId: string;
@@ -28,6 +30,7 @@ type CanvasConfigComposerProps = {
     onReorderReferences?: (nodeIds: string[]) => void;
     onDisconnectReference?: (fromNodeId: string, toNodeId: string) => void;
     onStartReferenceSelection?: (nodeId: string) => void;
+    onAddImageReference?: (nodeId: string, item: GalleryImage) => Promise<NodeGenerationInput>;
 };
 
 type Token =
@@ -40,14 +43,18 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], embedded = false, expanded = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], embedded = false, expanded = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences, onAddImageReference }: CanvasConfigComposerProps) {
     const { t } = useTranslation();
+    const { message } = App.useApp();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
+    const caretRef = useRef<Range | null>(null);
+    const uploadRef = useRef<HTMLInputElement>(null);
     const composingRef = useRef(false);
     const [mention, setMention] = useState<MentionState | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [pickerTab, setPickerTab] = useState<"all" | "history" | "gallery" | null>(null);
     const referenceOrder = nodes.find((node) => node.id === nodeId)?.metadata?.referenceNodeOrder;
     const inputs = useMemo(() => orderReferenceNodes(sourceInputs.map((input) => ({ ...input, id: input.nodeId })), referenceOrder), [sourceInputs, referenceOrder]);
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
@@ -79,13 +86,19 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
         if (!editor) return;
         const next = serializeEditor(editor);
         onChange(next);
+        rememberCaret();
         syncMention();
+    };
+
+    const rememberCaret = () => {
+        const selection = window.getSelection();
+        if (selection?.rangeCount && editorRef.current?.contains(selection.anchorNode)) caretRef.current = selection.getRangeAt(0).cloneRange();
     };
 
     const syncMention = () => {
         const text = textBeforeCaret();
         const match = /@([^\s@]*)$/.exec(text);
-        if (!match || !inputs.length) {
+        if (!match) {
             closeMention();
             return;
         }
@@ -101,10 +114,15 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
     const insertReference = (input: NodeGenerationInput) => {
         const editor = editorRef.current;
         if (!editor) return;
-        removeActiveMention();
-        const chip = createReferenceChip(input, inputs, theme, setImagePreview, fontSize);
-        const space = document.createTextNode(" ");
+        editor.focus({ preventScroll: true });
         const selection = window.getSelection();
+        if (caretRef.current && editor.contains(caretRef.current.startContainer)) {
+            selection?.removeAllRanges();
+            selection?.addRange(caretRef.current);
+        } else if (!selection?.rangeCount || !editor.contains(selection.anchorNode)) placeCaretAtEnd(editor);
+        removeActiveMention();
+        const chip = createReferenceChip(input, referenceById.has(input.nodeId) ? inputs : [...inputs, input], theme, setImagePreview, fontSize);
+        const space = document.createTextNode(" ");
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
         if (range) {
             range.insertNode(space);
@@ -118,7 +136,16 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
             placeCaretAtEnd(editor);
         }
         closeMention();
+        rememberCaret();
         onChange(serializeEditor(editor));
+    };
+
+    const openPicker = (tab: "all" | "history" | "gallery") => { rememberCaret(); closeMention(); setPickerTab(tab); };
+    const addImage = async (item: GalleryImage) => {
+        if (!onAddImageReference) return;
+        const input = await onAddImageReference(nodeId, item);
+        insertReference(input);
+        setPickerTab(null);
     };
 
     const stopCanvasInteraction = (event: PointerEvent | MouseEvent) => event.stopPropagation();
@@ -162,6 +189,8 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                         composingRef.current = false;
                         syncFromEditor();
                     }}
+                    onKeyUp={rememberCaret}
+                    onPointerUp={rememberCaret}
                     onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                         event.stopPropagation();
                         if (mention && candidates.length) {
@@ -193,25 +222,37 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                         }
                         requestAnimationFrame(syncMention);
                     }}
-                    onBlur={() => window.setTimeout(closeMention, 120)}
+                    onBlur={() => { rememberCaret(); window.setTimeout(closeMention, 120); }}
                 />
-                {mention && candidates.length ? <MentionMenu anchor={editorRef.current} inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} fontSize={fontSize} onSelect={insertReference} /> : null}
+                {mention ? <MentionMenu anchor={editorRef.current} inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} onActiveIndex={setActiveIndex} onUpload={onAddImageReference ? () => { rememberCaret(); closeMention(); uploadRef.current?.click(); } : undefined} onOpenPicker={onAddImageReference ? openPicker : undefined} /> : null}
             </div>
+            <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={async (event) => {
+                const file = event.target.files?.[0]; event.target.value = "";
+                if (!file) return;
+                try {
+                    const { uploadImage } = await import("@/services/image-storage");
+                    const image = await uploadImage(file);
+                    await addImage({ id: image.storageKey || image.url, title: file.name, url: image.url, storageKey: image.storageKey, width: image.width, height: image.height, date: Date.now(), prompt: "", model: "", quality: "", sources: [{ label: "上传图片" }] });
+                } catch (error) { message.error(error instanceof Error ? error.message : "添加引用失败"); }
+            }} />
+            {pickerTab && <CanvasReferenceImagePicker initialTab={pickerTab} onSelect={addImage} onClose={() => setPickerTab(null)} />}
             {imagePreview ? <Image src={imagePreview} alt={t("canvas.composer.imagePreview")} style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
     );
 
 }
 
-function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, fontSize, onSelect }: { anchor: HTMLElement | null; inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; fontSize?: number; onSelect: (input: NodeGenerationInput) => void }) {
+function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect, onActiveIndex, onUpload, onOpenPicker }: { anchor: HTMLElement | null; inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void; onActiveIndex: (index: number) => void; onUpload?: () => void; onOpenPicker?: (tab: "all" | "history" | "gallery") => void }) {
     const selectedRef = useRef(false);
     const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
     useLayoutEffect(() => {
         if (!anchor) return;
         const measure = () => {
-            const rect = anchor.getBoundingClientRect(), height = Math.min(224, window.innerHeight - 16);
-            const below = rect.bottom + 6;
-            setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)), top: below + height <= window.innerHeight ? below : Math.max(8, rect.top - height - 6), width: Math.min(320, window.innerWidth - 16), maxHeight: height });
+            const editorRect = anchor.getBoundingClientRect(), selection = window.getSelection();
+            const caretRect = selection?.rangeCount && anchor.contains(selection.anchorNode) ? selection.getRangeAt(0).getBoundingClientRect() : null;
+            const rect = caretRect?.height ? caretRect : editorRect;
+            const height = Math.min(292, window.innerHeight - 16), below = rect.bottom + 6;
+            setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 288)), top: below + height <= window.innerHeight ? below : Math.max(8, rect.top - height - 6), width: Math.min(280, window.innerWidth - 16), maxHeight: height });
         };
         measure();
         window.addEventListener("resize", measure);
@@ -231,39 +272,47 @@ function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, fontSize, 
     };
 
     return (
-        createPortal(<div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="fixed z-[1100] overflow-y-auto overscroll-contain rounded-xl border p-1 shadow-2xl" style={{ ...position, background: theme.toolbar.panel, borderColor: theme.toolbar.border }} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
-
+        createPortal(<div data-config-mention-menu data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="fixed z-[1300] flex flex-col overflow-hidden rounded-xl border p-1 shadow-2xl" style={{ ...position, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text, fontSize: 12, lineHeight: "18px" }} onPointerDown={(event) => { event.stopPropagation(); if (!(event.target instanceof HTMLElement && event.target.closest("[data-mention-scroll]"))) event.preventDefault(); }} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+            {onUpload && <button type="button" className="flex w-full shrink-0 items-center gap-2 rounded-lg px-2 py-2 text-left hover:opacity-70" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onUpload(); }} onClick={(event) => { if (event.detail === 0) onUpload(); }}><Upload size={14} />上传图片</button>}
+            <div data-mention-scroll role="listbox" aria-label="引用上游内容" className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" style={{ maxHeight: 204 }}>
             {inputs.map((input, index) => (
                 <button
                     key={input.nodeId}
                     ref={index === activeIndex ? activeItemRef : undefined}
                     type="button"
+                    role="option"
+                    aria-selected={index === activeIndex}
                     className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition"
-                    style={{ background: index === activeIndex ? theme.toolbar.activeBg : "transparent", color: index === activeIndex ? theme.toolbar.activeText : theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}
-                    onMouseDown={(event) => {
+                    style={{ background: index === activeIndex ? theme.toolbar.activeBg : "transparent", color: index === activeIndex ? theme.toolbar.activeText : theme.node.text, fontSize: 12, lineHeight: "18px" }}
+                    onPointerEnter={() => onActiveIndex(index)}
+                    onPointerDown={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
                         selectInput(input);
                     }}
+                    onClick={() => selectInput(input)}
                 >
                     <ResourcePreview input={input} />
-                    <span className="min-w-0 flex-1">
-                        <span className="block font-medium">{resourceLabel(input, allInputs)}</span>
+                    <span className="min-w-0 flex-1 overflow-hidden">
+                        <span className="block truncate font-medium">{resourceLabel(input, allInputs)}</span>
                         <span className="block truncate opacity-65">{input.type === "group" ? i18n.t("canvas.node.nodeCount", { count: input.children.length }) : input.text || input.title}</span>
                     </span>
                 </button>
             ))}
+            {!inputs.length && <p className="px-2 py-4 text-center opacity-60">没有匹配的上游内容</p>}
+            </div>
+            {onOpenPicker && <div className="mt-1 flex shrink-0 border-t pt-1" style={{ borderColor: theme.toolbar.border }}>{[{ tab: "history" as const, label: "生成历史", Icon: History }, { tab: "gallery" as const, label: "图片库", Icon: Images }].map(({ tab, label, Icon }) => <button key={tab} type="button" className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg py-2 hover:opacity-70" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onOpenPicker(tab); }} onClick={(event) => { if (event.detail === 0) onOpenPicker(tab); }}><Icon size={14} />{label}</button>)}</div>}
         </div>, document.body)
     );
 }
 
 function ResourcePreview({ input }: { input: NodeGenerationInput }) {
-    if (input.type === "group") return <span className="grid size-9 shrink-0 place-items-center"><Group className="size-4" /></span>;
-    if (input.type === "image" && input.image) return <img src={input.image.dataUrl} alt="" className="size-9 rounded-md object-cover" />;
-    if (input.type === "video" && input.video) return <video src={input.video.url} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
+    if (input.type === "group") return <span className="grid size-7 shrink-0 place-items-center"><Group className="size-4" /></span>;
+    if (input.type === "image" && input.image) return <img src={input.image.dataUrl} alt="" className="size-7 shrink-0 rounded-md object-cover" />;
+    if (input.type === "video" && input.video) return <video src={input.video.url} className="size-7 shrink-0 rounded-md bg-black object-cover" muted preload="metadata" />;
     const Icon = input.type === "audio" ? Music2 : input.type === "video" ? Video : input.type === "image" ? ImageIcon : FileText;
     return (
-        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-black/10">
+        <span className="grid size-7 shrink-0 place-items-center rounded-md">
             <Icon className="size-4" />
         </span>
     );
@@ -279,8 +328,10 @@ function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationI
         const image = document.createElement("img");
         image.src = input.image.dataUrl;
         image.alt = input.title;
-        image.className = "size-6 rounded object-cover";
-        wrapper.className = "mx-px inline-flex size-6 items-center justify-center overflow-hidden rounded align-middle";
+        image.className = "size-12 rounded object-cover";
+        wrapper.className = "mx-px inline-flex size-12 items-center justify-center overflow-hidden rounded align-middle";
+        wrapper.style.width = "48px";
+        wrapper.style.height = "48px";
         wrapper.appendChild(image);
         wrapper.addEventListener("click", (event) => {
             event.preventDefault();

@@ -1,34 +1,28 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button, ColorPicker, Segmented, Switch } from "antd";
-import { Blend, BrainCircuit, CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, Layers, LocateFixed, Moon, MousePointer2, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { CircleDot, Eraser, Grid2x2, Hand, History, Images, Info, Library, Moon, MousePointer2, Palette, Puzzle, Square, Sun, Trash2, Upload } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { getNodePluginId, listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
 import { getNodeSpec } from "@/constant/canvas";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { useTranslation } from "react-i18next";
 
 export function CanvasToolbar({
     selectedCount,
     canvasTool,
-    canUndo,
-    canRedo,
     backgroundMode,
     showImageInfo,
-    onAddConfig,
-    onAddText,
     onAddExtensionNode,
-    onUndo,
-    onRedo,
     onUpload,
     onDelete,
     onClear,
     onCanvasToolChange,
     onBackgroundModeChange,
     onShowImageInfoChange,
-    onFocusSelected,
 }: {
     selectedCount: number;
     canvasTool: "select" | "pan";
@@ -53,6 +47,9 @@ export function CanvasToolbar({
     onShowImageInfoChange: (show: boolean) => void;
     onFocusSelected: () => void;
 }) {
+    const openTab = useCanvasSidePanelStore((state) => state.openTab);
+    const sidePanelTab = useCanvasSidePanelStore((state) => state.tab);
+    const sidePanelOpen = useCanvasSidePanelStore((state) => state.panelOpen);
     const wrapRef = useRef<HTMLDivElement>(null);
     const { t } = useTranslation();
     const rootRef = useRef<HTMLDivElement>(null);
@@ -95,34 +92,10 @@ export function CanvasToolbar({
                 <ToolbarButton id={`tool-${canvasTool}`} label={t(`canvas.toolbar.${canvasTool}`)} active hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onCanvasToolChange(canvasTool === "select" ? "pan" : "select")}>
                     {canvasTool === "select" ? <MousePointer2 className="size-4.5" /> : <Hand className="size-4.5" />}
                 </ToolbarButton>
-                <ToolbarButton id="tool-undo" label={t("canvas.undo")} disabled={!canUndo} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUndo}>
-                    <Undo2 className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-redo" label={t("canvas.redo")} disabled={!canRedo} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onRedo}>
-                    <Redo2 className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-focus" label={t("canvas.toolbar.focus")} disabled={!selectedCount} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onFocusSelected}>
-                    <LocateFixed className="size-4.5" />
-                </ToolbarButton>
                 <Divider theme={theme} />
-                <ToolbarButton id="tool-text" label={t("canvas.toolbar.text")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddText}>
-                    <Type className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-config" label="生成配置" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddConfig}>
-                    <Settings2 className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-table" label="多维表格" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onAddExtensionNode("dxos:table")}>
-                    <Table2 className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-llm" label="LLM 多模态分析" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onAddExtensionNode("dxos:llm")}>
-                    <BrainCircuit className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-fusion" label="融合节点" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onAddExtensionNode("blinkflow:fusion")}>
-                    <Blend className="size-4.5" />
-                </ToolbarButton>
-                <ToolbarButton id="tool-concurrent" label="并发生成" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onAddExtensionNode("dxos:concurrent")}>
-                    <Layers className="size-4.5" />
-                </ToolbarButton>
+                <ToolbarButton id="tool-history" label="生成历史" active={sidePanelOpen && sidePanelTab === "history"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("history")}><History className="size-4.5" /></ToolbarButton>
+                <ToolbarButton id="tool-resources" label="资源管理器" active={sidePanelOpen && sidePanelTab === "resources"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("resources")}><Library className="size-4.5" /></ToolbarButton>
+                <ToolbarButton id="tool-gallery" label="图片库" active={sidePanelOpen && sidePanelTab === "gallery"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("gallery")}><Images className="size-4.5" /></ToolbarButton>
                 {extensionDefs.length ? (
                     <ToolbarButton
                         id="tool-extensions"
@@ -361,6 +334,9 @@ function DockTip({ label, x, theme }: { label: string; x: number; theme: CanvasT
 }
 
 function toolLabel(id: string, t: (key: string) => string) {
+    if (id === "tool-history") return "生成历史";
+    if (id === "tool-resources") return "资源管理器";
+    if (id === "tool-gallery") return "图片库";
     if (id === "tool-select") return t("canvas.toolbar.select");
     if (id === "tool-pan") return t("canvas.toolbar.pan");
     if (id === "tool-undo") return t("canvas.undo");

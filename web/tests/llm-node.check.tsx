@@ -5,6 +5,7 @@ import React, { act, createRef, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { collectLlmInputs, buildLlmPrompt, parseLlmTable, buildLlmOutputOps, LLM_TYPE } from "../src/lib/canvas/dxos-llm";
 import { llmNodeDefinition } from "../src/components/canvas/nodes/dxos-llm-node";
+import { enlargeWorkflowNodes } from "../src/lib/canvas/workflow-display-size";
 import { dxosNodeDefinitions } from "../src/components/canvas/nodes/dxos-workflow-nodes";
 import { InfiniteCanvas } from "../src/components/canvas/infinite-canvas";
 import { CanvasNode } from "../src/components/canvas/canvas-node";
@@ -48,8 +49,13 @@ async function value(target: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
     Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(target, next);
     await fire(target, new Event(target instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
 }
-function button(host: HTMLElement, text: string) { const result = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes(text)); assert.ok(result, text); return result; }
+function button(host: HTMLElement, text: string) { const result = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes(text) || el.getAttribute("aria-label")?.includes(text)); assert.ok(result, text); return result; }
 function label(host: HTMLElement, name: string) { const result = host.querySelector(`[aria-label="${name}"]`); assert.ok(result, name); return result as HTMLSelectElement; }
+async function chooseModel(host: HTMLElement, model: string) {
+    await fire(label(host, "LLM 模型"), pointer("pointerdown"));
+    const option = document.querySelector(`[data-model-id="${model}"]`); assert.ok(option, model);
+    await fire(option, pointer("pointerdown")); await fire(option, pointer("pointerup")); await fire(option, mouse());
+}
 const space = (type: string, repeat = false) => new KeyboardEvent(type, { bubbles: true, cancelable: true, key: " ", code: "Space", repeat });
 
 type Request = { url: string; headers: Record<string, string>; body: any; signal?: AbortSignal | null };
@@ -89,6 +95,14 @@ async function setup(startNode = llm(), extra: CanvasNodeData[] = [], connection
 }
 
 async function helperTests() {
+    await check("AI Chat default-size migration is idempotent and preserves custom geometry and content", () => {
+        const old = llm(), enlarged = { ...llm(), id: "enlarged", width: 645, height: 810, metadata: { ...old.metadata, workflowDisplayVersion: 1 } };
+        const custom = { ...llm(), id: "custom", width: 880, height: 640, metadata: { ...old.metadata, workflowDisplayVersion: 1 } };
+        const migrated = enlargeWorkflowNodes([old, enlarged, custom]);
+        assert.deepEqual(llmNodeDefinition.defaultSize, { width: 750, height: 610 });
+        for (const item of migrated.slice(0, 2)) { assert.equal(item.width, 750); assert.equal(item.height, 610); assert.equal(item.metadata?.prompt, old.metadata?.prompt); }
+        assert.equal(migrated[2], custom); assert.equal(enlargeWorkflowNodes(migrated), migrated);
+    });
     await check("strict/fenced table JSON retained as editable strings without truncation", () => {
         assert.deepEqual(parseLlmTable(tableJson), { kind: "table", version: 1, columns: ["描述", "提示词"], rows: [["图片一", "翻译英文"], ["图片二", "保留构图"]], selectedRows: [], mergedGroups: [] });
         assert.deepEqual(parseLlmTable("```json\n" + tableJson + "\n```"), parseLlmTable(tableJson));
@@ -151,8 +165,8 @@ async function workflowTests() {
     await check("LLM platform/model switches preserve same-name channel identity and exact request credentials", async () => {
         const ui = await setup();
         try {
-            assert.equal(label(ui.el, "LLM 平台").value, "text-a"); assert.equal(label(ui.el, "LLM 模型").value, "text-a::same-model"); assert.equal(llmNodeDefinition.hidePanel, true); assert.equal(llmNodeDefinition.hasSourceHandle, true);
-            await value(label(ui.el, "LLM 平台"), "text-b"); assert.equal(label(ui.el, "LLM 模型").value, ""); await value(label(ui.el, "LLM 模型"), "text-b::same-model");
+            assert.ok(label(ui.el, "LLM 模型").textContent?.includes("same-model")); assert.equal(llmNodeDefinition.hidePanel, true); assert.equal(llmNodeDefinition.hasSourceHandle, true);
+            await chooseModel(ui.el, "text-b::same-model"); assert.equal(ui.host().getNode("llm")!.metadata!.llmChannelId, "text-b"); assert.equal(ui.host().getNode("llm")!.metadata!.model, "text-b::same-model");
             await fire(button(ui.el, "开始分析"), mouse());
             assert.equal(requests.length, 1); assert.equal(requests[0].url, "https://text-b.invalid/v1/responses"); assert.equal(requests[0].headers.Authorization, "Bearer synthetic-text-b"); assert.equal(requests[0].body.model, "same-model");
             const result = ui.state().nodes.find((n) => n.id === ui.host().getNode("llm")!.metadata!.llmOutputNodeId)!;
@@ -169,7 +183,7 @@ async function workflowTests() {
         const source = llm(), group = node("group", "group"), first = image("first", input, { groupId: group.id }), second = image("second", input2, { groupId: group.id }), ui = await setup(source, [group, first, second], [edge(group.id, source.id)]);
         reply = async () => responseText("```json\n" + tableJson + "\n```");
         try {
-            await value(label(ui.el, "LLM 输出模式"), "list"); await fire(button(ui.el, "开始分析"), mouse());
+            await fire(button(ui.el, "多维表格"), mouse()); await fire(button(ui.el, "开始分析"), mouse());
             assert.equal(requests.length, 1); assert.ok(requests[0].body.input.some((m: any) => m.role === "system" && JSON.stringify(m.content).includes("kind")));
             const table = ui.state().nodes.find((n) => n.id === ui.host().getNode(source.id)!.metadata!.llmOutputNodeId)!; assert.equal(table.type, TABLE_TYPE); assert.deepEqual(table.metadata!.table, parseLlmTable(tableJson));
             const rows = tableRows(table, ui.state().nodes, ui.state().connections); assert.deepEqual(rows.map((r) => r.media.map((m) => m.url)), [[input], [input2]]); assert.equal(rows[0].text, "图片一\n翻译英文"); assert.ok(!rows[0].text.includes("kind"));
@@ -218,7 +232,7 @@ async function workflowTests() {
             const ui = await setup(); let finish!: (response: Response) => void; reply = () => new Promise((resolve) => { finish = resolve; });
             const start = button(ui.el, "开始分析");
             await act(async () => { start.dispatchEvent(mouse()); start.dispatchEvent(mouse()); await tick(); });
-            assert.equal(requests.length, 1); for (const name of ["LLM 平台", "LLM 模型", "LLM 输出模式", "LLM 提示词"]) assert.equal(label(ui.el, name).disabled, true, name);
+            assert.equal(requests.length, 1); for (const name of ["LLM 模型", "LLM 输出模式", "LLM 提示词"]) assert.equal(label(ui.el, name).disabled, true, name);
             if (action === "stop") await fire(button(ui.el, "停止"), mouse());
             else if (action === "delete") await ui.remove(); else await ui.close();
             assert.equal(requests[0].signal?.aborted, true, action);
@@ -244,7 +258,7 @@ async function workflowTests() {
     await check("focused LLM buttons/selects suppress Space repeat/up, controls pan/zoom without movement/send", async () => {
         const ui = await setup(); const position = { ...ui.host().getNode("llm")!.position };
         try {
-            const controls = [label(ui.el, "LLM 平台"), label(ui.el, "LLM 模型"), label(ui.el, "LLM 输出模式"), button(ui.el, "开始分析")];
+            const controls = [label(ui.el, "LLM 模型"), button(ui.el, "文本"), button(ui.el, "多维表格"), button(ui.el, "开始分析")];
             for (const control of controls) {
                 control.focus(); assert.equal(document.activeElement, control);
                 const a = await fire(control, space("keydown")), repeat = await fire(control, space("keydown", true)), up = await fire(control, space("keyup")); assert.ok(a.defaultPrevented && repeat.defaultPrevented && up.defaultPrevented);

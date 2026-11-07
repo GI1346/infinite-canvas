@@ -1,7 +1,7 @@
 import { useAddImagesToHarness } from "@/services/api/deepseek-harness";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { App, Modal, Segmented, Tooltip } from "antd";
-import { Check, Palette, Bot, Scan, Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video } from "lucide-react";
+import { Check, Palette, Bot, Scan, Download, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -11,8 +11,7 @@ import { useCopyText } from "@/hooks/use-copy-text";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "@/types/canvas";
 import type { CanvasNodeToolbarItem } from "@/types/canvas-plugin";
-import { ImageToolSettingsModal, type ImageToolbarSettingsTool } from "./canvas-image-toolbar-settings-modal";
-import { IMAGE_QUICK_TOOLS_STORAGE_KEY, buildImageToolbarTools, defaultImageQuickToolIds, readImageQuickToolsConfig, type ImageQuickToolId } from "./canvas-image-toolbar-tools";
+import { buildImageToolbarTools } from "./canvas-image-toolbar-tools";
 
 type CanvasNodeHoverToolbarProps = {
     node: CanvasNodeData | null;
@@ -27,7 +26,6 @@ type CanvasNodeHoverToolbarProps = {
     onUpload: (node: CanvasNodeData) => void;
     onDownload: (node: CanvasNodeData) => void;
     onSaveAsset: (node: CanvasNodeData) => void;
-    onImageEdit: (node: CanvasNodeData) => void;
     onPaint: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
@@ -72,7 +70,6 @@ export function CanvasNodeHoverToolbar({
     onUpload,
     onDownload,
     onSaveAsset,
-    onImageEdit,
     onPaint,
     onMaskEdit,
     onCrop,
@@ -92,37 +89,14 @@ export function CanvasNodeHoverToolbar({
     batchDownloading = false,
     extraTools = [],
 }: CanvasNodeHoverToolbarProps) {
-    const [quickImageToolIds, setQuickImageToolIds] = useState<ImageQuickToolId[]>(defaultImageQuickToolIds);
-    const [showImageToolLabels, setShowImageToolLabels] = useState(false);
-    const [draftImageToolIds, setDraftImageToolIds] = useState<ImageQuickToolId[]>(defaultImageQuickToolIds);
-    const [draftShowImageToolLabels, setDraftShowImageToolLabels] = useState(false);
-    const [imageToolSettingsOpen, setImageToolSettingsOpen] = useState(false);
     const { message } = App.useApp();
     const { t } = useTranslation();
     const copyText = useCopyText();
     const addToHarness = useAddImagesToHarness();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
-    useEffect(() => {
-        try {
-            const stored = window.localStorage.getItem(IMAGE_QUICK_TOOLS_STORAGE_KEY);
-            if (!stored) return;
-            const parsed = JSON.parse(stored) as unknown;
-            const config = readImageQuickToolsConfig(parsed);
-            setQuickImageToolIds(config.ids);
-            setShowImageToolLabels(config.showLabels);
-        } catch {
-            window.localStorage.removeItem(IMAGE_QUICK_TOOLS_STORAGE_KEY);
-        }
-    }, []);
-
-    useEffect(() => {
-        setImageToolSettingsOpen(false);
-    }, [node?.id]);
-
     if (!node) return null;
 
-    const activeNode = node;
     const left = viewport.x + (node.position.x + node.width / 2) * viewport.k;
     const top = viewport.y + node.position.y * viewport.k - (node.type === CanvasNodeType.Image ? 44 : 28) * viewport.k - 8;
     const isImage = node.type === CanvasNodeType.Image;
@@ -135,7 +109,6 @@ export function CanvasNodeHoverToolbar({
     const isConfig = node.type === CanvasNodeType.Config;
     const canRetry = node.metadata?.status === "error" && !(isVideo && Boolean(node.metadata?.videoTaskId) && !hasVideo);
     const canQueryVideoTask = isVideo && Boolean(node.metadata?.videoTaskId) && !hasVideo && node.metadata?.status !== "loading";
-    const quickImageToolIdSet = new Set(quickImageToolIds);
     const copyImagePrompt = (target: CanvasNodeData) => {
         const prompt = target.metadata?.prompt?.trim();
         if (!prompt) {
@@ -144,14 +117,7 @@ export function CanvasNodeHoverToolbar({
         }
         copyText(prompt, t("common.promptCopied"));
     };
-    const imageTools = buildImageToolbarTools(node, { onUpload, onToggleFreeResize, onImageEdit, onPaint, onMaskEdit, onCrop, onSplit, onUpscale, onSuperResolve, onAngle, onViewImage, onCopyPrompt: copyImagePrompt, onReversePrompt });
-
-    function openImageToolSettings() {
-        onKeep(activeNode.id);
-        setDraftImageToolIds(quickImageToolIds);
-        setDraftShowImageToolLabels(showImageToolLabels);
-        setImageToolSettingsOpen(true);
-    }
+    const imageTools = buildImageToolbarTools(node, { onUpload, onToggleFreeResize, onPaint, onMaskEdit, onCrop, onSplit, onUpscale, onSuperResolve, onAngle, onViewImage, onCopyPrompt: copyImagePrompt, onReversePrompt });
 
     const baseToolbarTools: ToolbarTool[] = [
         { id: "addToAgent", title: "添加到 Agent", label: "添加到 Agent", icon: <Bot className="size-4" />, onClick: () => onAddToAgent(node) },
@@ -176,33 +142,15 @@ export function CanvasNodeHoverToolbar({
         ...(isAudio ? [{ id: "uploadAudio", title: t(hasAudio ? "canvas.nodeToolbar.replaceAudio" : "canvas.nodeToolbar.uploadAudio"), label: t(hasAudio ? "canvas.nodeToolbar.replaceAudio" : "canvas.nodeToolbar.uploadAudio"), icon: <Music2 className="size-4" />, onClick: () => onUpload(node) }] : []),
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
-    const pinnedIds = ["editor", "paint", "crop", "split", "extract", "addToAgent", "addToHarness"];
+    const pinnedIds = ["paint", "crop", "split"];
     const pinnedTools = imageTools.filter((tool) => pinnedIds.includes(tool.id)).sort((a, b) => pinnedIds.indexOf(a.id) - pinnedIds.indexOf(b.id));
-    const toolbarTools = hasImage ? [...pinnedTools, { id: "extract", title: "提取选区", label: "提取选区", icon: <Scan className="size-4" />, onClick: () => onExtractSelection(node) }, ...baseToolbarTools.filter((tool) => tool.id === "addToAgent" || tool.id === "addToHarness"), ...[...baseToolbarTools, ...nodeToolbarTools].filter((tool) => !pinnedIds.includes(tool.id) && quickImageToolIdSet.has(tool.id as ImageQuickToolId))] : [...baseToolbarTools, ...nodeToolbarTools, ...extraTools];
-    const selectableImageToolbarTools = [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => tool.id !== "retry" && !pinnedIds.includes(tool.id)) as ImageToolbarSettingsTool[];
-
-    const closeImageToolSettings = () => {
-        setImageToolSettingsOpen(false);
-        onLeave();
-    };
-
-    const setDraftImageToolVisible = (id: ImageQuickToolId, visible: boolean) => {
-        setDraftImageToolIds((current) => {
-            const selected = new Set(current);
-            if (visible) selected.add(id);
-            else selected.delete(id);
-            return selectableImageToolbarTools.filter((tool) => selected.has(tool.id)).map((tool) => tool.id);
-        });
-    };
-
-    const saveImageToolSettings = () => {
-        const config = { ids: draftImageToolIds, showLabels: draftShowImageToolLabels };
-        setQuickImageToolIds(config.ids);
-        setShowImageToolLabels(config.showLabels);
-        window.localStorage.setItem(IMAGE_QUICK_TOOLS_STORAGE_KEY, JSON.stringify(config));
-        closeImageToolSettings();
-    };
-
+    const toolbarTools = hasImage ? [
+        ...pinnedTools,
+        { id: "extract", title: "提取选区", label: "提取选区", icon: <Scan className="size-4" />, onClick: () => onExtractSelection(node) },
+        ...baseToolbarTools.filter((tool) => ["addToAgent", "addToHarness"].includes(tool.id)),
+        ...extraTools,
+        ...[...baseToolbarTools, ...nodeToolbarTools].filter((tool) => ["delete", "saveAsset", "download"].includes(tool.id)),
+    ] : [...baseToolbarTools, ...nodeToolbarTools, ...extraTools];
     return (
         <>
             <div
@@ -210,29 +158,14 @@ export function CanvasNodeHoverToolbar({
                 data-node-toolbar={node.id}
                 style={{ left, top, maxWidth: "calc(100% - 24px)", boxShadow: theme.toolbar.shadow, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 onMouseEnter={() => onKeep(node.id)}
-                onMouseLeave={() => {
-                    if (!imageToolSettingsOpen) onLeave();
-                }}
+                onMouseLeave={onLeave}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
             >
                 {toolbarTools.map((tool) => (
-                    <ToolbarAction key={tool.id} {...tool} showLabel={isImage ? pinnedIds.includes(tool.id) || showImageToolLabels : true} />
+                    <ToolbarAction key={tool.id} {...tool} showLabel={true} />
                 ))}
-                {hasImage ? <ToolbarAction id="more" title={t("canvas.imageTools.configure")} label={t("canvas.imageTools.more")} icon={<Ellipsis className="size-4" />} active={imageToolSettingsOpen} onClick={openImageToolSettings} showLabel={showImageToolLabels} /> : null}
             </div>
-            {hasImage ? (
-                <ImageToolSettingsModal
-                    open={imageToolSettingsOpen}
-                    tools={selectableImageToolbarTools}
-                    selectedIds={draftImageToolIds}
-                    showLabels={draftShowImageToolLabels}
-                    onToggle={setDraftImageToolVisible}
-                    onShowLabelsChange={setDraftShowImageToolLabels}
-                    onCancel={closeImageToolSettings}
-                    onSave={saveImageToolSettings}
-                />
-            ) : null}
         </>
     );
 }

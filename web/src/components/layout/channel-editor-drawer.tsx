@@ -1,27 +1,27 @@
-import { Button, Drawer, Input, Segmented, Select, Space } from "antd";
-import { ListPlus, Trash2 } from "lucide-react";
+import { Button, Drawer, Input, Modal, Segmented, Select, Space } from "antd";
+import { Check, ChevronDown, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { useCallProtocolStore } from "@/stores/use-call-protocol-store";
+import { modelCapabilityOptions } from "./model-catalog";
 import { ModelScriptEditor } from "./model-script-editor";
 import { ModelSelectModal } from "./model-select-modal";
 
 type ScriptTarget = { name: string; capability: ModelCapability; value: string };
 
-export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: boolean; channel: ModelChannel | null; onSave: (channel: ModelChannel) => void; onClose: () => void }) {
+export function ChannelEditorDrawer({ open, channel, onSave, onClose, inline = false, onDelete }: { open: boolean; channel: ModelChannel | null; onSave: (channel: ModelChannel) => void; onClose: () => void; inline?: boolean; onDelete?: () => void }) {
     const { t } = useTranslation();
-    const protocols = useCallProtocolStore((s) => s.protocols);
+    const protocols = useCallProtocolStore((state) => state.protocols);
     const [draft, setDraft] = useState<ModelChannel | null>(channel);
-    const [selectOpen, setSelectOpen] = useState(false);
+    const [connectionOpen, setConnectionOpen] = useState(!channel?.apiKey || !channel?.baseUrl);
+    const [refreshKey, setRefreshKey] = useState(0);
     const [scriptTarget, setScriptTarget] = useState<ScriptTarget | null>(null);
-    const capabilityOptions: Array<{ label: string; value: ModelCapability }> = ["image", "video", "text", "audio"].map((value) => ({ label: t(`config.channelEditor.capabilities.${value}`), value: value as ModelCapability }));
+    const [editingModelName, setEditingModelName] = useState("");
 
-    useEffect(() => {
-        if (open && channel) setDraft(channel);
-    }, [open, channel]);
-
+    useEffect(() => { if (open && channel) setDraft(channel); }, [open, channel]);
+    useEffect(() => { setConnectionOpen(!channel?.apiKey || !channel?.baseUrl); setRefreshKey(0); setEditingModelName(""); setScriptTarget(null); }, [channel?.id]);
     if (!draft) return null;
 
     const protocolOptions = [
@@ -31,112 +31,41 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
         ...protocols.map((protocol) => ({ label: `${protocol.label}（${t(`config.channelEditor.capabilities.${protocol.capability}`)}）`, value: `protocol:${protocol.id}` })),
     ];
     const selectedProtocol = draft.protocolId ? `protocol:${draft.protocolId}` : draft.apiFormat;
+    const editingModel = draft.models.find((model) => model.name === editingModelName);
 
-    const patch = (value: Partial<ModelChannel>) => setDraft((current) => (current ? { ...current, ...value } : current));
-    const setModels = (models: ChannelModel[]) => patch({ models });
-
-    const changeProtocol = (value: string) => {
-        if (value.startsWith("protocol:")) { patch({ protocolId: value.slice("protocol:".length), apiFormat: "openai" }); return; }
-        const apiFormat = value as ApiCallFormat;
-        const baseUrl = !draft.baseUrl.trim() || draft.baseUrl.trim() === defaultBaseUrlForApiFormat(draft.apiFormat) ? defaultBaseUrlForApiFormat(apiFormat) : draft.baseUrl;
-        patch({ apiFormat, baseUrl, protocolId: undefined });
+    const patch = (value: Partial<ModelChannel>) => {
+        const next = { ...draft, ...value };
+        setDraft(next);
+        if (inline) onSave(next);
     };
-
+    const setModels = (models: ChannelModel[]) => patch({ models: normalizeChannelModels(models) });
+    const patchModel = (name: string, value: Partial<ChannelModel>) => setModels(draft.models.map((model) => model.name === name ? { ...model, ...value } : model));
+    const changeProtocol = (value: string) => value.startsWith("protocol:") ? patch({ protocolId: value.slice("protocol:".length), apiFormat: "openai" }) : patch({ apiFormat: value as ApiCallFormat, protocolId: undefined });
     const applySelection = (names: string[], fetchedModels: ChannelModel[] = []) => {
-        const map = new Map(draft.models.map((model) => [model.name, model]));
-        setModels(names.map((name) => {
-            const existing = map.get(name), fetched = fetchedModels.find((model) => model.name === name);
-            return existing ? { ...existing, ...(!existing.script && !existing.protocolId && fetched?.script ? { script: fetched.script } : {}) } : fetched || { name, capability: guessCapability(name) };
-        }));
+        const existing = new Map(draft.models.map((model) => [model.name, model]));
+        setModels(names.map((name) => existing.get(name) || fetchedModels.find((model) => model.name === name) || { name, capability: guessCapability(name) }));
     };
+    const save = () => { onSave({ ...draft, name: draft.name.trim() || t("config.channels.unnamed"), models: normalizeChannelModels(draft.models) }); onClose(); };
 
-    const setCapability = (name: string, capability: ModelCapability) => setModels(draft.models.map((model) => (model.name === name ? { ...model, capability, protocolId: undefined } : model)));
-    const setScript = (name: string, script: string) => setModels(draft.models.map((model) => (model.name === name ? { ...model, script: script || undefined } : model)));
-    const removeModel = (name: string) => setModels(draft.models.filter((model) => model.name !== name));
-
-    const save = () => {
-        onSave({ ...draft, name: draft.name.trim() || t("config.channels.unnamed"), models: normalizeChannelModels(draft.models) });
-        onClose();
-    };
-
-    return (
-        <Drawer
-            open={open}
-            width={640}
-            title={t("config.channelEditor.title")}
-            onClose={onClose}
-            styles={{ body: { paddingTop: 16 } }}
-            extra={
-                <Space>
-                    <Button onClick={onClose}>{t("common.cancel")}</Button>
-                    <Button type="primary" onClick={save}>
-                        {t("common.save")}
-                    </Button>
-                </Space>
-            }
-        >
-            <div className="grid gap-4 md:grid-cols-2">
-                <label className="block">
-                    <span className="mb-1 block text-sm font-medium">{t("config.channelEditor.name")}</span>
-                    <Input value={draft.name} onChange={(event) => patch({ name: event.target.value })} />
-                </label>
-                <label className="block">
-                    <span className="mb-1 block text-sm font-medium">{t("config.channelEditor.protocol")}</span>
-                    <Select aria-label="渠道调用协议" className="w-full" value={selectedProtocol} options={protocolOptions} onChange={changeProtocol} />
-                </label>
-                <label className="block md:col-span-2">
-                    <span className="mb-1 block text-sm font-medium">{t("config.channelEditor.baseUrl")}</span>
-                    <Input value={draft.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder="https://api.example.com" />
-                </label>
-                <label className="block md:col-span-2">
-                    <span className="mb-1 block text-sm font-medium">API Key</span>
-                    <Input.Password value={draft.apiKey} onChange={(event) => patch({ apiKey: event.target.value })} placeholder="sk-..." />
-                </label>
+    const content = <>
+        <header className="mb-4 rounded-3xl border border-border bg-background p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0"><div className="flex flex-wrap items-center gap-3"><h2 className="truncate text-base font-semibold">{draft.name || "未命名渠道"}</h2><span className={`rounded-full px-2 py-1 text-[11px] ${draft.apiKey.trim() && draft.baseUrl.trim() ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{draft.apiKey.trim() && draft.baseUrl.trim() ? "已配置" : "待配置"}</span>{inline && onDelete && <Button type="text" size="small" danger aria-label={`删除渠道 ${draft.name}`} icon={<Trash2 className="size-4" />} onClick={onDelete} />}</div><p className="mt-2 text-xs text-muted-foreground">{draft.models.length} 个已选模型{inline && <span className="ml-3 inline-flex items-center gap-1"><Check className="size-3" />自动保存</span>}</p></div>
+                <div className="flex gap-2"><Button type="primary" icon={<RefreshCw className="size-4" />} onClick={() => setRefreshKey((key) => key + 1)}>更新模型</Button><Button onClick={() => setConnectionOpen(!connectionOpen)}>配置连接 <ChevronDown className={`size-3.5 transition-transform ${connectionOpen ? "rotate-180" : ""}`} /></Button></div>
             </div>
+            {connectionOpen && <div className="mt-5 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
+                <label><span className="mb-1.5 block text-xs text-muted-foreground">渠道名称</span><Input aria-label="渠道名称" value={draft.name} onChange={(event) => patch({ name: event.target.value })} /></label>
+                <label><span className="mb-1.5 block text-xs text-muted-foreground">调用协议</span><Select aria-label="渠道调用协议" className="w-full" value={selectedProtocol} options={protocolOptions} onChange={changeProtocol} /></label>
+                <label className="sm:col-span-2"><span className="mb-1.5 block text-xs text-muted-foreground">接口地址 / Base URL</span><Input aria-label="渠道接口地址" value={draft.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder="https://api.example.com" /></label>
+                <label className="sm:col-span-2"><span className="mb-1.5 block text-xs text-muted-foreground">独立 API Key</span><Input.Password aria-label="渠道独立 API Key" value={draft.apiKey} onChange={(event) => patch({ apiKey: event.target.value })} placeholder="填写此渠道的 API Key" autoComplete="off" /></label>
+            </div>}
+        </header>
+        <ModelSelectModal embedded open={open} channel={draft} selectedNames={draft.models.map((model) => model.name)} refreshKey={refreshKey} onConfirm={applySelection} onClose={() => {}} onEditModel={setEditingModelName} />
+        <Modal open={Boolean(editingModel)} title="编辑模型" onCancel={() => setEditingModelName("")} footer={<Button type="primary" onClick={() => setEditingModelName("")}>完成</Button>}>
+            {editingModel && <div className="space-y-5 py-4"><div className="break-all text-sm font-medium">{editingModel.name}</div><label className="block"><span className="mb-2 block text-xs text-muted-foreground">模型能力</span><Segmented value={editingModel.capability} options={modelCapabilityOptions.filter((option) => option.value !== "all")} onChange={(value) => patchModel(editingModel.name, { capability: value as ModelCapability, protocolId: undefined })} /></label><label className="block"><span className="mb-2 block text-xs text-muted-foreground">模型调用协议</span><Select aria-label={`${editingModel.name} 模型协议`} className="w-full" placeholder={editingModel.script ? "使用模型调用脚本" : "继承渠道协议"} allowClear value={editingModel.protocolId} options={[...(editingModel.protocolId && !protocols.some((protocol) => protocol.id === editingModel.protocolId) ? [{ value: editingModel.protocolId, label: `缺失：${editingModel.protocolId}` }] : []), ...protocols.filter((protocol) => protocol.capability === editingModel.capability).map((protocol) => ({ value: protocol.id, label: protocol.label }))]} onChange={(protocolId) => patchModel(editingModel.name, { protocolId })} /></label><div><Button disabled={Boolean(editingModel.protocolId)} onClick={() => setScriptTarget({ name: editingModel.name, capability: editingModel.capability, value: editingModel.script || "" })}>{editingModel.script ? "编辑调用脚本" : "配置调用脚本"}</Button><p className="mt-2 text-xs text-muted-foreground">模型绑定的协议或脚本优先于渠道协议。</p></div></div>}
+        </Modal>
+        <ModelScriptEditor open={Boolean(scriptTarget)} capability={scriptTarget?.capability || "text"} modelName={scriptTarget?.name || ""} value={scriptTarget?.value || ""} onSave={(script) => scriptTarget && patchModel(scriptTarget.name, { script: script || undefined })} onClose={() => setScriptTarget(null)} />
+    </>;
 
-            <p className="mt-3 text-xs opacity-60">渠道协议是模型默认调用方式；模型单独绑定的协议或脚本优先。自定义协议仅用于同能力模型，其他能力请单独绑定。</p>
-            <div className="mt-6 mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                    <div className="text-sm font-semibold">{t("config.channelEditor.models")}</div>
-                    <div className="mt-0.5 text-xs text-stone-500">{t("config.channelEditor.modelDescription", { count: draft.models.length })}</div>
-                </div>
-                <Button type="primary" icon={<ListPlus className="size-4" />} onClick={() => setSelectOpen(true)}>
-                    {t("config.channelEditor.selectModels")}
-                </Button>
-            </div>
-
-            <div className="space-y-2 rounded-lg border border-stone-200 p-2 dark:border-stone-800">
-                {draft.models.length ? (
-                    draft.models.map((model) => (
-                        <div key={model.name} className="flex flex-wrap items-center gap-3 rounded-md px-2 py-1.5 hover:bg-stone-50 dark:hover:bg-stone-900/40">
-                            <span className="min-w-0 flex-1 truncate text-sm" title={model.name}>
-                                {model.name}
-                            </span>
-                            <div className="flex shrink-0 items-center gap-2">
-                                <Segmented size="small" value={model.capability} options={capabilityOptions} onChange={(value) => setCapability(model.name, value as ModelCapability)} />
-                                <Select aria-label={`${model.name} 模型协议`} size="small" style={{ width: 170 }} placeholder={model.script ? "使用模型调用脚本" : "继承渠道协议"} allowClear value={model.protocolId} options={[...(model.protocolId && !protocols.some((p) => p.id === model.protocolId) ? [{ value: model.protocolId, label: `缺失：${model.protocolId}` }] : []), ...protocols.filter((p) => p.capability === model.capability).map((p) => ({ value: p.id, label: p.label }))]} onChange={(protocolId) => setModels(draft.models.map((m) => m.name === model.name ? { ...m, protocolId } : m))} />
-                                <Button size="small" disabled={Boolean(model.protocolId)} type={model.script ? "primary" : "default"} ghost={Boolean(model.script)} onClick={() => setScriptTarget({ name: model.name, capability: model.capability, value: model.script || "" })}>
-                                    {t(model.script ? "config.channelEditor.scriptReady" : "config.channelEditor.script")}
-                                </Button>
-                                <Button size="small" danger type="text" icon={<Trash2 className="size-3.5" />} onClick={() => removeModel(model.name)} />
-                            </div>
-                        </div>
-                    ))
-                ) : (
-                    <div className="px-2 py-8 text-center text-sm text-stone-500">{t("config.channelEditor.empty")}</div>
-                )}
-            </div>
-
-            <ModelSelectModal open={selectOpen} channel={draft} selectedNames={draft.models.map((model) => model.name)} onConfirm={applySelection} onClose={() => setSelectOpen(false)} />
-
-            <ModelScriptEditor
-                open={Boolean(scriptTarget)}
-                capability={scriptTarget?.capability || "text"}
-                modelName={scriptTarget?.name || ""}
-                value={scriptTarget?.value || ""}
-                onSave={(script) => scriptTarget && setScript(scriptTarget.name, script)}
-                onClose={() => setScriptTarget(null)}
-            />
-        </Drawer>
-    );
+    return inline ? <section className="min-w-0">{content}</section> : <Drawer open={open} width={700} title="编辑渠道" onClose={onClose} styles={{ body: { paddingTop: 16 } }} extra={<Space><Button onClick={onClose}>取消</Button><Button type="primary" onClick={save}>保存</Button></Space>}>{content}</Drawer>;
 }

@@ -332,7 +332,10 @@ export default {
         video: "视频创作台",
         prompts: "提示词库",
         assets: "我的资产",
-        config: "配置",
+        config: "模型与接口",
+        history: "生成历史",
+        resources: "资源管理器",
+        settings: "系统设置",
     },
     topNav: {
         openMenu: "打开导航菜单",
@@ -373,9 +376,9 @@ export default {
         types: { added: "新增", fixed: "修复", changed: "调整", optimized: "优化", docs: "文档" },
     },
     config: {
-        title: "配置与用户偏好",
+        title: "模型与接口",
         invalidFile: "配置文件格式不正确",
-        description: "渠道聚合、模型选择、同步与本地存储",
+        description: "管理渠道连接、可用模型与全局默认模型",
         modalDescription: "渠道聚合、默认模型、同步与本地存储",
         tabs: {
             channels: "渠道",

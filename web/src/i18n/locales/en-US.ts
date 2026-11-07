@@ -332,7 +332,10 @@ export default {
         video: "Video Studio",
         prompts: "Prompt Library",
         assets: "My Assets",
-        config: "Settings",
+        config: "Models & APIs",
+        history: "Generation History",
+        resources: "Resources",
+        settings: "System Settings",
     },
     topNav: {
         openMenu: "Open navigation menu",
@@ -373,7 +376,7 @@ export default {
         types: { added: "Added", fixed: "Fixed", changed: "Changed", optimized: "Optimized", docs: "Docs" },
     },
     config: {
-        title: "Settings & Preferences",
+        title: "Models & APIs",
         invalidFile: "The settings file format is invalid",
         description: "Providers, model selection, sync, and local storage",
         modalDescription: "Providers, default models, sync, and local storage",

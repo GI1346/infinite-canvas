@@ -4,8 +4,13 @@ export async function uploadMediaFile(url: string) { return { url, storageKey: "
 export function previewUrlFor() { return undefined; }
 export function subscribeImagePreviews() { return () => {}; }
 export function getImagePreviewRevision() { return 0; }
+export async function ensureImagePreview() { return undefined; }
 
 export async function getImageBlob(_key: string): Promise<Blob | null> { return null; }
 export async function fetchImageBlob(url: string): Promise<Blob> { return (await fetch(url)).blob(); }
 
 export async function imageToDataUrl(image: { dataUrl: string }) { return image.dataUrl; }
+export async function cleanupUnusedImages() {}
+export async function cleanupUnusedMedia() {}
+export async function resolveImageUrl(_key: string, fallback = "") { return fallback; }
+export async function resolveMediaUrl(_key: string, fallback = "") { return fallback; }

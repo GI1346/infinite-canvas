@@ -3,6 +3,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import i18n from "@/i18n";
+import { recordCanvasImageHistory } from "@/stores/use-generation-history-store";
 import { localForageStorage } from "@/lib/localforage-storage";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
@@ -138,15 +139,22 @@ export const useCanvasStore = create<CanvasStore>()(
                 set((state) => {
                     const now = new Date().toISOString();
                     const removing = new Set(ids);
+                    state.projects.filter((project) => removing.has(project.id)).forEach((project) => { void recordCanvasImageHistory(project).catch(() => undefined); });
                     const projects = state.projects.filter((project) => !removing.has(project.id));
                     const deletedProjects = [...state.deletedProjects.filter((item) => !removing.has(item.id)), ...ids.map((id) => ({ id, deletedAt: now }))];
                     return { projects, deletedProjects };
                 }),
             replaceProjects: (projects, deletedProjects = []) => set({ projects, deletedProjects }),
-            updateProject: (id, patch) =>
-                set((state) => ({
-                    projects: state.projects.map((project) => (project.id === id ? { ...project, ...(typeof patch === "function" ? patch(project) : patch), updatedAt: new Date().toISOString() } : project)),
-                })),
+            updateProject: (id, patch) => {
+                const current = get().projects.find((project) => project.id === id);
+                if (!current) return;
+                const project = { ...current, ...(typeof patch === "function" ? patch(current) : patch), updatedAt: new Date().toISOString() };
+                if (project.nodes !== current.nodes) {
+                    void recordCanvasImageHistory(current).catch(() => undefined);
+                    void recordCanvasImageHistory(project).catch(() => undefined);
+                }
+                set((state) => ({ projects: state.projects.map((item) => item.id === id ? project : item) }));
+            },
         }),
         {
             name: CANVAS_STORE_KEY,

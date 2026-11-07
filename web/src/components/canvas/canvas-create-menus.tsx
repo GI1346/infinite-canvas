@@ -31,7 +31,7 @@ export function ConnectionCreateMenu({
             className="absolute z-[120] w-[300px] rounded-2xl border p-2 shadow-2xl backdrop-blur"
             data-canvas-no-zoom
             data-connection-create-menu
-            style={{ left: pending.position.x, top: pending.position.y, transform: `scale(${1 / scale})`, transformOrigin: "top left", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
+            style={{ left: pending.position.x, top: pending.position.y, transform: `scale(${1 / scale})${pending.connection.handleType === "target" ? " translateX(-100%)" : ""}`, transformOrigin: "top left", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >

@@ -42,7 +42,7 @@ const capture = callback("handleNodeSelectCapture", { pendingSelectionRef, selec
 const start = callback("handleConnectStart", { pendingSelectionRef, selectedNodeIdsRef, screenToCanvas, setMouseWorld: (value: Position) => { mouseWorld = value; }, setConnecting: (value: ConnectionHandle|null) => { connecting = value; }, connectionTargetNodeIdRef, setConnectionTargetNodeId: no, setSelectedConnectionId: (value: string|null) => { selectedConnection = value; } });
 const connect = callback("connectNodes", common);
 const drop = callback("getConnectionDropTarget", { ...common, viewportRef, CONNECTION_NODE_HIT_PADDING: 32, CONNECTION_HANDLE_HIT_RADIUS: 40, getConnectionTargetAnchor });
-const create = callback("createConnectedNode", { ...common, CanvasNodeType, createCanvasNode, getGenerationCount: (value: string) => Number(value), effectiveConfig: { imageModel: "stub-model", model: "stub-model", size: "2048x2048", count: "1", canvasImageCount: "1" }, setNodes: (update: (prev: CanvasNodeData[]) => CanvasNodeData[]) => { nodesRef.current = update(nodesRef.current); }, setSelectedNodeIds: (value: Set<string>) => { selectedNodeIdsRef.current = value; }, setSelectedConnectionId: (value: string|null) => { selectedConnection = value; }, setDialogNodeId: (value: unknown) => { dialog = value; }, setPendingConnectionCreate: (value: unknown) => { pending = value; }, setConnecting: (value: ConnectionHandle|null) => { connecting = value; } });
+const create = callback("createConnectedNode", { ...common, CanvasNodeType, createCanvasNode, getNodeDefinition: () => ({ Panel: true }), getGenerationCount: (value: string) => Number(value), effectiveConfig: { imageModel: "stub-model", model: "stub-model", size: "2048x2048", count: "1", canvasImageCount: "1" }, setNodes: (update: (prev: CanvasNodeData[]) => CanvasNodeData[]) => { nodesRef.current = update(nodesRef.current); }, setSelectedNodeIds: (value: Set<string>) => { selectedNodeIdsRef.current = value; }, setSelectedConnectionId: (value: string|null) => { selectedConnection = value; }, setDialogNodeId: (value: unknown) => { dialog = value; }, setPendingConnectionCreate: (value: unknown) => { pending = value; }, setConnecting: (value: ConnectionHandle|null) => { connecting = value; } });
 const base = { scale: 1, isSelected: true, isRelated: false, isFocusRelated: false, isConnectionTarget: false, isConnecting: false, showPanel: false, showImageInfo: false, onHoverStart: no, onHoverEnd: no, onResizeStart: no, onResize: no, onResizeEnd: no, onContentChange: no, onTitleChange: no, onContextMenu: no };
 const screen = (point: Position) => ({ clientX: box.left + viewportRef.current.x + point.x * viewportRef.current.k, clientY: box.top + viewportRef.current.y + point.y * viewportRef.current.k });
 const event = (target: Element, extra = {}) => ({ button: 0, target, clientX: 100, clientY: 200, shiftKey: false, metaKey: false, ctrlKey: false, preventDefault: no, stopPropagation: no, ...extra });
@@ -88,6 +88,41 @@ async function main() {
             const before=nodesRef.current.length, prior=connections.length; create("image",{connection:{nodeId:a.id,handleType:"source",sourceNodeIds:[a.id,b.id]},position:{x:2400,y:1600}}); assert.equal(nodesRef.current.length,before+1); const fresh=nodesRef.current.at(-1)!; const added=connections.slice(prior); assert.equal(added.length,2); assert(added.every((edge)=>edge.toNodeId===fresh.id)); assert.deepEqual(new Set(added.map((edge)=>edge.fromNodeId)),new Set([a.id,b.id])); assert.deepEqual([...selectedNodeIdsRef.current],[fresh.id]); assert.equal(dialog,fresh.id); assert.equal(pending,null); assert.equal(connecting,null);
             const beforeInvalid=nodesRef.current.length, edges=connections.length; create("group",{connection:{nodeId:a.id,handleType:"source",sourceNodeIds:[a.id,b.id]},position:{x:2600,y:1800}}); assert.equal(nodesRef.current.length,beforeInvalid); assert.equal(connections.length,edges); assert.equal(warnings.length,1);
             create("dxos:table",{connection:{nodeId:a.id,handleType:"source",sourceNodeIds:[a.id,b.id]},position:{x:2700,y:1900}}); const freshTable=nodesRef.current.at(-1)!; assert(connections.filter((edge)=>edge.toNodeId===freshTable.id).every((edge)=>edge.toPort==="input-1"));
+        });
+        await test("created node edge centers snap exactly to the drop point in both directions", () => {
+            for (const type of ["text", "config", "dxos:table"]) {
+                for (const handleType of ["source", "target"] as const) {
+                    for (const position of [{ x: 300, y: 600 }, { x: -75, y: 1350 }]) {
+                        const before = nodesRef.current.length;
+                        create(type, { connection: { nodeId: a.id, handleType }, position });
+                        assert.equal(nodesRef.current.length, before + 1);
+                        const fresh = nodesRef.current.at(-1)!;
+                        assert.equal(fresh.position.x + (handleType === "target" ? fresh.width : 0), position.x);
+                        assert.equal(fresh.position.y + fresh.height / 2, position.y);
+                        assert(connections.some((edge) => handleType === "target" ? edge.fromNodeId === fresh.id && edge.toNodeId === a.id : edge.fromNodeId === a.id && edge.toNodeId === fresh.id));
+                    }
+                }
+            }
+        });
+        await test("mouse release stores the unmodified world point for both connection directions and zoom levels", () => {
+            for (const k of [0.25, 0.61, 1, 2]) {
+                viewportRef.current.k = k;
+                for (const handleType of ["source", "target"] as const) {
+                    const current = { nodeId: a.id, handleType };
+                    const point = { x: 123.5, y: -456.25 };
+                    let menu: any = null, preview: Position | null = null;
+                    const finish = callback("handleGlobalMouseUp", {
+                        finishNodeDrag: no, selectionBoxRef: ref(null), setSelectionBox: no,
+                        pendingConnectionCreateRef: ref(null), connectingParamsRef: ref(current),
+                        getConnectionDropTarget: () => ({ nodeId: null, isNearNode: false }), connectNodes: no, setConnecting: no,
+                        screenToCanvas: () => ({ ...point }), setMouseWorld: (value: Position) => { preview = value; },
+                        setPendingConnectionCreate: (value: any) => { menu = value; },
+                    });
+                    finish({ clientX: 0, clientY: 0 });
+                    assert.deepEqual(menu.position, point);
+                    assert.deepEqual(preview, point);
+                }
+            }
         });
         await test("actual fusion patch input and batch preview remain independent from table ports", async () => {
             const handle:ConnectionHandle={nodeId:a.id,handleType:"source",sourceNodeIds:[a.id,b.id]}, point=screen({x:fusion.position.x+fusion.width,y:fusion.position.y+40}); const previous=connections.length; connect(handle,fusion.id,point.clientX,point.clientY); assert.equal(connections.length,previous+2); assert(connections.slice(previous).every((edge)=>edge.toPort==="patch")); assert.equal(drop(point.clientX,point.clientY,handle).nodeId,fusion.id);
