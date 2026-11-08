@@ -242,6 +242,32 @@ function parseImagePayload(payload: ImageApiResponse) {
     return images;
 }
 
+async function resolveImageResponse(payload: ImageApiResponse, config: AiConfig, signal?: AbortSignal) {
+    const taskId = (payload as Record<string, unknown>).task_id;
+    let hostname = "";
+    try { hostname = new URL(config.baseUrl).hostname.toLowerCase(); } catch { /* Invalid URLs are handled by the request. */ }
+    if (typeof taskId !== "string" || !taskId.trim() || hostname !== "api.soonstudio.ai") return parseImagePayload(payload);
+
+    const deadline = Date.now() + IMAGE_REQUEST_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        const response = await axios.get<ImageApiResponse & { status?: string }>(
+            aiApiUrl(config, `/images/tasks/${encodeURIComponent(taskId)}`),
+            { headers: aiHeaders(config), signal, timeout: Math.max(1, deadline - Date.now()) },
+        );
+        const status = response.data.status?.toUpperCase();
+        if (status === "SUCCESS") return parseImagePayload(response.data);
+        if (status === "FAILURE") throw new Error(readApiErrorMessage(response.data) || apiText("requestFailed"));
+        if (status !== "IN_PROGRESS") throw new Error(`SoonStudio: ${status || "unknown task status"}`);
+        await new Promise<void>((resolve, reject) => {
+            const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
+            const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, Math.min(2500, Math.max(0, deadline - Date.now())));
+            signal?.addEventListener("abort", abort, { once: true });
+            if (signal?.aborted) abort();
+        });
+    }
+    throw new Error(apiText("imageTimeout"));
+}
 function readApiErrorMessage(value: unknown): string {
     if (!value) return "";
     if (typeof value === "string") {
@@ -741,7 +767,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 timeout: IMAGE_REQUEST_TIMEOUT_MS,
             },
         );
-        const images = await parseImagePayload(response.data);
+        const images = await resolveImageResponse(response.data, requestConfig, options?.signal);
         return images;
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("requestFailed")));
@@ -812,7 +838,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 
     try {
         const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal, timeout: IMAGE_REQUEST_TIMEOUT_MS });
-        const images = await parseImagePayload(response.data);
+        const images = await resolveImageResponse(response.data, requestConfig, options?.signal);
         return images;
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("requestFailed")));
@@ -859,10 +885,17 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
     }
 }
 
+const MODEL_LIST_TIMEOUT_MS = 15000;
+
+function readModelListError(error: unknown) {
+    if (axios.isAxiosError(error) && (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT")) return "读取模型列表超时，请检查网络与接口地址后重试";
+    return readAxiosError(error, apiText("modelReadFailed"));
+}
+
 export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {
     try {
         if (config.apiFormat === "gemini") {
-            const response = await axios.get<GeminiPayload>(geminiApiUrl({ ...defaultGeminiConfig, ...config }), { headers: geminiHeaders({ ...defaultGeminiConfig, ...config }) });
+            const response = await axios.get<GeminiPayload>(geminiApiUrl({ ...defaultGeminiConfig, ...config }), { headers: geminiHeaders({ ...defaultGeminiConfig, ...config }), timeout: MODEL_LIST_TIMEOUT_MS });
             validateGeminiPayload(response.data);
             return (response.data.models || [])
                 .map((model) => model.name?.replace(/^models\//, ""))
@@ -873,20 +906,21 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
             headers: {
                 Authorization: `Bearer ${config.apiKey}`,
             },
+            timeout: MODEL_LIST_TIMEOUT_MS,
         });
         return (response.data.data || [])
             .map((model) => model.id)
             .filter((id): id is string => Boolean(id))
             .sort((a, b) => a.localeCompare(b));
     } catch (error) {
-        throw new Error(readAxiosError(error, apiText("modelReadFailed")));
+        throw new Error(readModelListError(error));
     }
 }
 
 export async function fetchChannelModelDetails(channel: ModelChannel): Promise<ChannelModel[]> {
     if (channel.apiFormat === "gemini") return (await fetchChannelModels(channel)).map((name) => ({ name, capability: guessCapability(name) }));
     try {
-        const response = await axios.get(buildApiUrl(channel.baseUrl, "/models"), { headers: { Authorization: `Bearer ${channel.apiKey.trim()}` } });
+        const response = await axios.get(buildApiUrl(channel.baseUrl, "/models"), { headers: { Authorization: `Bearer ${channel.apiKey.trim()}` }, timeout: MODEL_LIST_TIMEOUT_MS });
         if (!Array.isArray(response.data?.data)) throw new Error("模型接口未返回 data 数组，请检查地址和密钥");
         return response.data.data.filter((m: { id?: string }) => typeof m.id === "string" && m.id.trim()).map((m: { id: string; capabilities?: string[] }) => {
             const kinds = m.capabilities || [];
@@ -896,7 +930,7 @@ export async function fetchChannelModelDetails(channel: ModelChannel): Promise<C
             return { name: m.id, capability, ...(script ? { script } : {}), ...(existing?.protocolId ? { protocolId: existing.protocolId } : {}) } as ChannelModel;
         }).sort((a: ChannelModel, b: ChannelModel) => a.name.localeCompare(b.name));
     } catch (error) {
-        throw new Error(readAxiosError(error, apiText("modelReadFailed")));
+        throw new Error(readModelListError(error));
     }
 }
 

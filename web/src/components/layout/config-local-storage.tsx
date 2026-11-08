@@ -62,7 +62,7 @@ export function ConfigLocalStorage({ active }: { active: boolean }) {
 
     return (
         <div className="space-y-3">
-            <section className="rounded-lg border border-stone-200 p-4 dark:border-stone-800">
+            <section className="rounded-lg border border-stone-200 p-4 dark:border-border dark:bg-card">
                 <div className="flex items-center gap-2 text-sm font-semibold"><HardDrive className="size-4" />存储位置与清理</div>
                 {desktop ? <>
                     <div className="mt-3 text-xs text-stone-500">程序安装目录</div>
@@ -78,7 +78,7 @@ export function ConfigLocalStorage({ active }: { active: boolean }) {
                 </> : <p className="mt-3 text-xs text-stone-500">{window.blinkflowStorage ? "正在读取桌面存储路径…" : "当前是浏览器版，数据由浏览器管理；安装后的桌面版会将数据放在所选安装目录内，并提供保留 API 配置的清理工具。"}</p>}
                 {storageError ? <Alert className="mt-3" type="error" showIcon title="存储操作失败" description={storageError} /> : null}
             </section>
-            <section className="rounded-lg border border-stone-200 p-4 dark:border-stone-800">
+            <section className="rounded-lg border border-stone-200 p-4 dark:border-border dark:bg-card">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -114,7 +114,7 @@ export function ConfigLocalStorage({ active }: { active: boolean }) {
                 ) : null}
             </section>
             {usage?.databases.map((database) => (
-                <section key={database.name} className="overflow-hidden rounded-lg border border-stone-200 dark:border-stone-800">
+                <section key={database.name} className="overflow-hidden rounded-lg border border-stone-200 dark:border-border dark:bg-card">
                     <div className="flex items-center justify-between gap-3 border-b border-stone-200 px-4 py-3 dark:border-stone-800">
                         <div className="min-w-0">
                             <div className="truncate text-sm font-semibold">{t("config.localStorage.mainDatabase")}</div>
@@ -142,7 +142,7 @@ export function ConfigLocalStorage({ active }: { active: boolean }) {
 
 function StorageMetric({ icon, label, value, hint }: { icon: ReactNode; label: string; value: string; hint: string }) {
     return (
-        <div className="rounded-lg bg-stone-100/70 p-3 dark:bg-stone-900/70">
+        <div className="rounded-lg bg-stone-100/70 p-3 dark:bg-muted">
             <div className="flex items-center gap-2 text-xs text-stone-500">{icon}{label}</div>
             <div className="mt-2 text-xl font-semibold tabular-nums">{value}</div>
             <div className="mt-1 text-[11px] text-stone-500">{hint}</div>
