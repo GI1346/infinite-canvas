@@ -1225,7 +1225,7 @@ function InfiniteCanvasPage() {
         };
         if (data) {
             data.setData(CANVAS_IMAGE_CLIPBOARD_TYPE, clipboardRef.current.token);
-            data.setData("text/plain", copiedNodes.map((node) => node.title).join("\n"));
+            data.setData("text/plain", `blinkflow-canvas:${clipboardRef.current.token}`);
         }
     }, []);
 
@@ -1814,7 +1814,7 @@ function InfiniteCanvasPage() {
             if (!trimmed) return false;
 
             const node = {
-                ...createCanvasNode(CanvasNodeType.Text, getCanvasCenter(), { content: trimmed, status: NODE_STATUS_SUCCESS }),
+                ...createCanvasNode(CanvasNodeType.Text, getCanvasCenter(), { content: text, status: NODE_STATUS_SUCCESS }),
                 title: trimmed.slice(0, 32) || t("canvas.projectPage.clipboardText"),
             };
 
@@ -1827,25 +1827,6 @@ function InfiniteCanvasPage() {
         },
         [getCanvasCenter, t],
     );
-
-    const pasteSystemClipboard = useCallback(async () => {
-        if (!navigator.clipboard) return;
-
-        const items = await navigator.clipboard.read();
-        const imageItem = items.find((item) => item.types.some((type) => type.startsWith("image/")));
-        if (imageItem) {
-            const imageType = imageItem.types.find((type) => type.startsWith("image/"));
-            if (!imageType) return;
-            const blob = await imageItem.getType(imageType);
-            const file = new File([blob], "clipboard-image.png", { type: imageType });
-            void createImageFileNode(file, getCanvasCenter());
-            message.success(t("canvas.projectPage.clipboardImageAdded"));
-            return;
-        }
-
-        const text = await navigator.clipboard.readText();
-        if (createTextNodeFromClipboard(text)) message.success(t("canvas.projectPage.clipboardTextAdded"));
-    }, [createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, t]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -1860,6 +1841,41 @@ function InfiniteCanvasPage() {
             }
 
             if (isModifierShortcut && key === "c" && window.getSelection()?.toString()) return;
+
+            if (isModifierShortcut && !event.altKey && key === "c" && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+                const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
+                const node = selected.length === 1 && selected[0].type === CanvasNodeType.Image ? selected[0] : null;
+                if (node?.metadata?.content) {
+                    event.preventDefault();
+                    copySelectedNodes();
+                    const token = clipboardRef.current!.token;
+                    const image = (async () => {
+                        const stored = node.metadata?.storageKey ? await getImageBlob(node.metadata.storageKey) : null;
+                        const blob = stored || await fetch(node.metadata!.content!).then((response) => {
+                            if (!response.ok) throw new Error("图片读取失败");
+                            return response.blob();
+                        });
+                        if (blob.type === "image/png") return blob;
+                        const bitmap = await createImageBitmap(blob);
+                        try {
+                            const canvas = document.createElement("canvas");
+                            canvas.width = bitmap.width;
+                            canvas.height = bitmap.height;
+                            const context = canvas.getContext("2d");
+                            if (!context) throw new Error("图片读取失败");
+                            context.drawImage(bitmap, 0, 0);
+                            return await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("图片转换失败")), "image/png"));
+                        } finally {
+                            bitmap.close();
+                        }
+                    })();
+                    void navigator.clipboard.write([new ClipboardItem({
+                        "image/png": image,
+                        "text/plain": new Blob([`blinkflow-canvas:${token}`], { type: "text/plain" }),
+                    })]).catch(() => message.error("复制图片失败，请检查浏览器的剪贴板权限"));
+                    return;
+                }
+            }
 
             if (isModifierShortcut && !event.altKey && key === "z") {
                 event.preventDefault();
@@ -1898,21 +1914,6 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            if (isModifierShortcut && !event.altKey && key === "c") {
-                // Image selections use the native copy event so the editor can identify this clipboard snapshot.
-                if (!nodesRef.current.some((node) => selectedNodeIdsRef.current.has(node.id) && node.type === CanvasNodeType.Image)) {
-                    event.preventDefault();
-                    copySelectedNodes();
-                }
-                return;
-            }
-
-            if (isModifierShortcut && !event.altKey && key === "v") {
-                event.preventDefault();
-                if (!pasteCopiedNodes()) void pasteSystemClipboard();
-                return;
-            }
-
             if (event.key === "Delete" || event.key === "Backspace") {
                 if (selectedNodeIdsRef.current.size) {
                     deleteNodes(new Set(selectedNodeIdsRef.current));
@@ -1942,18 +1943,57 @@ function InfiniteCanvasPage() {
         const handleCopy = (event: ClipboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
             if (event.defaultPrevented || !event.clipboardData || window.getSelection()?.toString()) return;
-            if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
-            if (dragRef.current.isDraggingNode || !nodesRef.current.some((node) => selectedNodeIdsRef.current.has(node.id) && node.type === CanvasNodeType.Image)) return;
+            if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-overlay],[data-canvas-shortcuts-ignore]")) return;
+            if (dragRef.current.isDraggingNode || !nodesRef.current.some((node) => selectedNodeIdsRef.current.has(node.id))) return;
             copySelectedNodes(event.clipboardData);
             event.preventDefault();
         };
+        const handlePaste = (event: ClipboardEvent) => {
+            const target = event.target instanceof Element ? event.target : null;
+            if (event.defaultPrevented || !event.clipboardData || dragRef.current.isDraggingNode) return;
+            if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-overlay],[data-canvas-shortcuts-ignore],.ant-modal-wrap")) return;
+
+            const data = event.clipboardData;
+            if (clipboardRef.current && (data.getData(CANVAS_IMAGE_CLIPBOARD_TYPE) === clipboardRef.current.token || data.getData("text/plain") === `blinkflow-canvas:${clipboardRef.current.token}`)) {
+                if (pasteCopiedNodes()) event.preventDefault();
+                return;
+            }
+
+            const images = Array.from(data.files).filter((file) => file.type.startsWith("image/"));
+            if (!images.length) {
+                for (const item of Array.from(data.items)) {
+                    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+                    const file = item.getAsFile();
+                    if (file) images.push(file);
+                }
+            }
+            if (images.length) {
+                event.preventDefault();
+                const position = getCanvasCenter();
+                if (images.length > 1) {
+                    void createDroppedImageGrid(images, position);
+                } else {
+                    void createImageFileNode(images[0], position)
+                        .then(() => message.success(t("canvas.projectPage.clipboardImageAdded")))
+                        .catch(() => message.error("粘贴图片失败"));
+                }
+                return;
+            }
+            const text = data.getData("text/plain");
+            if (createTextNodeFromClipboard(text)) {
+                event.preventDefault();
+                message.success(t("canvas.projectPage.clipboardTextAdded"));
+            }
+        };
         window.addEventListener("keydown", handleKeyDown);
         window.addEventListener("copy", handleCopy);
+        window.addEventListener("paste", handlePaste);
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
             window.removeEventListener("copy", handleCopy);
+            window.removeEventListener("paste", handlePaste);
         };
-    }, [copySelectedNodes, deleteConnection, deleteNodes, groupSelection, pasteCopiedNodes, pasteSystemClipboard, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
+    }, [copySelectedNodes, deleteConnection, deleteNodes, groupSelection, pasteCopiedNodes, createImageFileNode, createDroppedImageGrid, createTextNodeFromClipboard, getCanvasCenter, message, t, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
 
     const handleConnectStart = useCallback(
         (event: ReactMouseEvent, nodeId: string, handleType: "source" | "target", portId?: string) => {
