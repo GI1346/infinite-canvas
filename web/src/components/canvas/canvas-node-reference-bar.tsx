@@ -28,9 +28,9 @@ export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDiscon
         setDragged(null);
     };
     return (
-        <div className="mb-2">
-            <div className="mb-1.5 text-[11px] font-medium" style={{ color: theme.node.muted, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.references.title")}</div>
-            <div className="thin-scrollbar flex min-h-24 gap-2 overflow-x-auto pb-1">
+        <div className="mb-1.5">
+            <div className="mb-1 text-[11px] font-medium" style={{ color: theme.node.muted, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.references.title")}</div>
+            <div className="thin-scrollbar flex min-h-12 gap-1.5 overflow-x-auto pb-1">
                 {references.map(({ node, sourceNodeId }) => <div key={sourceNodeId + ":" + node.id} data-reference-node-id={node.id} draggable={Boolean(onReorder)} title={onReorder ? "拖动调整参考顺序" : undefined}
                     className="shrink-0" style={{ cursor: onReorder ? "grab" : undefined, opacity: dragged === node.id ? 0.5 : 1 }}
                     onDragStart={(event) => { event.stopPropagation(); if (!onReorder) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-blinkflow-reference", node.id); setDragged(node.id); }}
@@ -38,8 +38,8 @@ export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDiscon
                     onDrop={(event) => { if (dragged && onReorder) { event.preventDefault(); event.stopPropagation(); dropReference(node.id); } }} onDragEnd={(event) => { event.stopPropagation(); setDragged(null); }}>
                     <ReferenceItem node={node} onRemove={() => onDisconnect?.(sourceNodeId, nodeId)} />
                 </div>)}
-                <button type="button" className="grid size-24 shrink-0 place-items-center rounded-xl border bg-transparent transition hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title={t("canvas.references.select")} onClick={() => onStartSelection?.(nodeId)}>
-                    <Plus className="size-6" />
+                <button type="button" className="grid size-12 shrink-0 place-items-center rounded-lg border bg-transparent transition hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title={t("canvas.references.select")} onClick={() => onStartSelection?.(nodeId)}>
+                    <Plus className="size-4" />
                 </button>
             </div>
         </div>
@@ -56,11 +56,11 @@ function ReferenceItem({ node, onRemove }: { node: CanvasNodeData; onRemove: () 
     const Icon = resource?.kind === "image" || node.type === CanvasNodeType.Image ? ImageIcon : resource?.kind === "video" || node.type === CanvasNodeType.Video ? Video : resource?.kind === "audio" || node.type === CanvasNodeType.Audio ? Music2 : resource?.kind === "text" || node.type === CanvasNodeType.Text ? FileText : Puzzle;
     return (
         <Popover placement="topLeft" mouseEnterDelay={0.15} content={<ReferencePreview node={node} content={content} />}>
-            <div className="group relative grid size-24 shrink-0 place-items-center rounded-xl border" style={{ background: theme.toolbar.activeBg, borderColor: theme.toolbar.border }}>
+            <div className="group relative grid size-12 shrink-0 place-items-center rounded-lg border" style={{ background: theme.toolbar.activeBg, borderColor: theme.toolbar.border }}>
                 <span className="grid size-full place-items-center overflow-hidden rounded-[inherit]">
-                    {(resource?.kind === "image" || node.type === CanvasNodeType.Image) && thumbnail ? <img draggable={false} src={thumbnail} alt="" className="size-full object-cover" /> : (resource?.kind === "video" || node.type === CanvasNodeType.Video) && content ? <video src={content} className="size-full object-cover" muted /> : <Icon className="size-8 opacity-65" />}
+                    {(resource?.kind === "image" || node.type === CanvasNodeType.Image) && thumbnail ? <img draggable={false} src={thumbnail} alt="" className="size-full object-cover" /> : (resource?.kind === "video" || node.type === CanvasNodeType.Video) && content ? <video src={content} className="size-full object-cover" muted /> : <Icon className="size-5 opacity-65" />}
                 </span>
-                <button type="button" className="absolute right-0 top-0 grid size-5 place-items-center rounded-full border opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }} aria-label={t("canvas.references.disconnect")} title={t("canvas.references.disconnect")} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onRemove(); }}><X className="size-3" /></button>
+                <button type="button" className="absolute right-0 top-0 grid size-4 place-items-center rounded-full border opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }} aria-label={t("canvas.references.disconnect")} title={t("canvas.references.disconnect")} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onRemove(); }}><X className="size-3" /></button>
             </div>
         </Popover>
     );

@@ -176,7 +176,9 @@ export async function executeAssistantTool(action: AssistantAction, context: Can
     const ops: CanvasAgentOp[] = [];
     for (const raw of rawNodes) {
         if (!raw || typeof raw !== "object") throw new Error("工作流节点必须是对象");
-        const item = raw as Record<string, unknown>, key = String(item.key || ""), type = String(item.type || "");
+        const item = raw as Record<string, unknown>, key = String(item.key || ""), rawType = String(item.type || "");
+        // 旧的「生成配置」节点已并入图片生成节点：type=config 一律按 image 处理。
+        const type = rawType === "config" ? "image" : rawType;
         if (!key || idMap.has(key) || snapshot.nodes.some((node) => node.id === key)) throw new Error("计划 key 必须非空、唯一且与已有节点 ID 不重复");
         if (!isRegisteredNodeType(type)) throw new Error(`未注册的节点类型：${type}`);
         const id = nanoid(); idMap.set(key, id); newTypes.set(id, type);

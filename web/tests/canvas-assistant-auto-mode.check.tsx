@@ -57,9 +57,17 @@ async function main() {
     console.log("PASS manual mode remains explicit and cancellation does not generate.");
 
     await act(async () => root.render(<CanvasAssistantGenerationMode />));
-    const select = host.querySelector<HTMLSelectElement>("[data-assistant-generation-mode]")!;
-    assert(select); assert.deepEqual([...select.options].map((item) => item.value), ["manual", "auto"]);
-    await act(async () => { select.value = "auto"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    const wrapper = host.querySelector<HTMLElement>("[data-assistant-generation-mode]")!;
+    assert(wrapper, "生成模式控件存在");
+    // 生成模式已换成 antd Select（v6 DOM）：在根元素上触发 mousedown 打开下拉。
+    const trigger = wrapper.querySelector<HTMLElement>(".ant-select")!;
+    await act(async () => { trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+    await tick();
+    const options = [...document.querySelectorAll<HTMLElement>(".ant-select-item-option")];
+    assert.deepEqual(options.map((item) => item.textContent), ["手动确认生成", "自动生成"]);
+    const autoOption = options.find((item) => item.textContent === "自动生成")!;
+    await act(async () => { autoOption.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); autoOption.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await tick();
     assert.equal(state().generationMode, "auto"); assert.equal(readCanvasAssistantGenerationMode(), "auto");
     await act(async () => root.render(null));
     let release: () => void = () => {};

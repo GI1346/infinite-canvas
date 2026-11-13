@@ -7,6 +7,11 @@ import { fitNodeSize } from "./canvas-node-size";
 export function createGenerationBranch(source: CanvasNodeData | undefined, nodes: CanvasNodeData[], connections: CanvasConnection[], config: AiConfig, mode: CanvasGenerationMode, prompt: string) {
     if (!source || source.type !== mode || !source.metadata?.content) return null;
     const old = source.metadata;
+    // 同一原始节点派生出的所有结果共享 generationOriginId，槽位号决定第几排第几列。
+    // 这样无论从哪个结果再次运行，新节点都接在这一系列末尾；画布上其他无关节点、
+    // 以及旧版纵向堆叠的结果都不会把新节点带偏。
+    const originId = old.generationOriginId || source.id;
+    const origin = nodes.find((item) => item.id === originId) || source;
     const metadata: CanvasNodeMetadata = {
         prompt, composerContent: prompt, status: "idle", generationMode: mode,
         model: config.model, reasoningEffort: config.reasoningEffort,
@@ -21,42 +26,36 @@ export function createGenerationBranch(source: CanvasNodeData | undefined, nodes
         generationType: old.generationType, references: old.references ? [...old.references] : undefined,
         cropContext: old.cropContext ? structuredClone(old.cropContext) : undefined,
         freeResize: old.freeResize, imageSizeManual: old.imageSizeManual,
+        generationOriginId: originId, generationSlot: 0,
     };
     const dimensions = mode === "image" && !old.imageSizeManual && !old.freeResize
         ? fitNodeSize(old.naturalWidth || source.width, old.naturalHeight || source.height)
         : { width: source.width, height: source.height };
     // 结果按 4 列网格向右排：接在同一行最右结果的右边，满 4 个换到下一排开头。
-    // 以前是同一个 x 往下堆，第二张结果会跑到第一张下面，看起来像是"新节点没出现"。
     const COLUMNS = 4;
     const GAP = 96;
-    const ROW_TOLERANCE = 64;
     const isGroup = (item: CanvasNodeData) => item.type === CanvasNodeType.Group;
     const right = (item: CanvasNodeData) => item.position.x + item.width;
     const bottom = (item: CanvasNodeData) => item.position.y + item.height;
-    // 结果区：源节点右侧、且不在源节点上方，按 y 聚成若干排。
-    const placed = nodes.filter((item) => !isGroup(item)
-        && item.position.x >= source.position.x + source.width
-        && bottom(item) + ROW_TOLERANCE > source.position.y);
-    const rows: CanvasNodeData[][] = [];
-    for (const item of [...placed].sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)) {
-        const row = rows.find((candidate) => Math.abs(candidate[0].position.y - item.position.y) <= ROW_TOLERANCE);
-        if (row) row.push(item);
-        else rows.push([item]);
+    const rowOf = (item: CanvasNodeData) => Math.floor((item.metadata?.generationSlot || 0) / COLUMNS);
+    // 系列包含持有第一张图的原始节点本身（占第 1 个槽位），这样每排正好 4 张图，第 5 张换排。
+    const series = nodes.filter((item) => !isGroup(item) && (item.id === originId || item.metadata?.generationOriginId === originId));
+    const slot = series.length;
+    const rowIndex = Math.floor(slot / COLUMNS);
+    const columnIndex = slot % COLUMNS;
+    const rowMembers = series.filter((item) => rowOf(item) === rowIndex).sort((a, b) => a.position.x - b.position.x);
+    // 新节点贴在该排最右节点的右侧平行位置（从最新结果再次运行时即它的右边）。
+    const anchor = rowMembers[rowMembers.length - 1];
+    let x = anchor ? right(anchor) + GAP : origin.position.x + origin.width + GAP;
+    // 第一排跟随该排实际 y（用户可能整体挪过），其余排接在上一排最底部下面。
+    let y: number;
+    if (rowIndex === 0) {
+        y = anchor?.position.y ?? origin.position.y;
+    } else {
+        const upper = series.filter((item) => rowOf(item) === rowIndex - 1);
+        y = upper.length ? Math.max(...upper.map(bottom)) + GAP : origin.position.y;
     }
-    for (const row of rows) row.sort((a, b) => a.position.x - b.position.x);
-
-    const index = placed.length;
-    const rowIndex = Math.floor(index / COLUMNS);
-    const columnIndex = index % COLUMNS;
-    const firstColumnX = source.position.x + source.width + GAP;
-    const anchor = columnIndex > 0 ? rows[rowIndex]?.[columnIndex - 1] : undefined;
-    let x = anchor ? right(anchor) + GAP : firstColumnX;
-    const previousRow = rowIndex > 0 ? rows[rowIndex - 1] : undefined;
-    // 第一排跟随已有结果的实际 y（用户可能整体挪过），其余排接在上一排最底部下面。
-    let y = rowIndex > 0
-        ? (previousRow?.length ? Math.max(...previousRow.map(bottom)) + GAP : source.position.y)
-        : (rows[0]?.[0]?.position.y ?? source.position.y);
-    // 手动摆放或旧版纵向结果可能仍占着这一格，继续向右挪到真正的空位。
+    // 手动挪动的节点可能仍占着这一格，继续向右挪到真正的空位。
     for (let guard = 0; guard <= nodes.length; guard += 1) {
         const hit = nodes.find((item) => !isGroup(item)
             && item.position.x < x + dimensions.width + 32 && right(item) + 32 > x
@@ -64,6 +63,7 @@ export function createGenerationBranch(source: CanvasNodeData | undefined, nodes
         if (!hit) break;
         x = right(hit) + GAP;
     }
+    metadata.generationSlot = slot;
     const position = { x, y };
     const node: CanvasNodeData = { id: nanoid(), type: source.type, title: source.title, position, ...dimensions, metadata };
     const inputs = connections.filter((edge) => edge.toNodeId === source.id).map((edge) => ({ ...edge, id: nanoid(), toNodeId: node.id }));

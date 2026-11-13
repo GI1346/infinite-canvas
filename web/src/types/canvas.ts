@@ -79,6 +79,10 @@ export type CanvasNodeMetadata = {
     fontSize?: number;
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;
+    /** 派生结果所属系列的原始节点 id；同一系列的结果按 generationSlot 排网格。 */
+    generationOriginId?: string;
+    /** 该结果在系列里的序号：floor(slot / 4) 为排号，slot % 4 为列号。 */
+    generationSlot?: number;
     model?: string;
     reasoningEffort?: "auto" | "low" | "medium" | "high" | "xhigh";
     size?: string;

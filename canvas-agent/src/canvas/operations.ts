@@ -86,37 +86,43 @@ function textNodeOp(input: { id?: string; text?: string; title?: string; width?:
     return { type: "add_node", id: input.id, nodeType: "text", title: input.title, position: { x, y }, width: input.width, height: input.height, metadata: { content: input.text || "", status: "success", fontSize: 14 } };
 }
 
-/** 创建生成配置节点操作。 */
+/** 创建生成节点操作：旧的「生成配置」节点已并入对应类型的生成节点。 */
 function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: number) {
     const mode = generationMode(input.mode);
     const prompt = String(input.prompt || "");
+    const nodeType = mode === "text" ? "text" : mode;
+    const shared = cleanRecord({
+        generationMode: mode,
+        composerContent: prompt,
+        prompt,
+        status: "idle",
+        model: input.model,
+        size: input.size,
+        imageResolution: input.imageResolution ?? input.resolution,
+        imageAspectRatio: input.imageAspectRatio ?? input.aspectRatio,
+        quality: input.quality,
+        count: input.count,
+        seconds: input.seconds,
+        vquality: input.vquality,
+        generateAudio: input.generateAudio,
+        watermark: input.watermark,
+        videoMode: input.videoMode,
+        audioVoice: input.audioVoice,
+        audioFormat: input.audioFormat,
+        audioSpeed: input.audioSpeed,
+        audioInstructions: input.audioInstructions,
+    });
+    // 文本生成直接落在文本节点；图片生成节点需要 generationType 才能参与生成与运行。
+    const metadata = mode === "image" ? { ...shared, generationType: "generation" } : mode === "text" ? { ...shared, content: "" } : shared;
     return {
         type: "add_node",
         id,
-        nodeType: "config",
+        nodeType,
         title: String(input.title || generationTitle(mode)),
         position: { x, y },
         width: typeof input.width === "number" ? input.width : undefined,
         height: typeof input.height === "number" ? input.height : undefined,
-        metadata: cleanRecord({
-            generationMode: mode,
-            composerContent: prompt,
-            prompt,
-            status: "idle",
-            model: input.model,
-            size: input.size,
-            quality: input.quality,
-            count: input.count,
-            seconds: input.seconds,
-            vquality: input.vquality,
-            generateAudio: input.generateAudio,
-            watermark: input.watermark,
-            videoMode: input.videoMode,
-            audioVoice: input.audioVoice,
-            audioFormat: input.audioFormat,
-            audioSpeed: input.audioSpeed,
-            audioInstructions: input.audioInstructions,
-        }),
+        metadata,
     };
 }
 

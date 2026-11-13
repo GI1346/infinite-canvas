@@ -1,4 +1,6 @@
 import { createGenerationBranch } from "@/lib/canvas/canvas-generation-branch";
+import { migrateConfigNodes } from "@/lib/canvas/canvas-node-migration";
+import { shouldShowNodePanel, showsGenerationPanel } from "@/lib/canvas/canvas-node-panel-visibility";
 import { enlargeWorkflowNodes } from "@/lib/canvas/workflow-display-size";
 import { isCanvasNodeVisible } from "@/lib/canvas/canvas-visibility";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
@@ -126,6 +128,7 @@ registerBuiltinNodes();
 
 const CANVAS_IMAGE_CLIPBOARD_TYPE = "application/x-blinkflow-canvas-images";
 
+/** 生成出来的图片节点才挂底部配置面板；上传的图片没有生成信息，不挂。 */
 /** 有文字选区且不在画布内容层时，Ctrl+C 应该走系统复制，不抢节点复制。 */
 function selectionBlocksCanvasCopy() {
     const selection = window.getSelection();
@@ -559,7 +562,7 @@ function InfiniteCanvasPage() {
 
         let canceled = false;
         const restore = async () => {
-            const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(enlargeWorkflowNodes(project.nodes)));
+            const restoredNodes = await hydrateCanvasImages(migrateConfigNodes(resetInterruptedGeneration(enlargeWorkflowNodes(project.nodes))));
             if (canceled) return;
             const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
             if (canceled) return;
@@ -781,7 +784,7 @@ function InfiniteCanvasPage() {
 
     const createConnectedNode = useCallback(
         (type: string, pending: PendingConnectionCreate) => {
-            const metadata = type === CanvasNodeType.Config ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
+            const metadata = (type === CanvasNodeType.Config || type === CanvasNodeType.Image) ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
             newNode.position.x = pending.position.x - (pending.connection.handleType === "target" ? newNode.width : 0);
             const graph = [...nodesRef.current, newNode];
@@ -799,7 +802,7 @@ function InfiniteCanvasPage() {
             setConnections((prev) => [...prev, ...additions]);
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
-            if (getNodeDefinition(type)?.Panel) setDialogNodeId(newNode.id);
+            if (getNodeDefinition(type)?.Panel || type === CanvasNodeType.Image) setDialogNodeId(newNode.id);
             setPendingConnectionCreate(null);
             setConnecting(null);
         },
@@ -936,7 +939,7 @@ function InfiniteCanvasPage() {
     const configInputsById = useMemo(() => {
         const map = new Map<string, NodeGenerationInput[]>();
         contentNodes.forEach((node) => {
-            if (node.type !== CanvasNodeType.Config) return;
+            if (node.type !== CanvasNodeType.Config && !showsGenerationPanel(node)) return;
             map.set(node.id, buildNodeGenerationInputs(node.id, contentNodes, connections));
         });
         return map;
@@ -1001,7 +1004,7 @@ function InfiniteCanvasPage() {
         (type: CanvasNodeTypeId, position?: Position) => {
             const targetPosition = position || getCanvasCenter();
             const configMetadata =
-                type === CanvasNodeType.Config
+                type === CanvasNodeType.Config || type === CanvasNodeType.Image
                     ? {
                           model: effectiveConfig.imageModel || effectiveConfig.model,
                           size: effectiveConfig.size,
@@ -1024,6 +1027,8 @@ function InfiniteCanvasPage() {
                   : definition?.useBuiltinPanel
                     ? true
                     : false;
+            // 新建的生成节点（图片/配置）创建后直接展开下方配置窗。
+            if (type === CanvasNodeType.Image) setDialogNodeId(newNode.id);
             if (wantsPanel) setDialogNodeId(newNode.id);
         },
         [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
@@ -1484,6 +1489,9 @@ function InfiniteCanvasPage() {
         setSelectedNodeIds(nextSelected);
         const soloId = nextSelected.size === 1 && nextSelected.has(nodeId) ? nodeId : null;
         setToolbarNodeId(soloId);
+        // 选中单个生成节点时在下方展开配置；选中 2 个及以上立即收起。
+        const soloNode = soloId ? nodesRef.current.find((node) => node.id === soloId) : null;
+        setDialogNodeId(soloNode && showsGenerationPanel(soloNode) ? soloNode.id : null);
         return { nextSelected, soloId };
     }, []);
 
@@ -3616,9 +3624,33 @@ function InfiniteCanvasPage() {
         setContextMenu({ type: "node", x: event.clientX, y: event.clientY, nodeId });
     }, []);
 
+    const renderGenerationPanel = useCallback(
+        (contentNode: CanvasNodeData) => (
+            <CanvasConfigNodePanel
+                node={contentNode}
+                isRunning={runningNodeId === contentNode.id || generationRequestsRef.current.has(contentNode.id)}
+                nodes={contentNodes}
+                inputs={configInputsById.get(contentNode.id) || []}
+                onAddImageReference={addImageReference}
+                connectedNodes={connectedNodesByNodeId.get(contentNode.id) || []}
+                onDisconnectReference={disconnectNodeReference}
+                onStartReferenceSelection={startNodeReferenceSelection}
+                onConfigChange={handleConfigNodeChange}
+                onStop={confirmStopGeneration}
+                onGenerate={(nodeId) => {
+                    const target = nodesRef.current.find((item) => item.id === nodeId);
+                    void handleGenerateNode(nodeId, "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
+                }}
+            />
+        ),
+        [addImageReference, configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, contentNodes, runningNodeId, startNodeReferenceSelection],
+    );
+
     const renderNodePanel = useCallback(
         (panelNode: CanvasNodeData) =>
-            getNodeDefinition(panelNode.type)?.Panel ? (
+            showsGenerationPanel(panelNode) ? (
+                renderGenerationPanel(panelNode)
+            ) : getNodeDefinition(panelNode.type)?.Panel ? (
                 renderPluginPanel(panelNode)
             ) : panelNode.type === CanvasNodeType.Config ? (
                 <CanvasConfigComposer
@@ -3653,29 +3685,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [addImageReference, configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, contentNodes, renderPluginPanel, runningNodeId, startNodeReferenceSelection],
-    );
-
-    const renderNodeContentPanel = useCallback(
-        (contentNode: CanvasNodeData) => (
-            <CanvasConfigNodePanel
-                node={contentNode}
-                isRunning={runningNodeId === contentNode.id || generationRequestsRef.current.has(contentNode.id)}
-                nodes={contentNodes}
-                inputs={configInputsById.get(contentNode.id) || []}
-                onAddImageReference={addImageReference}
-                connectedNodes={connectedNodesByNodeId.get(contentNode.id) || []}
-                onDisconnectReference={disconnectNodeReference}
-                onStartReferenceSelection={startNodeReferenceSelection}
-                onConfigChange={handleConfigNodeChange}
-                onStop={confirmStopGeneration}
-                onGenerate={(nodeId) => {
-                    const target = nodesRef.current.find((item) => item.id === nodeId);
-                    void handleGenerateNode(nodeId, "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
-                }}
-            />
-        ),
-        [addImageReference, configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, contentNodes, runningNodeId, startNodeReferenceSelection],
+        [addImageReference, configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, contentNodes, renderPluginPanel, runningNodeId, startNodeReferenceSelection, renderGenerationPanel],
     );
 
     if (hydrationError) return <main className="flex h-full items-center justify-center bg-background p-6 text-foreground" role="alert">{hydrationError}</main>;
@@ -3763,7 +3773,7 @@ function InfiniteCanvasPage() {
                             isConnectionTarget={connectionTargetNodeId === node.id}
                             isConnecting={Boolean(connectingParams)}
                             referenceSelectionState={!referencePickerNodeId ? undefined : node.id === referencePickerNodeId ? "target" : referenceConnectedNodeIds.has(node.id) || !isCanvasReferenceNode(node, nodes) ? "disabled" : "available"}
-                            showPanel={!isNodeResizing && dialogNodeId === node.id && !selectionBox && !getNodeDefinition(node.type)?.hidePanel}
+                            showPanel={shouldShowNodePanel(node, { selected: selectedNodeIds.has(node.id), selectedCount: selectedNodeIds.size, dialogNodeId, blocked: Boolean(selectionBox) || isNodeResizing || isNodeDragging || Boolean(getNodeDefinition(node.type)?.hidePanel) })}
                             groupChildCount={groupChildCountById.get(node.id) || 0}
                             isGroupDropTarget={dropTargetGroupId === node.id}
                             batchExpanded={expandedBatchNodeIds.has(node.id)}
@@ -3772,7 +3782,7 @@ function InfiniteCanvasPage() {
                             pluginHost={pluginHost}
                             registryVersion={nodeRegistryVersion}
                             renderPanel={renderNodePanel}
-                            renderNodeContent={renderNodeContentPanel}
+                            renderNodeContent={renderGenerationPanel}
                             onMouseDown={handleNodeMouseDown}
                             onSelectCapture={handleNodeSelectCapture}
                             onConnectStart={handleConnectStart}

@@ -4,6 +4,7 @@ import { explicitAssistantImageRequirements } from "@/lib/canvas/assistant-image
 import { getNodeDefinition, listNodeDefinitions } from "@/lib/canvas/node-registry";
 import { harnessBusyProjects as busyProjects } from "@/lib/canvas/harness-canvas-busy";
 import { encodeChannelModel, modelOptionLabel, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
+import type { CanvasNodeData } from "@/types/canvas";
 import type { CanvasAssistantContext } from "@/stores/use-canvas-assistant-store";
 import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
 import { useHarnessModelStore } from "@/stores/use-harness-model-store";
@@ -103,7 +104,7 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
                 selectedImageModel,
                 defaults: { image: config.imageModel, video: config.videoModel, text: config.textModel, audio: config.audioModel },
                 nodeTypes: listNodeDefinitions().map((node) => ({ type: node.type, name: node.title, description: node.description || "", mode: node.useBuiltinPanel?.mode })),
-                note: "这里只提供模型配置、节点类型和用户主动选中的引用，不提供整张画布索引。read_assets/read_results 只能使用主动选中或本 Harness 创建、运行的节点，不能遍历画布；需要其他节点请用户先选择。模型 id 必须逐字使用。selectedImageModel 是用户在 Harness 选择的生图默认：未明确指定其他模型时省略工具 model，执行器会使用它；用户明确指定其他生图模型时，apply_workflow.nodes[].model 或 run_nodes.model 填真实完整ID。选中模型失效会报错，不会跨渠道回退。新节点会布局到当前视图中心。生成尺寸用 parameters.imageAspectRatio、imageResolution(1k/2k/4k/auto) 或精确 size(宽x高)，不是显示宽高。文本正文放 apply_workflow.nodes[].prompt；所有图片生成必须使用 type=config（生成配置），已有提示词须用 connections 连接到 config；图片节点只是参考或结果。run_nodes 运行 config 后在旁边新增图片结果，复用原 config 并保留旧结果。run_nodes 才会实际生成。图片质量档位：auto=自动、low=低、medium=中、high=高、xhigh=极高、max=最高。用户说“质量最高”设 quality=\"max\" 表达意图，执行器按所选模型映射最高有效档：GPT Image 2 为 high，2.5/2.6 Sunburst/Flare 为 max；香蕉/Gemini 不发送质量参数，不声称设置了该档位。",
+                note: "这里只提供模型配置、节点类型和用户主动选中的引用，不提供整张画布索引。read_assets/read_results 只能使用主动选中或本 Harness 创建、运行的节点，不能遍历画布；需要其他节点请用户先选择。模型 id 必须逐字使用。selectedImageModel 是用户在 Harness 选择的生图默认：未明确指定其他模型时省略工具 model，执行器会使用它；用户明确指定其他生图模型时，apply_workflow.nodes[].model 或 run_nodes.model 填真实完整ID。选中模型失效会报错，不会跨渠道回退。新节点会布局到当前视图中心。生成尺寸用 parameters.imageAspectRatio、imageResolution(1k/2k/4k/auto) 或精确 size(宽x高)，不是显示宽高。文本正文放 apply_workflow.nodes[].prompt；所有图片生成必须使用 type=image（生成节点，原「生成配置」已并入）；用户已在指令中给出提示词时，直接把提示词写进生成节点的 prompt 并运行，不要新建文本节点、不要留下空的占位节点；仅当复用画布已有文本/图片节点时才用 connections 连接到该节点。run_nodes 运行生成节点：首次在节点内出图；已有结果再次运行会在旁边新增结果节点并保留上游提示词、参数与连线。run_nodes 才会实际生成。图片质量档位：auto=自动、low=低、medium=中、high=高、xhigh=极高、max=最高。用户说“质量最高”设 quality=\"max\" 表达意图，执行器按所选模型映射最高有效档：GPT Image 2 为 high，2.5/2.6 Sunburst/Flare 为 max；香蕉/Gemini 不发送质量参数，不声称设置了该档位。",
             } };
         }
         let action = { tool: request.tool, args: request.args } as AssistantAction;
@@ -115,7 +116,7 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
                 if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
                 const supplied = raw as Record<string, unknown>;
                 // An image tool plan describes a generator; image nodes themselves are immutable results.
-                const item = supplied.type === "image" ? { ...supplied, type: "config" } : supplied, type = String(item.type || "");
+                const item = supplied, type = String(item.type || "");
                 const mode = item.mode ?? (type === "image" || type === "dxos:concurrent" ? "image" : getNodeDefinition(type)?.useBuiltinPanel?.mode);
                 if (mode !== "image" || type === "blinkflow:fusion") return item;
                 if (selectedImageModel) requireImageModel(selectedImageModel);
@@ -137,25 +138,16 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
             }
             return result;
         }
-        let targets = assistantRunTargets(action, context);
-        if (!targets.length) throw new Error("请指定需要运行的真实节点 ID");
-        // Old conversations can still request an image ID. Route them through a visible config too.
-        for (let index = 0; index < targets.length; index++) {
-            const source = targets[index];
-            if (source.type !== "image") continue;
-            const graph = context.getSnapshot();
-            const parent = graph.connections.filter((edge) => edge.toNodeId === source.id).map((edge) => graph.nodes.find((node) => node.id === edge.fromNodeId)).find((node) => node?.type === "config");
-            if (parent) { targets[index] = parent; continue; }
-            const incoming = graph.connections.filter((edge) => edge.toNodeId === source.id);
-            const parameters = assistantGraphSummary({ ...graph, nodes: [source] }).nodes[0].parameters;
-            const result = await executeAssistantTool({ tool: "apply_workflow", args: {
-                nodes: [{ key: "config", type: "config", title: (source.title || "图片") + " · 生成配置", prompt: source.metadata?.composerContent || source.metadata?.prompt || "", model: request.args.model ?? (selectedImageModel || source.metadata?.model || config.imageModel), parameters }],
-                connections: incoming.length ? incoming.map((edge) => ({ from: edge.fromNodeId, to: "config", ...(edge.toPort ? { toPort: edge.toPort } : {}) })) : source.metadata?.content || source.metadata?.storageKey ? [{ from: source.id, to: "config" }] : [],
-            } }, context, config, [], signal);
-            assertCurrent();
-            const id = (result.value as { resolvedNodes: Array<{ id: string }> }).resolvedNodes[0].id;
-            targets[index] = context.getSnapshot().nodes.find((node) => node.id === id)!;
+        let targets: CanvasNodeData[];
+        try {
+            targets = assistantRunTargets(action, context);
+        } catch (error) {
+            // 节点不存在时明确引导：不要凭记忆重建节点，先看清画布再操作，避免留下多余空节点。
+            throw new Error(`${error instanceof Error ? error.message : String(error)}。不要凭记忆重建或新建节点：请先调用 read_configuration 查看当前画布的真实节点与引用，再基于真实 ID 操作；确认节点确实被删除后才可新建。`);
         }
+        if (!targets.length) throw new Error("请指定需要运行的真实节点 ID");
+        // 图片生成节点本身就是生成器（旧「生成配置」已并入），直接运行；
+        // 已有结果再次运行时会在旁边新增结果节点，不再额外创建「生成配置」节点。
         targets = [...new Map(targets.map((node) => [node.id, node])).values()];
         action = { ...action, args: { ...action.args, nodeIds: targets.map((node) => node.id) } };
         const modes = targets.map(assistantRunMode);

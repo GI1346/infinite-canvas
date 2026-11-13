@@ -22,6 +22,12 @@ import { useTranslation } from "react-i18next";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const selectionBlue = "#2f80ff";
+// 节点下方的配置窗是屏幕上的固定浮层：不参与画布 zoom，也不随内容撑大。
+const NODE_PANEL_WIDTH = 1700;
+const NODE_PANEL_HEIGHT = 1000;
+// 面板内容按 680×400 的自然布局设计，整体放大 2.5 倍铺满 1700×1000 的画布框。
+// 框和内容都随画布缩放，只是内容的设计基准比框小，视觉比例保持稳定。
+const NODE_PANEL_CONTENT_ZOOM = 2.5;
 
 type CanvasNodeProps = {
     data: CanvasNodeData;
@@ -134,7 +140,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const isImage = data.type === CanvasNodeType.Image;
-    const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent"].includes(data.type);
+    const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent", CanvasNodeType.Text, LOCAL_FUSION_NODE_TYPE].includes(data.type);
     const titleName = isImage ? canvasTitleWithoutExtension(data.title || "") : data.title || "";
     const [titleDraft, setTitleDraft] = useState(titleName);
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
@@ -471,10 +477,33 @@ export const CanvasNode = React.memo(function CanvasNode({
             {!referenceSelectionState && !isGroup && data.type !== "dxos:table" ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             {!referenceSelectionState && (definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config ? <ConnectionHandleDot side="right" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
 
-            {/* Counter-scale the panel so its on-screen size stays constant while the canvas zooms. */}
-            {showPanel && !isGroup && data.type !== CanvasNodeType.Config && getNodeDefinition(data.type)?.Panel && renderPanel ? (
-                <div className="absolute left-1/2 top-full z-[70] w-[600px] pt-4" style={{ transform: `translateX(-50%) scale(${1 / scale})`, transformOrigin: "top center" }} data-node-panel={data.id}>
-                    {renderPanel(data)}
+            {/* Panel lives in the canvas world: pans with the node, scales with the canvas zoom.
+                The box is fixed in canvas units; the inner layer counter-scales so text and
+                controls keep their natural, readable size at any zoom level. */}
+            {showPanel && !isGroup && data.type !== CanvasNodeType.Config && renderPanel ? (
+                <div
+                    data-node-panel={data.id}
+                    data-canvas-overlay
+                    data-canvas-no-zoom
+                    data-canvas-shortcuts-ignore
+                    className="absolute left-1/2 top-full z-[70] overflow-hidden rounded-[20px] border shadow-2xl"
+                    style={{
+                        width: NODE_PANEL_WIDTH,
+                        height: NODE_PANEL_HEIGHT,
+                        marginTop: 16,
+                        transform: "translateX(-50%)",
+                        background: theme.node.panel,
+                        color: theme.node.text,
+                        borderColor: theme.node.stroke,
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onWheel={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                >
+                    <div data-node-panel-content style={{ width: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_ZOOM, height: NODE_PANEL_HEIGHT / NODE_PANEL_CONTENT_ZOOM, zoom: NODE_PANEL_CONTENT_ZOOM }}>
+                        {renderPanel(data)}
+                    </div>
                 </div>
             ) : null}
         </div>
@@ -569,7 +598,7 @@ function MissingPluginContent({ theme, type }: Pick<NodeContentRendererProps, "t
 function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, batchExpanded, onContentChange, onStopEditing, onToggleBatch, onSetBatchPrimary }: NodeContentRendererProps) {
     const { t } = useTranslation();
     const [expanded, setExpanded] = useState(false);
-    const fontSize = node.metadata?.fontSize || 20;
+    const fontSize = node.metadata?.fontSize || 24;
     const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, fontFamily: '"Microsoft YaHei", "PingFang SC", sans-serif', textRendering: "optimizeLegibility", WebkitFontSmoothing: "antialiased", boxSizing: "border-box" } as React.CSSProperties;
     const texts = node.metadata?.texts || [];
     const batchCount = texts.length;
@@ -611,7 +640,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                 </div>
             </div>
             <Modal title={<div className="flex items-center justify-between pr-8"><span>{node.title || "文本"}</span><span className="text-xs font-normal opacity-60">{content.length.toLocaleString()} 字符 · 实时同步</span></div>} open={expanded} onCancel={() => setExpanded(false)} footer={null} width="min(1000px, 94vw)" centered destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}>
-                <CanvasResourceMentionTextarea className="thin-scrollbar block h-[65vh] w-full resize-none overflow-y-auto rounded-xl border p-5 outline-none" style={{ ...textStyle, fontSize: 16, lineHeight: "27px", background: theme.node.fill, borderColor: theme.node.stroke }} value={content} references={mentionReferences} highlightLabels={false} onChange={(value) => onContentChange(node.id, value)} />
+                <CanvasResourceMentionTextarea className="thin-scrollbar block h-[65vh] w-full resize-none overflow-y-auto rounded-xl border p-5 outline-none" style={{ ...textStyle, fontSize: 24, lineHeight: "40px", background: theme.node.fill, borderColor: theme.node.stroke }} value={content} references={mentionReferences} highlightLabels={false} onChange={(value) => onContentChange(node.id, value)} />
             </Modal>
             <div className="flex h-full w-full flex-col overflow-hidden rounded-3xl" data-canvas-no-zoom>
                 {isEditingContent ? (
@@ -697,7 +726,7 @@ function ExpandedTextCard({ node, text, index, onSetPrimary }: { node: CanvasNod
         >
             {text.content ? (
                 <>
-                    <div className="thin-scrollbar h-full overflow-y-auto whitespace-pre-wrap break-words px-4 pb-4 pt-14 font-sans" style={{ color: theme.node.text, fontSize: node.metadata?.fontSize || 20, lineHeight: 1.65 }} onWheel={(event) => event.stopPropagation()}>
+                    <div className="thin-scrollbar h-full overflow-y-auto whitespace-pre-wrap break-words px-4 pb-4 pt-14 font-sans" style={{ color: theme.node.text, fontSize: node.metadata?.fontSize || 24, lineHeight: 1.65 }} onWheel={(event) => event.stopPropagation()}>
                         {text.content}
                     </div>
                     <button type="button" className="pointer-events-none absolute right-2.5 top-2.5 flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium opacity-0 transition duration-150 hover:bg-black/5 group-hover/node:pointer-events-auto group-hover/node:opacity-100 dark:hover:bg-white/10" style={{ color: theme.node.text }} onClick={(event) => (event.stopPropagation(), onSetPrimary())}>

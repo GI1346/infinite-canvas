@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Blend, BrainCircuit, Settings2, Table2, FileText, X } from "lucide-react";
+import { Blend, BrainCircuit, Image as ImageIcon, Settings2, Table2, FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -44,8 +44,8 @@ export function ConnectionCreateMenu({
                 </button>
             </div>
             <div className="grid gap-0.5">
+                <ConnectionCreateOption theme={theme} icon={<ImageIcon className="size-4" />} title="生成节点" description="连上提示词/参考图，生成结果直接落在这个节点" onClick={() => onCreate(CanvasNodeType.Image)} />
                 <ConnectionCreateOption theme={theme} icon={<FileText className="size-4" />} title="文本" description="输入和编辑文字" onClick={() => onCreate(CanvasNodeType.Text)} />
-                <ConnectionCreateOption theme={theme} icon={<Settings2 className="size-4" />} title="生成配置" description="连接图文，保留配置并新增图片结果" onClick={() => onCreate(CanvasNodeType.Config)} />
                 <ConnectionCreateOption theme={theme} icon={<Table2 className="size-4" />} title="多维表格" description="图片与文本按输入列逐行组合" onClick={() => onCreate("dxos:table")} />
                 <ConnectionCreateOption theme={theme} icon={<BrainCircuit className="size-4" />} title="LLM 多模态分析" description="分析图片与文本，输出文本或表格" onClick={() => onCreate("dxos:llm")} />
                 <ConnectionCreateOption theme={theme} icon={<Blend className="size-4" />} title="融合节点" description="将局部修改融合回原图" onClick={() => onCreate("blinkflow:fusion")} />
@@ -84,7 +84,7 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
     const { t } = useTranslation();
     useNodeRegistryVersion();
     const menuRef = useRef<HTMLDivElement>(null);
-    const order = [CanvasNodeType.Text, CanvasNodeType.Config, "dxos:table", "dxos:llm", "blinkflow:fusion"] as string[];
+    const order = [CanvasNodeType.Image, CanvasNodeType.Text, "dxos:table", "dxos:llm", "blinkflow:fusion"] as string[];
     const definitions = listNodeDefinitions().filter((def) => order.includes(def.type)).sort((a, b) => {
         const first = order.indexOf(a.type), second = order.indexOf(b.type);
         return (first < 0 ? order.length : first) - (second < 0 ? order.length : second);
@@ -115,7 +115,7 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
             </div>
             <div className="grid gap-0.5">
                 {definitions.map((def) => (
-                    <ConnectionCreateOption key={def.type} theme={theme} icon={def.icon} title={getNodeSpec(def.type).title} description={def.description} onClick={() => onCreate(def.type)} />
+                    <ConnectionCreateOption key={def.type} theme={theme} icon={def.icon} title={def.type === CanvasNodeType.Image ? "生成节点" : getNodeSpec(def.type).title} description={def.type === CanvasNodeType.Image ? "输入文字与参考图，生成结果就在节点里" : def.description} onClick={() => onCreate(def.type)} />
                 ))}
             </div>
         </div>

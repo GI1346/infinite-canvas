@@ -153,7 +153,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
     return (
         <div
             data-canvas-no-zoom
-            className={embedded ? "flex h-full min-h-0 flex-col" : "rounded-2xl border p-3 shadow-2xl backdrop-blur"}
+            className={embedded ? "flex h-full min-h-0 flex-col" : "rounded-xl border p-2 shadow-2xl backdrop-blur"}
             style={{ background: embedded ? "transparent" : theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text, fontSize }}
             onMouseDown={stopWorkflowControlDrag}
             onPointerDown={stopCanvasInteraction}
@@ -162,14 +162,14 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
             {!embedded && <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-baseline gap-2">
                     <div className="shrink-0 text-xs font-semibold">{t("canvas.composer.title")}</div>
-                    <div className="truncate text-[11px] opacity-55">{t("canvas.composer.description")}</div>
+                    <div className="truncate text-xs opacity-55">{t("canvas.composer.description")}</div>
                 </div>
                 <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
             </div>}
             <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onReorder={onReorderReferences} fontSize={fontSize} />
-            {embedded && <div data-config-text-inputs className="mb-2 flex shrink-0 flex-wrap gap-2">{inputs.flatMap((input) => input.type === "group" ? input.children : [input]).filter((input) => input.type === "text").map((input) => <span key={input.nodeId} title={input.text || input.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-3 py-1 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}><FileText size={fontSize || 12} /><span className="truncate">{input.title || "文本提示词"}</span></span>)}</div>}
-            <div data-config-composer className={embedded ? "relative min-h-0 flex-1 rounded-xl" : "relative rounded-xl"}>
-                {!value.trim() ? <div className="pointer-events-none absolute left-3 top-2 text-sm leading-7" style={{ color: theme.node.placeholder, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.composer.placeholder")}</div> : null}
+            {embedded && <div data-config-text-inputs className="mb-1.5 flex shrink-0 flex-wrap gap-1.5">{inputs.flatMap((input) => input.type === "group" ? input.children : [input]).filter((input) => input.type === "text").map((input) => <span key={input.nodeId} title={input.text || input.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}><FileText size={fontSize || 12} /><span className="truncate">{input.title || "文本提示词"}</span></span>)}</div>}
+            <div data-config-composer className={embedded ? "relative min-h-[110px] flex-1 rounded-lg" : "relative rounded-lg"}>
+                {!value.trim() ? <div className="pointer-events-none absolute left-2.5 top-1.5 text-xs leading-5" style={{ color: theme.node.placeholder, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.composer.placeholder")}</div> : null}
                 <div
                     ref={editorRef}
                     role="textbox"
@@ -177,7 +177,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                     aria-multiline="true"
                     contentEditable
                     suppressContentEditableWarning
-                    className={embedded ? `thin-scrollbar h-full min-h-16 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2 ${expanded ? "text-base leading-8" : "text-sm leading-7"} outline-none` : "thin-scrollbar min-h-28 max-h-72 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-3 py-2 text-sm leading-7 outline-none"}
+                    className={embedded ? `thin-scrollbar h-full min-h-[96px] w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-2.5 py-2 outline-none ${expanded ? "text-base leading-7" : "text-sm leading-6"}` : "thin-scrollbar min-h-16 max-h-48 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-2 py-1.5 text-xs leading-5 outline-none"}
                     style={{ color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}
                     onInput={() => {
                         if (!composingRef.current) syncFromEditor();
@@ -328,10 +328,10 @@ function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationI
         const image = document.createElement("img");
         image.src = input.image.dataUrl;
         image.alt = input.title;
-        image.className = "size-12 rounded object-cover";
-        wrapper.className = "mx-px inline-flex size-12 items-center justify-center overflow-hidden rounded align-middle";
-        wrapper.style.width = "48px";
-        wrapper.style.height = "48px";
+        image.className = "size-7 rounded object-cover";
+        wrapper.className = "mx-px inline-flex size-7 items-center justify-center overflow-hidden rounded align-middle";
+        wrapper.style.width = "28px";
+        wrapper.style.height = "28px";
         wrapper.appendChild(image);
         wrapper.addEventListener("click", (event) => {
             event.preventDefault();

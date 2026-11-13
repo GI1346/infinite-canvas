@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Blend, Image as ImageIcon } from "lucide-react";
 import { stopWorkflowControlDrag } from "@/components/canvas/workflow-node-interactions";
 import { runLocalFusionNode } from "@/lib/canvas/canvas-local-fusion-run";
+import { IMAGE_NODE_MAX_EDGE } from "@/lib/canvas/canvas-node-size";
 import { FUSION_PATCH_PORT, LOCAL_FUSION_NODE_TYPE, fusionInputs, resolveFusionCropContext } from "@/lib/canvas/canvas-local-fusion";
 import type { CanvasNodeContext, CanvasNodeDefinition } from "@/types/canvas-plugin";
 
@@ -26,8 +27,8 @@ export function LocalFusionContent({ ctx }: { ctx: CanvasNodeContext }) {
         } catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : String(reason)); }
         finally { runningRef.current = false; if (alive.current) setRunning(false); }
     };
-    const pane = (label: string, url?: string) => <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg" style={{ background: theme.canvas.background, border: `1px solid ${theme.node.stroke}` }}><span className="absolute left-2 top-2 z-10 rounded px-1.5 py-0.5 text-[10px]" style={{ background: theme.toolbar.panel, color: theme.node.text }}>{label}</span>{url ? <img src={url} alt={label} draggable={false} className="h-full w-full object-contain" /> : <ImageIcon className="size-7 opacity-30" />}</div>;
-    return <div data-fusion-node className="relative flex h-full w-full flex-col gap-3 p-4 text-xs" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag}>
+    const pane = (label: string, url?: string) => <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg" style={{ background: theme.canvas.background, border: `1px solid ${theme.node.stroke}` }}><span className="absolute left-2 top-2 z-10 rounded px-1.5 py-0.5 text-2xl" style={{ background: theme.toolbar.panel, color: theme.node.text }}>{label}</span>{url ? <img src={url} alt={label} draggable={false} className="h-full w-full object-contain" /> : <ImageIcon className="size-7 opacity-30" />}</div>;
+    return <div data-fusion-node className="relative flex h-full w-full flex-col gap-3 p-4 text-2xl" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag}>
         <strong data-node-drag-handle className="cursor-grab">融合节点</strong>
         <div className="flex min-h-20 flex-1 gap-2">{pane("原图", original?.metadata?.content)}<div data-fusion-patches className="flex min-h-0 min-w-0 flex-1 flex-col gap-1">{inputs.patches.length ? inputs.patches.map((patch, index) => <div className="flex min-h-0 flex-1" key={`${patch.id}-${index}`}>{pane(`局部修改 ${index + 1}`, patch.metadata?.content)}</div>) : pane("局部修改")}</div></div>
         <p style={{ color: theme.node.muted }}>{reason}</p>
@@ -39,7 +40,7 @@ export function LocalFusionContent({ ctx }: { ctx: CanvasNodeContext }) {
 
 export const localFusionNodeDefinition: CanvasNodeDefinition = {
     type: LOCAL_FUSION_NODE_TYPE, title: "融合节点", icon: <Blend className="size-4" />,
-    defaultSize: { width: 460, height: 380 }, defaultMetadata: { fusionColorMatch: true },
+    defaultSize: { width: IMAGE_NODE_MAX_EDGE, height: IMAGE_NODE_MAX_EDGE }, defaultMetadata: { fusionColorMatch: true },
     hidePanel: true, hasSourceHandle: true, Content: LocalFusionContent,
     resource: (node) => node.metadata?.content ? { kind: "image", url: node.metadata.content } : null,
 };
