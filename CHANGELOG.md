@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v0.20.53
+
+- [修复] 0.20.50 / 0.20.52 的安装包缺少 DeepSeek Harness 运行时（`harness-runtime/node` 与 `runtime/node_modules` 是 gitignore 的构建产物，打包含漏），Harness 面板报「安装包缺少 DeepSeek Harness 运行组件」无法打开。本版包含完整官方运行时（安装包回到 ~276 MB）。
+- [修复] Agent 面板里的下拉框（会话、历史回读、对话模型、压缩、生成模式等）在暗色主题下弹出层仍是白色：这些是系统绘制的原生菜单，已把应用主题同步给主进程 `nativeTheme`，原生菜单会跟着变暗。
+- [修复] 打包前增加运行时校验：缺组件时直接失败并提示先执行 `node desktop/scripts/prepare-harness.cjs`，不再静默产出残缺安装包。
+
 ## v0.20.52
 
 - [修复] 剪贴板读写：桌面版改走主进程 Electron clipboard，不再受窗口焦点与用户手势限制；网页版先解析图片再写入、失败回退纯文本，文本写入再回退 execCommand。

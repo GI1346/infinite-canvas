@@ -1,14 +1,14 @@
 {
   "name": "infinite-canvas",
   "productName": "BlinkFlow",
-  "version": "0.20.52",
+  "version": "0.20.53",
   "description": "无限画布、多维表格与并发生成",
   "author": "GI1346",
   "private": true,
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win nsis --x64"
+    "build": "node scripts/verify-harness.cjs && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "^40.0.0",

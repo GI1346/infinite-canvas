@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { ClientRootInit } from "@/components/layout/client-root-init";
 import type { AppLocale } from "@/i18n";
 import { getAntThemeConfig } from "@/lib/app-theme";
+import { syncNativeTheme } from "@/lib/native-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 
 const queryClient = new QueryClient({
@@ -34,6 +35,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         document.documentElement.classList.remove("warm");
         document.documentElement.classList.toggle("dark", dark);
         document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        syncNativeTheme(dark);
     }, [dark, theme]);
 
     useEffect(() => {

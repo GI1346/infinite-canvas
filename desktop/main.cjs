@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, shell, ipcMain, session, net, clipboard, nativeImage } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, session, net, clipboard, nativeImage, nativeTheme } = require('electron');
 const http = require('node:http');
 const { createNetworkProxy } = require('./network.cjs');
 const fs = require('node:fs');
@@ -100,6 +100,14 @@ else {
       trusted(event);
       const image = clipboard.readImage();
       return { text: clipboard.readText(), png: image.isEmpty() ? null : image.toPNG() };
+    });
+
+    // Native menus (including the <select> popup on Windows) are drawn by the platform and
+    // ignore the page's CSS. Syncing themeSource keeps them dark when the app theme is dark.
+    ipcMain.handle('theme:set', (event, theme) => {
+      trusted(event);
+      nativeTheme.themeSource = theme === 'dark' ? 'dark' : 'light';
+      return nativeTheme.shouldUseDarkColors;
     });
     let harnessSelection = null;
     const currentHarnessModels = () => harnessModels?.projectId === harnessProjectId ? harnessModels : null;

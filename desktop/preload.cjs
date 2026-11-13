@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('blinkflowClipboard', {
   read: () => ipcRenderer.invoke('clipboard:read'),
 });
 
+contextBridge.exposeInMainWorld('blinkflowTheme', { set: (theme) => ipcRenderer.invoke('theme:set', theme) });
+
 contextBridge.exposeInMainWorld('blinkflowHarness', {
   open: (options) => ipcRenderer.invoke('harness:open', options),
   addReferences: (options) => ipcRenderer.invoke('harness:references-add', options),
