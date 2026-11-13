@@ -15,7 +15,6 @@ import { channelItems, TABLE_TYPE, CONCURRENT_TYPE, tableRows, generationRows } 
 import { canvasThemes } from "../src/lib/canvas-theme";
 import { usePluginHost } from "../src/pages/canvas/hooks/use-plugin-host";
 import { createModelChannel, defaultConfig, useConfigStore, modelOptionName, type AiConfig } from "../src/stores/use-config-store";
-import { useCallProtocolStore } from "../src/stores/use-call-protocol-store";
 import type { CanvasNodeData, CanvasConnection, CanvasNodeMetadata, ViewportTransform } from "../src/types/canvas";
 import type { CanvasPluginHost } from "../src/types/canvas-plugin";
 
@@ -191,14 +190,16 @@ async function workflowTests() {
             await act(async () => ui.host().applyOps([{ type: "update_node", id: table.id, metadata: { table: { ...table.metadata!.table!, rows: [["可编辑", "修改后"], ["第二", "保留"]] } } }])); assert.equal(tableRows(ui.host().getNode(table.id)!, ui.state().nodes, connections)[0].text, "可编辑\n修改后");
         } finally { await ui.close(); }
     });
-    await check("selected saved text protocol is used, image key never substituted", async () => {
-        const protocol = { format: "canvas-call/v1" as const, id: "llm-test-text", label: "LLM 测试文本", capability: "text" as const, script: 'const result = await http.post("/custom-text", { model, messages }); return result.text;' };
-        useCallProtocolStore.setState({ protocols: [protocol] });
-        const initial = config(); initial.channels = initial.channels.map((c) => c.id === "text-b" ? { ...c, protocolId: protocol.id } : c);
-        const ui = await setup(node("llm", LLM_TYPE, { prompt: "自定义协议", model: "text-b::same-model", llmChannelId: "text-b" }), [], [], initial); let protocolRequests = 0;
-        axios.defaults.adapter = async (request) => { protocolRequests++; assert.equal(request.url, "https://text-b.invalid/v1/custom-text"); assert.equal(request.headers.Authorization, "Bearer synthetic-text-b"); assert.equal(JSON.parse(request.data).model, "same-model"); return { data: { text: "协议文本输出" }, status: 200, statusText: "OK", headers: {}, config: request }; };
-        try { await fire(button(ui.el, "开始分析"), mouse()); assert.equal(protocolRequests, 1); assert.equal(requests.length, 0); assert.equal(ui.host().getNode("llm")!.metadata!.content, "协议文本输出"); }
-        finally { await ui.close(); useCallProtocolStore.setState({ protocols: [] }); }
+    await check("plain analysis uses the standard Responses path on the selected text channel only", async () => {
+        const ui = await setup(node("llm", LLM_TYPE, { prompt: "标准路径", model: "text-b::same-model", llmChannelId: "text-b" }));
+        try {
+            await fire(button(ui.el, "开始分析"), mouse());
+            assert.equal(requests.length, 1);
+            assert.equal(requests[0].url, "https://text-b.invalid/v1/responses");
+            assert.equal(requests[0].headers.Authorization, "Bearer synthetic-text-b");
+            assert.equal(requests[0].body.model, "same-model");
+            assert.equal(ui.host().getNode("llm")!.metadata!.content, "分析成功");
+        } finally { await ui.close(); }
     });
     await check("missing platform/model, empty text key, image-only selection all block without fallback", async () => {
         for (const metadata of [{ model: "missing::same-model", llmChannelId: "missing" }, { model: "text-a::missing", llmChannelId: "text-a" }, { model: "image::same-model", llmChannelId: "image" }, { model: "text-a::same-model", llmChannelId: "text-b" }]) {
@@ -273,7 +274,6 @@ async function workflowTests() {
 }
 
 async function main() {
-    await useCallProtocolStore.persist.rehydrate();
     await helperTests(); await workflowTests();
     globalThis.fetch = original.fetch; axios.defaults.adapter = original.adapter;
     fs.mkdirSync(".checks", { recursive: true }); const passed = results.filter((r) => r.passed).length;

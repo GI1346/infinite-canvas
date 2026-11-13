@@ -5,7 +5,6 @@ import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
 import { desktopProxyUrl } from "@/lib/desktop-network";
-import { useCallProtocolStore } from "@/stores/use-call-protocol-store";
 
 export type ApiCallFormat = "openai" | "gemini";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -14,8 +13,6 @@ export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 export type ChannelModel = {
     name: string;
     capability: ModelCapability;
-    script?: string;
-    protocolId?: string;
 };
 
 export type ModelChannel = {
@@ -24,7 +21,6 @@ export type ModelChannel = {
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
-    protocolId?: string;
     models: ChannelModel[];
 };
 
@@ -69,7 +65,7 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "protocols" | "local-proxy" | "preferences" | "webdav" | "local-storage";
+export type ConfigTabKey = "channels" | "local-proxy" | "preferences" | "webdav" | "local-storage";
 
 export type ChannelCredentialsImportResult = {
     status: "created" | "updated" | "missing-base-url" | "invalid-base-url";
@@ -191,19 +187,6 @@ export function selectableModelsByCapability(config: AiConfig, capability?: Mode
     return config.channels.flatMap((channel) => channel.models.filter((model) => model.capability === capability).map((model) => encodeChannelModel(channel.id, model.name)));
 }
 
-/** The user script (if any) attached to a model; empty string means use the system default call. */
-export function resolveModelScript(config: AiConfig, value: string) {
-    const match = findChannelModel(config, value);
-    if (!match) throw new Error("所选模型或渠道不存在，请重新选择");
-    const { model, channel } = match;
-    const protocolId = model.protocolId || (!model.script?.trim() ? channel.protocolId : undefined);
-    if (!protocolId) return model.script?.trim() || "";
-    const protocol = useCallProtocolStore.getState().protocols.find((item) => item.id === protocolId);
-    if (!protocol && useCallProtocolStore.persist.hasHydrated()) throw new Error(`自定义协议 ${protocolId} 已删除或尚未导入，请到协议中心重新绑定`);
-    if (protocol && protocol.capability !== model.capability) throw new Error(`协议“${protocol.label}”与所选模型能力不匹配，请为该模型绑定正确协议`);
-    return `canvas-protocol:${protocolId}`;
-}
-
 function isAiConfigReady(config: AiConfig, model: string) {
     const match = findChannelModel(config, model);
     return Boolean(match && match.channel.baseUrl.trim() && match.channel.apiKey.trim());
@@ -301,8 +284,7 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         if (!name || seen.has(name)) continue;
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
-        const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
-        result.push({ name, capability, script, ...(typeof item !== "string" && item.protocolId ? { protocolId: item.protocolId } : {}) });
+        result.push({ name, capability });
     }
     return result;
 }
@@ -316,7 +298,6 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         apiKey: channel?.apiKey || "",
         apiFormat,
         models: normalizeChannelModels(channel?.models),
-        ...(channel?.protocolId?.trim() ? { protocolId: channel.protocolId.trim() } : {}),
     };
 }
 

@@ -2,9 +2,7 @@ import { imageRequestQuality } from "@/lib/image-quality";
 import axios from "axios";
 
 import i18n from "@/i18n";
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig, type ModelChannel, type ChannelModel, guessCapability } from "@/stores/use-config-store";
-import { normalizePluginImages, runModelPlugin } from "./model-plugin";
-import { deepseekAgentChatScript, relayChatScript } from "./relay-chat";
+import { buildApiUrl, resolveModelRequestConfig, withLocalProxy, type AiConfig, type ModelChannel, type ChannelModel, type ModelCapability, guessCapability } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
@@ -47,6 +45,13 @@ type ToolResponseResult = {
 };
 
 type ToolChoice = "auto" | "required" | { type: "function"; name: string };
+type ChatCompletionPayload = {
+    error?: { message?: string };
+    choices?: Array<{
+        message?: { content?: unknown };
+        delta?: { content?: unknown };
+    }>;
+};
 type ResponseMessageContent = AiTextMessage["content"] | string;
 type ResponseInputContent = { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
 type ResponseInputItem =
@@ -497,6 +502,79 @@ async function requestStreamingResponse(config: AiConfig, body: Record<string, u
     return { ...result, content: state.text || result.content };
 }
 
+/**
+ * OpenAI 兼容的 /chat/completions 流式对话。
+ * Agent 固定走这条路径：它要的是 JSON 决策文本，而 /responses 在多数中转站上并未实现。
+ */
+async function requestChatCompletion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options: RequestOptions | undefined, agent: boolean) {
+    if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const body: Record<string, unknown> = {
+        model: config.model,
+        messages: withSystemMessage(config, messages),
+        stream: true,
+    };
+    if (agent) {
+        // DeepSeek 系带思考的模型会把思维链混进正文，决策场景需要显式关掉并强制 JSON。
+        if (/(?:^|\/)deepseek[-_](?:v?4(?:[._]1)?[-_])?flash/i.test(config.model)) {
+            body.thinking = { type: "disabled" };
+            body.response_format = { type: "json_object" };
+        }
+    } else if (config.reasoningEffort !== "auto") {
+        body.reasoning_effort = config.reasoningEffort;
+    }
+    const response = await fetch(aiApiUrl(config, "/chat/completions"), {
+        method: "POST",
+        headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
+        body: JSON.stringify(body),
+        signal: options?.signal,
+    });
+    if (!response.ok) throw new Error(await readFetchError(response, apiText("requestFailed")));
+    if (!response.body) throw new Error(apiText("noContent"));
+    if (!response.headers.get("content-type")?.includes("text/event-stream")) {
+        const payload = (await response.json()) as ChatCompletionPayload;
+        if (payload.error) throw new Error(payload.error.message || String(payload.error));
+        const text = chatCompletionText(payload.choices?.[0]?.message?.content).trim();
+        if (!text) throw new Error(apiText("noContent"));
+        onDelta(text);
+        return text;
+    }
+    let buffer = "", text = "", finished = false;
+    const consume = (block: string) => {
+        const raw = block.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n").trim();
+        if (!raw) return;
+        if (raw === "[DONE]") { finished = true; return; }
+        const payload = JSON.parse(raw) as ChatCompletionPayload;
+        if (payload.error) throw new Error(payload.error.message || String(payload.error));
+        const delta = chatCompletionText(payload.choices?.[0]?.delta?.content);
+        if (delta) { text += delta; onDelta(text); }
+    };
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    try {
+        while (!finished) {
+            const { done, value } = await reader.read();
+            buffer += decoder.decode(value, { stream: !done });
+            let boundary: RegExpMatchArray | null;
+            while (!finished && (boundary = buffer.match(/\r?\n\r?\n/))) {
+                const index = boundary.index ?? 0;
+                consume(buffer.slice(0, index));
+                buffer = buffer.slice(index + boundary[0].length);
+            }
+            if (done) { if (!finished && buffer.trim()) consume(buffer); break; }
+        }
+    } finally {
+        await reader.cancel().catch(() => undefined);
+    }
+    if (!text.trim()) throw new Error(apiText("noContent"));
+    return text;
+}
+
+function chatCompletionText(content: unknown): string {
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) return content.map((part) => (part && typeof part === "object" && "text" in part ? String((part as { text?: unknown }).text || "") : "")).join("");
+    return "";
+}
+
 function toGeminiBody(config: AiConfig, messages: ResponseInputMessage[], extra?: Record<string, unknown>) {
     const systemText = [
         config.systemPrompt.trim(),
@@ -691,26 +769,6 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
-    const script = resolveModelScript(config, config.model || config.imageModel);
-    if (script) {
-        const quality = imageRequestQuality(requestConfig.model, config.quality);
-        const requestSize = resolveRequestSize(config.size);
-        const background = normalizeBackground(config.background);
-        try {
-            const result = await runModelPlugin({
-                capability: "image",
-                script,
-                config: requestConfig,
-                prompt: withSystemPrompt(requestConfig, prompt),
-                images: [],
-                params: { size: requestSize, resolution: config.imageResolution || inferMediaScale(config.size), ...(quality ? { quality } : {}), count: n, ...(background ? { background } : {}) },
-                signal: options?.signal,
-            });
-            return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
-        } catch (error) {
-            throw new Error(readAxiosError(error, apiText("requestFailed")));
-        }
-    }
     if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiImages(requestConfig, prompt, [], n, options);
@@ -756,27 +814,6 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
-    const script = resolveModelScript(config, config.model || config.imageModel);
-    if (script) {
-        const quality = imageRequestQuality(requestConfig.model, config.quality);
-        const requestSize = resolveRequestSize(config.size);
-        const background = normalizeBackground(config.background);
-        const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
-        try {
-            const result = await runModelPlugin({
-                capability: "image",
-                script,
-                config: requestConfig,
-                prompt: withSystemPrompt(requestConfig, requestPrompt),
-                images: refs,
-                params: { size: requestSize, resolution: config.imageResolution || inferMediaScale(config.size), ...(quality ? { quality } : {}), count: n, ...(background ? { background } : {}) },
-                signal: options?.signal,
-            });
-            return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
-        } catch (error) {
-            throw new Error(readAxiosError(error, apiText("requestFailed")));
-        }
-    }
     if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiImages(requestConfig, requestPrompt, references, n, options);
@@ -821,32 +858,16 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
-    const selectedScript = resolveModelScript(config, config.model || config.textModel);
-    const deepseekFlash = /(?:^|\/)deepseek[-_](?:v?4(?:[._]1)?[-_])?flash(?:[-_](?:1017|vision-exp))?$/i.test(requestConfig.model);
-    const script = options?.agent && requestConfig.apiFormat === "openai" && deepseekFlash && (!selectedScript || selectedScript === relayChatScript.trim()) ? deepseekAgentChatScript : selectedScript;
-    if (script) {
-        try {
-            const answer = await runModelPlugin<string>({
-                capability: "text",
-                script,
-                config: requestConfig,
-                messages: withSystemMessage(requestConfig, messages),
-                signal: options?.signal,
-                onDelta,
-            });
-            const text = String(answer ?? "").trim();
-            if (!text) throw new Error(apiText("noContent"));
-            return text;
-        } catch (error) {
-            throw new Error(readAxiosError(error, apiText("requestFailed")));
-        }
-    }
     try {
         if (requestConfig.apiFormat === "gemini") {
-            const answer = (await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages), onDelta, options)).content;
+            // Agent 要结构化决策文本：Gemini 用 responseMimeType 约束 JSON，与 OpenAI 侧的 JSON 模式对齐。
+            const geminiBody = toGeminiBody(requestConfig, messages, options?.agent ? { generationConfig: { responseMimeType: "application/json" } } : undefined);
+            const answer = (await requestGeminiStreamingResponse(requestConfig, geminiBody, onDelta, options)).content;
             if (!answer.trim()) throw new Error(apiText("noContent"));
             return answer;
         }
+        // Agent 要的是结构化决策文本，统一走 /chat/completions，不依赖中转站是否实现 /responses。
+        if (options?.agent) return await requestChatCompletion(requestConfig, messages, onDelta, options, true);
         const answer = (await requestStreamingResponse(requestConfig, {
             model: requestConfig.model,
             input: toResponseInput(withSystemMessage(requestConfig, messages)),
@@ -876,12 +897,12 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
                 .filter((id): id is string => Boolean(id))
                 .sort((a, b) => a.localeCompare(b));
         }
-        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
+        const response = await withNetworkRetry(() => axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
             headers: {
                 Authorization: `Bearer ${config.apiKey}`,
             },
             timeout: MODEL_LIST_TIMEOUT_MS,
-        });
+        }));
         return (response.data.data || [])
             .map((model) => model.id)
             .filter((id): id is string => Boolean(id))
@@ -891,17 +912,77 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
     }
 }
 
+/**
+ * 只对"没有拿到任何 HTTP 响应"的网络错误重试一次：上游偶发丢连接时不必让用户手点第二次。
+ * 有响应的错误（401/404/5xx）与写操作（生图提交）一律不重试，避免掩盖真实原因或重复计费。
+ */
+async function withNetworkRetry<T>(run: () => Promise<T>, attempts = 2): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+            return await run();
+        } catch (error) {
+            lastError = error;
+            if (axios.isAxiosError(error) && error.response) throw error;
+            if (!axios.isAxiosError(error) || attempt === attempts - 1) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 600));
+        }
+    }
+    throw lastError;
+}
+
+export type ChannelVerification = {    /** 地址是否真的返回了 HTTP 响应（任何状态码都算可达） */
+    reachable: boolean;
+    status: number;
+    /** 密钥是否被接受、是否拿到模型列表 */
+    authenticated: boolean;
+    modelCount: number;
+    detail: string;
+};
+
+/**
+ * 一键验证：一个请求同时回答两个问题 —— 地址通不通、密钥和协议对不对。
+ * 不带密钥探测根路径会被 CORS 挡住，所以直接用真实握手请求，任何状态码都说明地址可达。
+ */
+export async function verifyChannelConnection(channel: Pick<ModelChannel, "baseUrl" | "apiKey" | "apiFormat">): Promise<ChannelVerification> {
+    if (channel.apiFormat === "gemini") {
+        try {
+            const models = await fetchChannelModels(channel as ModelChannel);
+            return { reachable: true, status: 200, authenticated: true, modelCount: models.length, detail: "" };
+        } catch (error) {
+            return { reachable: false, status: 0, authenticated: false, modelCount: 0, detail: error instanceof Error ? error.message : String(error) };
+        }
+    }
+    try {
+        const response = await withNetworkRetry(() => axios.get(buildApiUrl(channel.baseUrl, "/models"), {
+            headers: { Authorization: `Bearer ${channel.apiKey.trim()}` },
+            timeout: MODEL_LIST_TIMEOUT_MS,
+            validateStatus: () => true,
+        }));
+        const ok = response.status >= 200 && response.status < 300;
+        const items = Array.isArray(response.data?.data) ? response.data.data : [];
+        return {
+            reachable: true,
+            status: response.status,
+            authenticated: ok,
+            modelCount: ok ? items.length : 0,
+            detail: ok ? "" : readApiErrorMessage(response.data) || `HTTP ${response.status}`,
+        };
+    } catch (error) {
+        return { reachable: false, status: 0, authenticated: false, modelCount: 0, detail: readModelListError(error) };
+    }
+}
+
 export async function fetchChannelModelDetails(channel: ModelChannel): Promise<ChannelModel[]> {
     if (channel.apiFormat === "gemini") return (await fetchChannelModels(channel)).map((name) => ({ name, capability: guessCapability(name) }));
     try {
-        const response = await axios.get(buildApiUrl(channel.baseUrl, "/models"), { headers: { Authorization: `Bearer ${channel.apiKey.trim()}` }, timeout: MODEL_LIST_TIMEOUT_MS });
+        const response = await withNetworkRetry(() => axios.get(buildApiUrl(channel.baseUrl, "/models"), { headers: { Authorization: `Bearer ${channel.apiKey.trim()}` }, timeout: MODEL_LIST_TIMEOUT_MS }));
         if (!Array.isArray(response.data?.data)) throw new Error("模型接口未返回 data 数组，请检查地址和密钥");
         return response.data.data.filter((m: { id?: string }) => typeof m.id === "string" && m.id.trim()).map((m: { id: string; capabilities?: string[] }) => {
             const kinds = m.capabilities || [];
             const existing = channel.models.find((model) => model.name === m.id);
-            const capability = kinds.includes("image") ? "image" : kinds.includes("video") ? "video" : kinds.includes("audio") ? "audio" : existing?.capability || guessCapability(m.id);
-            const script = existing?.script;
-            return { name: m.id, capability, ...(script ? { script } : {}), ...(existing?.protocolId ? { protocolId: existing.protocolId } : {}) } as ChannelModel;
+            const capability = (kinds.includes("image") ? "image" : kinds.includes("video") ? "video" : kinds.includes("audio") ? "audio" : existing?.capability || guessCapability(m.id)) as ModelCapability;
+            return { name: m.id, capability } as ChannelModel;
         }).sort((a: ChannelModel, b: ChannelModel) => a.name.localeCompare(b.name));
     } catch (error) {
         throw new Error(readModelListError(error));

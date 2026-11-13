@@ -630,8 +630,6 @@ export default {
             },
             errors: { testFailed: "WebDAV 连接测试失败", downloadFailed: "读取 WebDAV 同步文件失败", downloadTimeout: "读取 WebDAV 同步文件超时", emptyUpload: "上传文件为空，已取消上传", uploadFailed: "上传 WebDAV 同步文件失败", directoryFailed: "创建 WebDAV 远程目录失败", requestTimeout: "WebDAV 请求超时，请检查网络或远端服务状态", connectionFailed: "无法连接 WebDAV，请检查地址、HTTPS 证书、CORS 或网络状态", urlRequired: "请先填写 WebDAV 地址", authenticationFailed: "WebDAV 认证失败，请检查用户名、密码或应用密码", pathMissing: "WebDAV 路径不存在，请检查地址和远程目录", responseFailed: "{{fallback}}：{{status}}{{detail}}", syncFailed: "同步失败", invalidManifest: "{{domain}} 同步清单不是当前应用的数据" },
         },
-        protocols: {
-        },
     },
     agent: {
         status: { failed: "连接失败", connected: "已连接", connecting: "连接中", disconnected: "未连接" },

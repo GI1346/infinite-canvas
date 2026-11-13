@@ -14,7 +14,6 @@ import { useCanvasStore } from "../src/stores/canvas/use-canvas-store";
 import { useConfigStore, defaultConfig, encodeChannelModel } from "../src/stores/use-config-store";
 import { useCanvasAssistantStore } from "../src/stores/use-canvas-assistant-store";
 import { executeHarnessCanvasTool } from "../src/services/api/deepseek-harness";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import { useThemeStore } from "../src/stores/use-theme-store";
 
 function check(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -103,7 +102,7 @@ api.runParallelCheck = async () => {
     window.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape", bubbles:true}));
     const imageModel=useConfigStore.getState().config.imageModel, textModel=encodeChannelModel("offline-chat", "chat");
     const config=useConfigStore.getState().config;
-    useConfigStore.setState({config:{...config,textModel,models:[...config.models,textModel],channels:[...(config.channels||[]),{id:"offline-chat",name:"offline chat",baseUrl:"https://offline-chat.test",apiKey:"fixture",apiFormat:"openai",models:[{name:"chat",capability:"text",script:relayChatScript}]}]}});
+    useConfigStore.setState({config:{...config,textModel,models:[...config.models,textModel],channels:[...(config.channels||[]),{id:"offline-chat",name:"offline chat",baseUrl:"https://offline-chat.test",apiKey:"fixture",apiFormat:"openai",models:[{name:"chat",capability:"text"}]}]}});
     let active=0, peak=0, requestCount=0;
     let releaseBatch:()=>void=()=>{}, batchReady=Promise.resolve();
     const holdBatch=()=>{batchReady=new Promise<void>(resolve=>{releaseBatch=resolve;});};

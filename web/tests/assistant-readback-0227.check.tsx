@@ -5,7 +5,6 @@ import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/lib/canvas
 import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nodes";
 import { useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore } from "../src/stores/use-config-store";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import type { AiTextMessage } from "../src/services/api/image";
 
 const meta = "\n本次引用节点ID：[]\n本次指定生成模型ID：[]\n本次提示词源节点ID：[]";
@@ -68,7 +67,7 @@ async function main() {
 
     const state = () => useCanvasAssistantStore.getState(), current = () => state().sessions.find((session) => session.id === state().currentId)!;
     const model = encodeChannelModel("stub", "chat");
-    useConfigStore.setState({ config: { ...defaultConfig, proxyEnabled: false, textModel: model, models: [model], channels: [{ id: "stub", name: "stub-only", baseUrl: "https://stub-only.test", apiKey: "test-readback-key", apiFormat: "openai", models: [{ name: "chat", capability: "text", script: relayChatScript }] }] } });
+    useConfigStore.setState({ config: { ...defaultConfig, proxyEnabled: false, textModel: model, models: [model], channels: [{ id: "stub", name: "stub-only", baseUrl: "https://stub-only.test", apiKey: "test-readback-key", apiFormat: "openai", models: [{ name: "chat", capability: "text" }] }] } });
     const originalFetch = globalThis.fetch, calls: any[] = [];
     globalThis.fetch = (async (_url, options) => {
         const body = JSON.parse(String(options?.body)); calls.push(body);

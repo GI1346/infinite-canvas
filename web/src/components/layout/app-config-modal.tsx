@@ -5,9 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
 import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
-import { ConfigProtocolCenter } from "@/components/layout/config-protocol-center";
 import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
-import { useCallProtocolStore } from "@/stores/use-call-protocol-store";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { createModelChannel, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 
@@ -28,16 +26,15 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const { message } = App.useApp();
     const { t } = useTranslation();
     const configInputRef = useRef<HTMLInputElement>(null);
-    const [activeTab, setActiveTab] = useState<ConfigTabKey>(["channels", "protocols", "local-storage"].includes(initialTab) ? initialTab : "channels");
+    const [activeTab, setActiveTab] = useState<ConfigTabKey>(["channels", "local-storage"].includes(initialTab) ? initialTab : "channels");
     const [editingChannelId, setEditingChannelId] = useState("");
     const config = useConfigStore((state) => state.config);
-    const protocols = useCallProtocolStore((state) => state.protocols);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const shouldPromptContinue = useConfigStore((state) => state.shouldPromptContinue);
     const setConfigDialogOpen = useConfigStore((state) => state.setConfigDialogOpen);
     const clearPromptContinue = useConfigStore((state) => state.clearPromptContinue);
     const editingChannel = config.channels.find((channel) => channel.id === editingChannelId) || config.channels[0] || null;
-    useEffect(() => setActiveTab(["channels", "protocols", "local-storage"].includes(initialTab) ? initialTab : "channels"), [initialTab]);
+    useEffect(() => setActiveTab(["channels", "local-storage"].includes(initialTab) ? initialTab : "channels"), [initialTab]);
 
     const saveConfig = (nextConfig: AiConfig) => {
         (Object.keys(nextConfig) as Array<keyof AiConfig>).forEach((key) => updateConfig(key, nextConfig[key]));
@@ -100,7 +97,6 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                 activeKey={activeTab}
                 onChange={(key) => setActiveTab(key as ConfigTabKey)}
                 items={[
-                    { key: "protocols", label: "协议中心", children: <ConfigProtocolCenter /> },
                     {
                         key: "channels",
                         label: t("config.tabs.channels"),
@@ -108,11 +104,11 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                             <>
                             <div className={`grid min-h-[400px] gap-4 lg:grid-cols-[240px_minmax(0,1fr)] ${section === "models" ? "lg:h-[calc(100dvh-190px)]" : "lg:h-[560px]"}`}>
                                 <aside className="flex min-h-0 flex-col rounded-3xl border border-border bg-card p-3 shadow-sm">
-                                    <div className="mb-3 flex items-center justify-between px-2"><span className="text-sm font-semibold">接口</span><Button shape="circle" aria-label="新增渠道" icon={<Plus className="size-4" />} onClick={addChannel} /></div>
+                                    <div className="mb-3 flex items-center justify-between gap-2 px-2"><span className="text-sm font-semibold">接口</span><Button shape="circle" aria-label="新增渠道" icon={<Plus className="size-4" />} onClick={addChannel} /></div>
                                     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">{config.channels.map((channel) => {
                                         const active = editingChannelId !== "$defaults" && editingChannel?.id === channel.id;
                                         const ready = Boolean(channel.apiKey.trim() && channel.baseUrl.trim());
-                                        return <button key={channel.id} type="button" aria-pressed={active} style={active ? { backgroundColor: "#101828", color: "#ffffff", borderColor: "#101828" } : undefined} className={`w-full rounded-2xl border px-3 py-3.5 text-left transition ${active ? "border-foreground bg-foreground text-background" : "border-border bg-muted/20 hover:bg-muted/50"}`} onClick={() => setEditingChannelId(channel.id)}><span className="flex items-center justify-between gap-2"><strong className="min-w-0 truncate text-sm">{channel.name || "未命名渠道"}</strong><span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] ${active ? "bg-white/20 text-white" : "bg-primary/10"}`}>{channel.protocolId ? protocols.find((protocol) => protocol.id === channel.protocolId)?.label || "自定义协议" : channel.apiFormat === "gemini" ? "Gemini" : "通用中转"}</span></span><span className="mt-1.5 block text-[11px] opacity-70">{channel.models.length} 个已选模型</span><span className={`mt-1.5 flex items-center gap-1 text-[10px] ${ready ? "text-emerald-500" : "opacity-75"}`}><span className={`size-1.5 rounded-full ${ready ? "bg-current" : "border border-current"}`} />{ready ? "已配置" : "待配置"}</span></button>;
+                                        return <button key={channel.id} type="button" aria-pressed={active} style={active ? { backgroundColor: "#101828", color: "#ffffff", borderColor: "#101828" } : undefined} className={`w-full rounded-2xl border px-3 py-3.5 text-left transition ${active ? "border-foreground bg-foreground text-background" : "border-border bg-muted/20 hover:bg-muted/50"}`} onClick={() => setEditingChannelId(channel.id)}><span className="flex items-center justify-between gap-2"><strong className="min-w-0 truncate text-sm">{channel.name || "未命名渠道"}</strong><span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] ${active ? "bg-white/20 text-white" : "bg-primary/10"}`}>{channel.apiFormat === "gemini" ? "Gemini" : "OpenAI"}</span></span><span className="mt-1.5 block text-[11px] opacity-70">{channel.models.length} 个已选模型</span><span className={`mt-1.5 flex items-center gap-1 text-[10px] ${ready ? "text-emerald-500" : "opacity-75"}`}><span className={`size-1.5 rounded-full ${ready ? "bg-current" : "border border-current"}`} />{ready ? "已配置" : "待配置"}</span></button>;
                                     })}</div>
                                 </aside>
                                 <div className="min-h-0 min-w-0 overflow-y-auto">{editingChannelId === "$defaults" ? <section className="rounded-3xl border border-border bg-background p-6 shadow-sm"><h2 className="text-lg font-semibold">全局默认模型</h2><p className="mt-1 mb-6 text-xs text-muted-foreground">选择画布与工作台初始使用的模型</p><div className="grid gap-5 sm:grid-cols-2">{modelGroups.map((group) => <div key={group.modelKey} className="rounded-2xl border border-border p-5"><div className="mb-3 text-sm font-medium">{t(group.labelKey)}</div><ModelPicker config={config} value={config[group.modelKey]} onChange={(model) => updateConfig(group.modelKey, model)} capability={group.capability} fullWidth /></div>)}</div></section> : <ChannelEditorDrawer key={editingChannel?.id} inline open={Boolean(editingChannel)} channel={editingChannel} onSave={saveChannel} onClose={() => setEditingChannelId("")} onDelete={() => editingChannel && deleteChannel(editingChannel.id)} />}</div>
@@ -125,7 +121,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                         label: t("config.tabs.localStorage"),
                         children: <ConfigLocalStorage active={activeTab === "local-storage"} />,
                     },
-                ].filter((item) => section === "all" || (section === "models" ? ["channels", "protocols"].includes(item.key) : item.key === "local-storage"))}
+                ].filter((item) => section === "all" || (section === "models" ? item.key === "channels" : item.key === "local-storage"))}
             />
             {showDoneButton ? (
                 <div className="mt-4 flex justify-end">

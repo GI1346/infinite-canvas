@@ -316,7 +316,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     }, [containerRef]);
 
     const activeTool = isSpacePressed ? "pan" : tool;
-    const whaleCursor = `url("${import.meta.env.BASE_URL}whale-cursor.png") 0 0, auto`;
+    const whaleCursor = `url("${import.meta.env?.BASE_URL ?? "/"}whale-cursor.png") 0 0, auto`;
     const cursor = isCtrlPressed || isCuttingConnections ? whaleCursor : isPanning ? "grabbing" : activeTool === "pan" ? "grab" : undefined;
 
     return (

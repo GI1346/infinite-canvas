@@ -8,7 +8,6 @@ import { executeHarnessCanvasTool, addImagesToDeepSeekHarness } from "../src/ser
 import { useHarnessSidebarStore } from "../src/stores/use-harness-sidebar-store";
 import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nodes";
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/lib/canvas/canvas-agent-ops";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import { dataUrlToFile } from "../src/lib/image-utils";
 import "../src/styles/globals.css";
 const results: unknown[] = [];
@@ -18,7 +17,7 @@ async function size(url: string) { const f = dataUrlToFile({ id: "x", name: "x.j
 async function main() {
  registerBuiltinNodes();
  const imageModel=encodeChannelModel("offline", "gpt-image-1"), textModel=encodeChannelModel("chat", "fixture-chat");
- const config={...defaultConfig,proxyEnabled:false,imageModel,textModel,models:[imageModel,textModel],channels:[{id:"offline",name:"offline",baseUrl:"https://never-image.test",apiKey:"fixture",apiFormat:"openai" as const,models:[{name:"gpt-image-1",capability:"image" as const}]},{id:"chat",name:"chat",baseUrl:"https://never-chat.test",apiKey:"fixture",apiFormat:"openai" as const,models:[{name:"fixture-chat",capability:"text" as const,script:relayChatScript}]}]};
+ const config={...defaultConfig,proxyEnabled:false,imageModel,textModel,models:[imageModel,textModel],channels:[{id:"offline",name:"offline",baseUrl:"https://never-image.test",apiKey:"fixture",apiFormat:"openai" as const,models:[{name:"gpt-image-1",capability:"image" as const}]},{id:"chat",name:"chat",baseUrl:"https://never-chat.test",apiKey:"fixture",apiFormat:"openai" as const,models:[{name:"fixture-chat",capability:"text" as const}]}]};
  useConfigStore.setState({config});
  const prefs=()=>useAssistantCompressionStore.getState();
  prefs().update("agent",{imageCompressionEnabled:false,imageCompressionResolution:"2k",imageCompressionMaxMb:1});prefs().update("harness",{imageCompressionEnabled:false,imageCompressionResolution:"2k",imageCompressionMaxMb:1});

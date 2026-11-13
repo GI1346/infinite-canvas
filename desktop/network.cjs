@@ -36,7 +36,17 @@ function createNetworkProxy({ origin, token, fetch: nativeFetch, version }) {
       }
       let body;
       if (!['GET', 'HEAD'].includes(req.method)) { const chunks = []; for await (const chunk of req) chunks.push(chunk); body = Buffer.concat(chunks); }
-      const response = await nativeFetch(target.href, { method: req.method, headers, body, signal: controller.signal, redirect: 'follow', credentials: 'omit', cache: 'no-store' });
+      const send = () => nativeFetch(target.href, { method: req.method, headers, body, signal: controller.signal, redirect: 'follow', credentials: 'omit', cache: 'no-store' });
+      let response;
+      for (let attempt = 0; ; attempt += 1) {
+        try { response = await send(); break; } catch (error) {
+          // 连接根本没建立时服务端不会收到任何字节，重试一次不会被重复计费；
+          // 已经连上再失败的请求一律不重试，避免重复提交。
+          const code = error?.cause?.code || /(?:net::)?(ERR_[A-Z_]+)/.exec(String(error?.message))?.[1] || '';
+          const connectOnly = code === 'UND_ERR_CONNECT_TIMEOUT' || code === 'ETIMEDOUT' || code === 'EAI_AGAIN';
+          if (attempt > 0 || !connectOnly || controller.signal.aborted) throw error;
+        }
+      }
       if (res.destroyed) { await response.body?.cancel(); return; }
       const output = {};
       for (const [key, value] of response.headers) {

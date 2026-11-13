@@ -12,20 +12,17 @@ async function main() {
     const projects = [project("current", "image:remove"), project("other", "image:shared")];
     useCanvasStore.setState({ hydrated: true, projects });
     useAssetStore.setState({ hydrated: true, assets: [] });
-    const imageStore = db("image_files"), previewStore = db("image_previews"), logs = db("image_generation_logs"), videoLogs = db("video_generation_logs"), tasks = db("relay_tasks"), state = db("app_state"), protocols = db("call_protocols");
-    const configKey = "infinite-canvas:ai_config_store", protocolKey = "canvas-call-protocols-v1";
+    const imageStore = db("image_files"), previewStore = db("image_previews"), logs = db("image_generation_logs"), videoLogs = db("video_generation_logs"), tasks = db("relay_tasks"), state = db("app_state");
+    const configKey = "infinite-canvas:ai_config_store";
     const config = JSON.stringify({ state: { config: { channels: [
-        { id: "image", baseUrl: "https://image-relay.invalid", apiKey: "image-test-not-a-secret", imageTaskBaseUrl: "https://tasks.invalid", protocolId: "custom", models: [{ name: "image-model", capability: "image", protocolId: "custom" }] },
-        { id: "text", baseUrl: "https://text-relay.invalid", apiKey: "text-test-not-a-secret", protocolId: "custom-text", models: [{ name: "text-model", capability: "text" }] },
+        { id: "image", baseUrl: "https://image-relay.invalid", apiKey: "image-test-not-a-secret", imageTaskBaseUrl: "https://tasks.invalid", models: [{ name: "image-model", capability: "image" }] },
+        { id: "text", baseUrl: "https://text-relay.invalid", apiKey: "text-test-not-a-secret", models: [{ name: "text-model", capability: "text" }] },
     ], imageModel: "image::image-model", textModel: "text::text-model" } }, version: 0 });
     localStorage.setItem(configKey, config);
     await state.setItem(configKey, config);
-    const protocol = JSON.stringify({ state: { protocols: [{ format: "canvas-call/v1", id: "custom", label: "test", capability: "image", script: "return []" }] }, version: 0 });
-    await protocols.setItem(protocolKey, protocol);
     const assertProtected = async () => {
         assert.equal(localStorage.getItem(configKey), config, "localStorage API 配置字节不变，生图与对话密钥不混用");
         assert.equal(await state.getItem(configKey), config, "IndexedDB API 配置字节不变");
-        assert.equal(await protocols.getItem(protocolKey), protocol, "自定义协议字节不变");
     };
     for (const key of ["image:remove", "image:shared", "image:history"]) {
         await imageStore.setItem(key, new Blob([key], { type: "image/png" }));

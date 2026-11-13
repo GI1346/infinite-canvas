@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import { CanvasAssistantGenerationMode } from "../src/components/agent/canvas-assistant-generation-mode";
 import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nodes";
 import { assistantSystemPrompt } from "../src/services/api/canvas-assistant";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import { readCanvasAssistantGenerationMode, useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore, type AiConfig } from "../src/stores/use-config-store";
 import type { CanvasNodeData } from "../src/types/canvas";
@@ -15,7 +14,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 const textId = encodeChannelModel("text", "chat");
 const imageId = encodeChannelModel("image", "draw");
 const config: AiConfig = { ...defaultConfig, proxyEnabled: false, channels: [
-    { id: "text", name: "对话", baseUrl: "https://text.test", apiKey: "stub-text-key", apiFormat: "openai", models: [{ name: "chat", capability: "text", script: relayChatScript }] },
+    { id: "text", name: "对话", baseUrl: "https://text.test", apiKey: "stub-text-key", apiFormat: "openai", models: [{ name: "chat", capability: "text" }] },
     { id: "image", name: "绘画", baseUrl: "https://image.test", apiKey: "stub-image-key", apiFormat: "openai", models: [{ name: "draw", capability: "image" }] },
 ], models: [textId, imageId], textModel: textId, imageModel: imageId, videoModel: "" };
 let responses: string[] = [], calls = 0;

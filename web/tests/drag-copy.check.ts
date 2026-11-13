@@ -3,24 +3,22 @@ import fs from "node:fs";
 import { expandDragNodeIds, cloneDragSelection } from "../src/lib/canvas/canvas-drag-copy";
 import { tableRows } from "../src/lib/canvas/dxos-table";
 import { defaultConfig, useConfigStore } from "../src/stores/use-config-store";
-import { useCallProtocolStore } from "../src/stores/use-call-protocol-store";
 import type { CanvasNodeData, CanvasNodeMetadata, CanvasNodeImage, CanvasConnection } from "../src/types/canvas";
 
 const results: { name: string; passed: boolean; detail?: string }[] = [];
 const originalFetch = globalThis.fetch;
 let requests = 0;
 globalThis.fetch = async () => { requests++; throw new Error("Pure drag copying must not make network requests"); };
-await Promise.all([useConfigStore.persist.rehydrate(), useCallProtocolStore.persist.rehydrate()]);
-useConfigStore.setState({ config: { ...defaultConfig, channels: defaultConfig.channels.map((channel, i) => ({ ...channel, apiKey: `synthetic-independent-${i}`, protocolId: `synthetic-${i}` })) } });
-useCallProtocolStore.setState({ protocols: [{ format: "canvas-call/v1", id: "synthetic-copy", label: "not executed", capability: "image", script: 'throw new Error("never execute on copy")' }] });
-const configSnapshot = JSON.stringify(useConfigStore.getState().config), protocolSnapshot = JSON.stringify(useCallProtocolStore.getState().protocols);
+await useConfigStore.persist.rehydrate();
+useConfigStore.setState({ config: { ...defaultConfig, channels: defaultConfig.channels.map((channel, i) => ({ ...channel, apiKey: `synthetic-independent-${i}` })) } });
+const configSnapshot = JSON.stringify(useConfigStore.getState().config);
 const node = (id: string, type = "image", metadata?: CanvasNodeMetadata): CanvasNodeData => ({ id, type, title: `原名称-${id}`, position: { x: id.length * 10, y: id.length * 20 }, width: 320, height: 240, ...(metadata ? { metadata } : {}) });
 const group = (id: string, groupId?: string) => node(id, "group", groupId ? { groupId } : undefined);
 const edge = (id: string, fromNodeId: string, toNodeId: string, toPort?: string): CanvasConnection => ({ id, fromNodeId, toNodeId, ...(toPort ? { toPort } : {}) });
 const image = (id: string, status: CanvasNodeImage["status"] = "success"): CanvasNodeImage => ({ id, status, content: `blob:${id}`, storageKey: `image:${id}`, naturalWidth: 1024, naturalHeight: 512, mimeType: "image/png", bytes: 99 });
 function freeze<T>(value: T): T { if (value && typeof value === "object") { Object.freeze(value); for (const child of Object.values(value)) freeze(child); } return value; }
 async function check(name: string, work: () => unknown | Promise<unknown>) {
-    try { await work(); assert.equal(requests, 0); assert.equal(JSON.stringify(useConfigStore.getState().config), configSnapshot); assert.equal(JSON.stringify(useCallProtocolStore.getState().protocols), protocolSnapshot); results.push({ name, passed: true }); console.log(`PASS ${name}`); }
+    try { await work(); assert.equal(requests, 0); assert.equal(JSON.stringify(useConfigStore.getState().config), configSnapshot); results.push({ name, passed: true }); console.log(`PASS ${name}`); }
     catch (error) { results.push({ name, passed: false, detail: String(error) }); console.error(`FAIL ${name}\n${error instanceof Error ? error.stack : error}`); }
 }
 

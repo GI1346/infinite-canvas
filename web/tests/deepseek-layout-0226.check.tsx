@@ -1,39 +1,45 @@
 import assert from 'node:assert/strict';
 import { requestImageQuestion } from '../src/services/api/image';
-import { relayChatScript, deepseekAgentChatScript } from '../src/services/api/relay-chat';
 import { defaultConfig, encodeChannelModel, type AiConfig } from '../src/stores/use-config-store';
 import { centerAssistantNodes } from '../src/lib/canvas/assistant-node-layout';
 import { registerBuiltinNodes } from '../src/components/canvas/nodes/builtin-nodes';
 import { getNodeSpec } from '../src/lib/canvas/node-registry';
 import type { CanvasAgentOp } from '../src/lib/canvas/canvas-agent-ops';
 registerBuiltinNodes();
-const base=(name:string,script?:string):AiConfig=>({...defaultConfig,proxyEnabled:false,model:encodeChannelModel('official',name),reasoningEffort:'high',channels:[{id:'official',name:'stub official',baseUrl:'https://official.test',apiKey:'stub-only',apiFormat:'openai',models:[{name,capability:'text',...(script?{script}: {})}]}]});
-const requests:any[]=[];let streaming=false, fail=false;
+const base=(name:string):AiConfig=>({...defaultConfig,proxyEnabled:false,model:encodeChannelModel('official',name),reasoningEffort:'high',channels:[{id:'official',name:'stub official',baseUrl:'https://official.test',apiKey:'stub-only',apiFormat:'openai',models:[{name,capability:'text'}]}]});
+const requests:Array<{url:string;body:any}>=[];let streaming=false, fail=false;
 const originalFetch=globalThis.fetch;
 globalThis.fetch=(async(url,options)=>{
- assert.equal(String(url),'https://official.test/v1/chat/completions');
- requests.push(JSON.parse(String(options?.body)));
+ const target=String(url);assert(target==='https://official.test/v1/chat/completions'||target==='https://official.test/v1/responses',target);
+ const body=JSON.parse(String(options?.body));requests.push({url:target,body});
  if(fail)return new Response(JSON.stringify({error:{message:'stub failure'}}),{status:400});
  const content=JSON.stringify({tool:'final',args:{message:'done'}});
+ if(target.endsWith('/responses')){
+  const stream='data: '+JSON.stringify({type:'response.output_text.delta',delta:content})+'\r\n\r\n';
+  return new Response(stream,{headers:{'content-type':'text/event-stream'}});
+ }
  if(!streaming)return new Response(JSON.stringify({choices:[{message:{content}}]}),{headers:{'content-type':'application/json'}});
  const stream='data: '+JSON.stringify({choices:[{delta:{reasoning_content:'ignore reasoning'}}]})+'\r\n\r\n'+[...content].map(content=>'data: '+JSON.stringify({choices:[{delta:{content}}]})+'\r\n\r\n').join('')+'data: [DONE]\r\n\r\n';
  return new Response(new ReadableStream({start(c){const bytes=new TextEncoder().encode(stream);for(let i=0;i<bytes.length;i+=7)c.enqueue(bytes.slice(i,i+7));c.close();}}),{headers:{'content-type':'text/event-stream'}});
 }) as typeof fetch;
 async function main(){
- assert.notEqual(deepseekAgentChatScript,relayChatScript);assert(!deepseekAgentChatScript.includes('reasoning_effort'));
  for(const name of ['deepseek-flash','deepseek-v4-flash','deepseek-v4-flash-vision-exp','deepseek-v4.1-flash-1017']){
   streaming=!streaming;const deltas:string[]=[];
   const result=await requestImageQuestion(base(name),[{role:'user',content:'Return JSON'}],s=>deltas.push(s),{agent:true});
   assert.equal(JSON.parse(result).tool,'final');assert.equal(deltas.at(-1),result);
-  assert.deepEqual(requests.at(-1).thinking,{type:'disabled'});assert.deepEqual(requests.at(-1).response_format,{type:'json_object'});assert.equal(requests.at(-1).model,name);assert(!('reasoning_effort'in requests.at(-1)));
+  assert.equal(requests.at(-1).url,'https://official.test/v1/chat/completions');
+  assert.deepEqual(requests.at(-1).body.thinking,{type:'disabled'});assert.deepEqual(requests.at(-1).body.response_format,{type:'json_object'});assert.equal(requests.at(-1).body.model,name);assert(!('reasoning_effort'in requests.at(-1).body));
  }
- await requestImageQuestion(base('deepseek-flash',relayChatScript),[{role:'user',content:'JSON'}],()=>{}, {agent:true});assert(requests.at(-1).thinking);
- await requestImageQuestion(base('deepseek-flash',relayChatScript),[{role:'user',content:'hello'}],()=>{});assert.equal(requests.at(-1).thinking,undefined);assert.equal(requests.at(-1).reasoning_effort,'high');
- await requestImageQuestion(base('gpt-other',relayChatScript),[{role:'user',content:'JSON'}],()=>{}, {agent:true});assert.equal(requests.at(-1).thinking,undefined);
+ // 非 Agent 对话仍走 /responses，并带上 reasoning effort。
+ await requestImageQuestion(base('deepseek-flash'),[{role:'user',content:'hello'}],()=>{});
+ assert.equal(requests.at(-1).url,'https://official.test/v1/responses');assert.equal(requests.at(-1).body.reasoning.effort,'high');assert(!('thinking'in requests.at(-1).body));
+ // 非 DeepSeek 模型走 Agent 时不注入 thinking 开关，但仍然要求 JSON。
+ await requestImageQuestion(base('gpt-other'),[{role:'user',content:'JSON'}],()=>{}, {agent:true});
+ assert.equal(requests.at(-1).url,'https://official.test/v1/chat/completions');assert.equal(requests.at(-1).body.thinking,undefined);assert.equal(requests.at(-1).body.response_format,undefined);
  const before=requests.length;
- assert.equal(await requestImageQuestion(base('deepseek-flash','return "CUSTOM_UNCHANGED";'),[{role:'user',content:'JSON'}],()=>{}, {agent:true}),'CUSTOM_UNCHANGED');assert.equal(requests.length,before);
  fail=true;await assert.rejects(requestImageQuestion(base('deepseek-flash'),[{role:'user',content:'JSON'}],()=>{}, {agent:true}),/stub failure/);assert.equal(requests.length,before+1,'no hidden retry');
  const aborted=new AbortController();aborted.abort();await assert.rejects(requestImageQuestion(base('deepseek-flash'),[],()=>{},{agent:true,signal:aborted.signal}));assert.equal(requests.length,before+1);
+ fail=false;streaming=false;
  const center={x:3000,y:-700};
  const types=['text','image','video','audio','dxos:table','dxos:llm','dxos:concurrent'];
  const additions:CanvasAgentOp[]=types.map((nodeType,i)=>({type:'add_node',id:String(i),nodeType,position:{x:0,y:0}}));
@@ -45,6 +51,6 @@ async function main(){
  const next=centerAssistantNodes([additions[1]],center,[source as any])[0] as Extract<CanvasAgentOp,{type:'add_node'}>;const spec=getNodeSpec('image');
  assert(next.position.x+spec.width<=source.position.x||source.position.x+source.width<=next.position.x||next.position.y+spec.height<=source.position.y||source.position.y+source.height<=next.position.y);assert.equal(JSON.stringify(source),original);
  assert.deepEqual(centerAssistantNodes([],center,[]),[]);
- console.log('PASS DeepSeek Agent-only JSON/non-thinking, SSE, channel isolation, custom script, ordinary/GPT unchanged, abort/no retry; live-center grid and overlap avoidance');
+ console.log('PASS DeepSeek Agent-only JSON/non-thinking, SSE, channel isolation, /responses for plain chat, abort/no retry; live-center grid and overlap avoidance');
 }
 main().then(()=>{globalThis.fetch=originalFetch;process.exit(0)}).catch(e=>{console.error(e);globalThis.fetch=originalFetch;process.exit(1)});

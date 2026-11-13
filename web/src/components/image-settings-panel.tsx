@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, readMediaDimensions } from "@/lib/media-size";
 import type { AiConfig } from "@/stores/use-config-store";
+import { decodeChannelModel, modelOptionName } from "@/stores/use-config-store";
 
 const qualityOptions = [
     { value: "auto", labelKey: "auto" },
@@ -35,7 +36,10 @@ type ImageSettingsPanelProps = {
 export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
     const { t } = useTranslation();
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
-    const supportedQualities = modelQualityOptions(config.model || config.imageModel), quality = imageQualityForModel(config.model || config.imageModel, config.quality);
+    const qualityModel = config.model || config.imageModel;
+    // Gemini 只有分辨率档位，没有 quality 参数；这里直接收窄，避免选了 quality 却被静默忽略。
+    const qualityIgnored = geminiChannel(config, qualityModel);
+    const supportedQualities = qualityIgnored ? [] : modelQualityOptions(qualityModel), quality = imageQualityForModel(qualityModel, config.quality);
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
     const transparentBackground = config.background === "transparent";
@@ -257,4 +261,14 @@ function SettingTitle({ children, color }: { children: string; color: string }) 
 
 function alignDimension(value: number, enabled: boolean) {
     return enabled ? Math.ceil(value / DIMENSION_STEP) * DIMENSION_STEP : value;
+}
+
+/** 当前生图模型是否落在 Gemini 渠道上（Gemini 没有 quality 参数，只有分辨率档位）。 */
+function geminiChannel(config: AiConfig, value: string) {
+    const decoded = decodeChannelModel(value);
+    const name = decoded?.model || modelOptionName(value);
+    const channel = decoded
+        ? config.channels.find((item) => item.id === decoded.channelId)
+        : config.channels.find((item) => item.models.some((model) => model.name === name));
+    return channel?.apiFormat === "gemini";
 }

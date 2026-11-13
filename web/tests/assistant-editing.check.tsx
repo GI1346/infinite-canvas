@@ -5,7 +5,6 @@ import {App,ConfigProvider} from 'antd';
 import {CanvasAssistantDock} from '../src/components/agent/canvas-assistant-dock';
 import {useCanvasAssistantStore as store} from '../src/stores/use-canvas-assistant-store';
 import {defaultConfig,encodeChannelModel,useConfigStore} from '../src/stores/use-config-store';
-import {relayChatScript} from '../src/services/api/relay-chat';
 import {resizeAssistantWindow} from '../src/lib/canvas/assistant-dock-layout';
 import {assistantReferenceToken as token,insertAssistantReferences} from '../src/lib/canvas/assistant-inline-references';
 HTMLElement.prototype.scrollIntoView=function(){};
@@ -25,7 +24,7 @@ const state=()=>store.getState();const host=document.createElement('div');docume
 const outside=document.createElement('button');outside.textContent='画布选图';document.body.append(outside);outside.addEventListener('click',()=>state().addReferences(['i2']));
 let network=0;globalThis.fetch=(async()=>{network++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({tool:'final',args:{message:'Agent 回复\n第二行'}})}}]}),{headers:{'content-type':'application/json'}})}) as typeof fetch;
 const model=encodeChannelModel('offline','chat');
-useConfigStore.setState({config:{...defaultConfig,proxyEnabled:false,textModel:model,models:[model],channels:[{id:'offline',name:'fixture',baseUrl:'https://offline.test',apiKey:'stub-key',apiFormat:'openai',models:[{name:'chat',capability:'text',script:relayChatScript}]}]}});
+useConfigStore.setState({config:{...defaultConfig,proxyEnabled:false,textModel:model,models:[model],channels:[{id:'offline',name:'fixture',baseUrl:'https://offline.test',apiKey:'stub-key',apiFormat:'openai',models:[{name:'chat',capability:'text'}]}]}});
 const drag=async(e:HTMLElement,dx:number,dy:number)=>{await fire(e,pointer('pointerdown',200,200));await fire(window,pointer('pointermove',200+dx,200+dy));await fire(window,pointer('pointerup',200+dx,200+dy));};
 async function main(){
  await change(()=>{state().setContext({snapshot,getSnapshot:()=>snapshot,applyOps:()=>snapshot,runNode:async()=>{throw Error('no generation')}});state().setOpen(true)});

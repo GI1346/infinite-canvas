@@ -4,7 +4,6 @@ import localforage from "localforage";
 import { unzipSync } from "fflate";
 import { collectDownloadImages, createCanvasImageZip } from "../src/lib/canvas/canvas-batch-download";
 import { defaultConfig, useConfigStore, type AiConfig } from "../src/stores/use-config-store";
-import { useCallProtocolStore } from "../src/stores/use-call-protocol-store";
 import type { CanvasNodeData, CanvasNodeImage, CanvasNodeMetadata } from "../src/types/canvas";
 
 // Offline ZIP acceptance uses the real collection/naming/ZIP code. Only original-byte I/O is mocked.
@@ -20,23 +19,20 @@ const node = (id: string, title = id, metadata: CanvasNodeMetadata = {}, type = 
 const group = (id: string, groupId?: string) => node(id, id, groupId ? { groupId } : {}, "group");
 const image = (id: string, status: CanvasNodeImage["status"], content = `blob:${id}`, storageKey?: string, mimeType = "image/png"): CanvasNodeImage => ({ id, status, content, ...(storageKey ? { storageKey } : {}), mimeType, naturalWidth: 512, naturalHeight: 512, bytes: 7 });
 const protectedConfig: AiConfig = { ...defaultConfig, apiKey: "synthetic-global-unused", proxyEnabled: false, proxyUrl: "http://127.0.0.1:19999", imageModel: "image::same-model", textModel: "text::same-model", channels: [
-    { ...defaultConfig.channels[0], id: "image", baseUrl: "https://image-relay.invalid", apiKey: "synthetic-image-key", imageTaskBaseUrl: "https://image-tasks.invalid", protocolId: "test-image", models: [{ name: "same-model", capability: "image", protocolId: "test-image" }] },
-    { ...defaultConfig.channels[1], id: "text", baseUrl: "https://text-relay.invalid", apiKey: "synthetic-text-key", protocolId: "test-text", models: [{ name: "same-model", capability: "text" }] },
+    { ...defaultConfig.channels[0], id: "image", baseUrl: "https://image-relay.invalid", apiKey: "synthetic-image-key", imageTaskBaseUrl: "https://image-tasks.invalid", models: [{ name: "same-model", capability: "image" }] },
+    { ...defaultConfig.channels[1], id: "text", baseUrl: "https://text-relay.invalid", apiKey: "synthetic-text-key", models: [{ name: "same-model", capability: "text" }] },
 ] };
-const protocols = [{ format: "canvas-call/v1" as const, id: "test-image", label: "saved image", capability: "image" as const, script: 'throw new Error("download must not execute API protocol");' }, { format: "canvas-call/v1" as const, id: "test-text", label: "saved text", capability: "text" as const, script: 'throw new Error("download must not execute text protocol");' }];
 const stateDb = localforage.createInstance({ name: "infinite-canvas", storeName: "app_state" });
-const protocolDb = localforage.createInstance({ name: "infinite-canvas", storeName: "call_protocols" });
-const configKey = "infinite-canvas:ai_config_store", protocolKey = "canvas-call-protocols-v1";
-await Promise.all([useConfigStore.persist.rehydrate(), useCallProtocolStore.persist.rehydrate()]);
-useConfigStore.setState({ config: protectedConfig }); useCallProtocolStore.setState({ protocols });
+const configKey = "infinite-canvas:ai_config_store";
+await useConfigStore.persist.rehydrate();
+useConfigStore.setState({ config: protectedConfig });
 await new Promise((resolve) => setTimeout(resolve, 5));
-const savedConfig = JSON.stringify({ state: { config: protectedConfig }, version: 0 }), savedProtocol = JSON.stringify({ state: { protocols }, version: 0 });
-localStorage.setItem(configKey, savedConfig); await stateDb.setItem(configKey, savedConfig); await protocolDb.setItem(protocolKey, savedProtocol);
-const configSnapshot = JSON.stringify(useConfigStore.getState().config), protocolSnapshot = JSON.stringify(useCallProtocolStore.getState().protocols);
+const savedConfig = JSON.stringify({ state: { config: protectedConfig }, version: 0 });
+localStorage.setItem(configKey, savedConfig); await stateDb.setItem(configKey, savedConfig);
+const configSnapshot = JSON.stringify(useConfigStore.getState().config);
 async function assertProtected() {
     assert.equal(JSON.stringify(useConfigStore.getState().config), configSnapshot, "download changed API channels/default model/proxy/key");
-    assert.equal(JSON.stringify(useCallProtocolStore.getState().protocols), protocolSnapshot, "download changed custom protocol");
-    assert.equal(localStorage.getItem(configKey), savedConfig); assert.equal(await stateDb.getItem(configKey), savedConfig); assert.equal(await protocolDb.getItem(protocolKey), savedProtocol);
+    assert.equal(localStorage.getItem(configKey), savedConfig); assert.equal(await stateDb.getItem(configKey), savedConfig); 
 }
 function reset() {
     disk.clear(); replies.clear(); reads.length = 0; fetches.length = 0;

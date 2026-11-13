@@ -4,6 +4,7 @@
   "defaultOpen": true,
   "pages": [
     "quick-start",
+    "channel-setup",
     "codex-app-plugin",
     "features",
     "render",

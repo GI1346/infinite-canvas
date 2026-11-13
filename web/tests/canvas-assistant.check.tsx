@@ -6,7 +6,6 @@ import { CanvasAssistantDock } from "../src/components/agent/canvas-assistant-do
 import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nodes";
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/lib/canvas/canvas-agent-ops";
 import { assistantRunMode, executeAssistantTool, requestAssistantAction } from "../src/services/api/canvas-assistant";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import { useCanvasAssistantStore, type CanvasAssistantContext, type CanvasAssistantSession } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore, type AiConfig } from "../src/stores/use-config-store";
 import { useThemeStore } from "../src/stores/use-theme-store";
@@ -20,7 +19,7 @@ const state = () => useCanvasAssistantStore.getState();
 const current = () => state().sessions.find((session) => session.id === state().currentId)!;
 const textId = encodeChannelModel("text", "same-model"), imageId = encodeChannelModel("image", "same-model"), otherImageId = encodeChannelModel("other", "same-model");
 const config: AiConfig = { ...defaultConfig, proxyEnabled: false, channels: [
-    { id: "text", name: "对话", baseUrl: "https://text.test", apiKey: "stub-text-key", apiFormat: "openai", models: [{ name: "same-model", capability: "text", script: relayChatScript }] },
+    { id: "text", name: "对话", baseUrl: "https://text.test", apiKey: "stub-text-key", apiFormat: "openai", models: [{ name: "same-model", capability: "text" }] },
     { id: "image", name: "绘画", baseUrl: "https://image.test", apiKey: "stub-image-key", apiFormat: "openai", models: [{ name: "same-model", capability: "image" }] },
     { id: "other", name: "另一绘画", baseUrl: "https://other.test", apiKey: "stub-other-key", apiFormat: "openai", models: [{ name: "same-model", capability: "image" }] },
 ], models: [textId, imageId, otherImageId], textModel: textId, imageModel: imageId, videoModel: "" };

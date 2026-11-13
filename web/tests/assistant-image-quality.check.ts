@@ -6,14 +6,13 @@ import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nod
 import { assistantSystemPrompt } from "../src/services/api/canvas-assistant";
 import { executeHarnessCanvasTool } from "../src/services/api/deepseek-harness";
 import { requestGeneration } from "../src/services/api/image";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import { useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore } from "../src/stores/use-config-store";
 
 const imageModel = encodeChannelModel("fixture-image", "gpt-image-2.5-sunburst"), textModel = encodeChannelModel("fixture-text", "chat");
 const config = { ...defaultConfig, proxyEnabled: false, imageModel, textModel, models: [imageModel, textModel], channels: [
     { id: "fixture-image", name: "fixture-image", baseUrl: "https://offline-image.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: ["gpt-image-2.5-sunburst", "gpt-image-2", "gemini-nano-banana-2.1"].map(name => ({name, capability: "image" as const})) },
-    { id: "fixture-text", name: "fixture-text", baseUrl: "https://offline-text.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: [{ name: "chat", capability: "text" as const, script: relayChatScript }] },
+    { id: "fixture-text", name: "fixture-text", baseUrl: "https://offline-text.test", apiKey: "fixture-not-real", apiFormat: "openai" as const, models: [{ name: "chat", capability: "text" as const }] },
 ] };
 const cases: Array<[string, string | undefined]> = [
     ["图像质量最高，2k，2:3", "max"], ["质量最高", "max"], ["图片质量设置为最高", "max"], ["最高画质", "max"], ["最高质量", "max"],

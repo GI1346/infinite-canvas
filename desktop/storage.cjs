@@ -28,7 +28,7 @@ function removeManaged(root, name) {
 function validateApi(api) {
   const localKeys = ['infinite-canvas:ai_config_store', 'canvas-agent-url', 'canvas-agent-token', 'canvas-agent-model'];
   const entry = (value) => Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && typeof value[1] === 'string';
-  if (api.version !== 1 || !Array.isArray(api.local) || !Array.isArray(api.protocols) || api.local.some((item) => !entry(item) || !localKeys.includes(item[0])) || api.protocols.some((item) => !entry(item) || item[0] !== 'canvas-call-protocols-v1')) throw new Error('API 保留记录损坏，未执行清理');
+  if (api.version !== 1 || !Array.isArray(api.local) || api.local.some((item) => !entry(item) || !localKeys.includes(item[0]))) throw new Error('API 保留记录损坏，未执行清理');
 }
 
 function holdDatabaseLocks(directory, handles) {

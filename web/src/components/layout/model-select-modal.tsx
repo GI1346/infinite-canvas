@@ -26,7 +26,7 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState("");
     const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-    const catalogKey = channel ? `${channel.id}:${channel.apiFormat}:${channel.protocolId || ""}:${channel.baseUrl.trim()}` : "";
+    const catalogKey = channel ? `${channel.id}:${channel.apiFormat}:${channel.baseUrl.trim()}` : "";
     const cacheModels = (models: ChannelModel[]) => { if (catalogKey) void catalogStorage.setItem(catalogKey, models).catch(() => message.warning("模型列表缓存失败，已选模型仍会保存。")); };
 
     useEffect(() => {

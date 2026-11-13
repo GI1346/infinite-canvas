@@ -3,7 +3,6 @@ import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nod
 import { buildNodeGenerationContext } from "../src/components/canvas/canvas-node-generation";
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/lib/canvas/canvas-agent-ops";
 import { assistantPromptSourceIds, assistantWorkflowWithSources, executeAssistantTool, requestAssistantAction, type AssistantAction } from "../src/services/api/canvas-assistant";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import { useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore, type AiConfig } from "../src/stores/use-config-store";
 import type { CanvasNodeData } from "../src/types/canvas";
@@ -11,7 +10,7 @@ import type { CanvasNodeData } from "../src/types/canvas";
 registerBuiltinNodes();
 const chat = encodeChannelModel("chat", "chat"), image = encodeChannelModel("image", "image");
 const config: AiConfig = { ...defaultConfig, proxyEnabled: false, models: [chat, image], textModel: chat, imageModel: image, channels: [
-    { id: "chat", name: "对话", baseUrl: "https://chat.test", apiKey: "stub-chat", apiFormat: "openai", models: [{ name: "chat", capability: "text", script: relayChatScript }] },
+    { id: "chat", name: "对话", baseUrl: "https://chat.test", apiKey: "stub-chat", apiFormat: "openai", models: [{ name: "chat", capability: "text" }] },
     { id: "image", name: "生图", baseUrl: "https://image.test", apiKey: "stub-image", apiFormat: "openai", models: [{ name: "image", capability: "image" }] },
 ] };
 const textNode = (id: string, content = "本次小猫提示词"): CanvasNodeData => ({ id, type: "text", title: id, position: { x: 0, y: 0 }, width: 300, height: 200, metadata: { content } });

@@ -7,7 +7,6 @@ import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/lib/canvas
 import { buildGenerationConfig } from "../src/lib/canvas/canvas-generation-helpers";
 import { assistantImageParameters, explicitAssistantImageRequirements } from "../src/lib/canvas/assistant-image-parameters";
 import { assistantGraphSummary, executeAssistantTool, assistantSystemPrompt, type AssistantAction } from "../src/services/api/canvas-assistant";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import { useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore, type AiConfig } from "../src/stores/use-config-store";
 import { useThemeStore } from "../src/stores/use-theme-store";
@@ -20,7 +19,7 @@ const longName = "a-very-long-image-model-name-".repeat(10);
 const config: AiConfig = { ...defaultConfig, proxyEnabled: false, size: "2048x2048", imageResolution: "2k", models: [imageId, otherId, chatId], model: imageId, imageModel: imageId, textModel: chatId, channels: [
     { id: "draw", name: "65535", baseUrl: "https://image.test", apiKey: "stub-image-key", apiFormat: "openai", models: [{ name: "gpt-image-2.5-sunburst", capability: "image" }, { name: longName, capability: "image" }] },
     { id: "other", name: "comfly", baseUrl: "https://other.test", apiKey: "stub-other-key", apiFormat: "openai", models: [{ name: "gpt-image-2.5-sunburst", capability: "image" }] },
-    { id: "chat", name: "独立对话", baseUrl: "https://chat.test", apiKey: "stub-chat-key", apiFormat: "openai", models: [{ name: "chat", capability: "text", script: relayChatScript }] },
+    { id: "chat", name: "独立对话", baseUrl: "https://chat.test", apiKey: "stub-chat-key", apiFormat: "openai", models: [{ name: "chat", capability: "text" }] },
 ] };
 const state = () => useCanvasAssistantStore.getState(), current = () => state().sessions.find((session) => session.id === state().currentId)!;
 const tick = () => new Promise((resolve) => setTimeout(resolve, 25));

@@ -3,7 +3,6 @@ import { registerBuiltinNodes } from "../src/components/canvas/nodes/builtin-nod
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/lib/canvas/canvas-agent-ops";
 import { assistantRunOutcome, assistantRunReceipt, assistantWorkflowWithSources } from "../src/services/api/canvas-assistant";
 import { executeHarnessCanvasTool } from "../src/services/api/deepseek-harness";
-import { relayChatScript } from "../src/services/api/relay-chat";
 import { useCanvasAssistantStore, type CanvasAssistantContext } from "../src/stores/use-canvas-assistant-store";
 import { defaultConfig, encodeChannelModel, useConfigStore } from "../src/stores/use-config-store";
 import type { CanvasNodeData } from "../src/types/canvas";
@@ -17,7 +16,7 @@ async function main() {
     registerBuiltinNodes();
     useConfigStore.setState({ config: { ...defaultConfig, proxyEnabled: false, imageModel: image, textModel: text, models: [image, text], channels: [
         { id: "image", name: "Image", apiFormat: "openai", apiKey: "stub", baseUrl: "https://offline.invalid", models: [{ name: "draw", capability: "image" }] },
-        { id: "text", name: "Text", apiFormat: "openai", apiKey: "stub", baseUrl: "https://offline.invalid", models: [{ name: "chat", capability: "text", script: relayChatScript }] },
+        { id: "text", name: "Text", apiFormat: "openai", apiKey: "stub", baseUrl: "https://offline.invalid", models: [{ name: "chat", capability: "text" }] },
     ] } });
     const state = () => useCanvasAssistantStore.getState();
     const current = () => state().sessions.find((session) => session.id === state().currentId)!;

@@ -1,0 +1,35 @@
+---
+title: Channel setup
+description: Two protocols, independent keys, and one-click verification
+---
+
+# Channel setup
+
+A channel needs exactly three things: **protocol, address, key**. There are only two protocols — no custom scripts, no site presets.
+
+| Protocol | Fits | Image | Chat | Video | Audio |
+| --- | --- | --- | --- | --- | --- |
+| OpenAI | Official API and most relays | `/images/generations`, `/images/edits` | `/responses` (agent decisions use `/chat/completions`) | `/videos` | `/audio/speech` |
+| Gemini | Google AI Studio / Vertex-style addresses | `:generateContent` | `:streamGenerateContent` | `:predictLongRunning` | Not supported |
+
+One channel, one address, one key. When a site bills text and images separately, create two channels instead of sharing a key.
+
+## One-click verification
+
+**Verify** next to the connection panel answers two questions in one request:
+
+- **Address check**: `reachable (HTTP 401)` means the host and network are fine and only the key is wrong; `unreachable` is a network or hostname problem.
+- **Handshake**: `handshake ok, 650 models found` means address, key, and protocol all line up. A failure returns the upstream message.
+
+Changing the address, key, or protocol clears the result, so you never judge a new setup by an old check.
+
+## Parameter differences
+
+Gemini has no `quality` parameter — only size tiers (`imageSize` 512 / 1K / 2K / 4K) and an aspect ratio, so the quality selector narrows automatically. OpenAI's `quality` is only offered for models that support it; an unsupported value fails loudly instead of being silently dropped.
+
+## Troubleshooting
+
+- **401 when listing models**: wrong key for this channel, or a text key in the image channel.
+- **Model list times out**: check the Base URL against what the site currently gives you. With or without `/v1` both work.
+- **Image generation hangs**: check the network panel for an image, a `pollUrl`, or a task ID. A task ID means the job is queued — do not resubmit, or you may be billed twice.
+- **"Protocol does not match model capability"**: the model's capability type is wrong. Fix the row.

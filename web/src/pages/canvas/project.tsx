@@ -403,9 +403,7 @@ function InfiniteCanvasPage() {
             assertActive();
             const task = await createVideoGenerationTask(config, prompt, images, { signal, videos, audios });
             assertActive();
-            if (task.provider !== "plugin") {
-                updateNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider === "gemini" ? "gemini" : "openai", model: config.model } } : item)));
-            }
+            updateNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider === "gemini" ? "gemini" : "openai", model: config.model } } : item)));
             const result = await waitForVideoGenerationTask(config, task, { signal });
             assertActive();
             const video = await storeGeneratedVideo(result);
@@ -1851,10 +1849,11 @@ function InfiniteCanvasPage() {
                     const token = clipboardRef.current!.token;
                     const image = (async () => {
                         const stored = node.metadata?.storageKey ? await getImageBlob(node.metadata.storageKey) : null;
-                        const blob = stored || await fetch(node.metadata!.content!).then((response) => {
+                        const blob: Blob | null = stored || await fetch(node.metadata!.content!).then((response) => {
                             if (!response.ok) throw new Error("图片读取失败");
                             return response.blob();
                         });
+                        if (!blob) throw new Error("图片读取失败");
                         if (blob.type === "image/png") return blob;
                         const bitmap = await createImageBitmap(blob);
                         try {
