@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld('blinkflowStorage', {
 
 contextBridge.exposeInMainWorld('blinkflowDownloads', { saveImages: (files) => ipcRenderer.invoke('downloads:images', files) });
 
+contextBridge.exposeInMainWorld('blinkflowClipboard', {
+  write: (payload) => ipcRenderer.invoke('clipboard:write', payload),
+  read: () => ipcRenderer.invoke('clipboard:read'),
+});
+
 contextBridge.exposeInMainWorld('blinkflowHarness', {
   open: (options) => ipcRenderer.invoke('harness:open', options),
   addReferences: (options) => ipcRenderer.invoke('harness:references-add', options),

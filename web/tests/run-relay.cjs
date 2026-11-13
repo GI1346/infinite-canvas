@@ -1,7 +1,7 @@
 const { buildSync } = require("esbuild");
 const { execFileSync } = require("node:child_process");
 let failed = false;
-for (const name of ["single-address"]) {
+for (const name of ["single-address", "clipboard", "generation-branch"]) {
     const outfile = `.checks/${name}.mjs`;
     try {
         buildSync({ entryPoints: [`tests/${name}.check.ts`], bundle: true, platform: "node", format: "esm", packages: "external", outfile });

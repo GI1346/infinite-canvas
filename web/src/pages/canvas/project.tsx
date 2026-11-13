@@ -17,6 +17,7 @@ import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
+import { canWriteClipboardImage, writeClipboard, writeClipboardText } from "@/lib/clipboard";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -125,8 +126,26 @@ registerBuiltinNodes();
 
 const CANVAS_IMAGE_CLIPBOARD_TYPE = "application/x-blinkflow-canvas-images";
 
+/** 有文字选区且不在画布内容层时，Ctrl+C 应该走系统复制，不抢节点复制。 */
+function selectionBlocksCanvasCopy() {
+    const selection = window.getSelection();
+    if (!selection?.toString()) return false;
+    const anchor = selection.anchorNode instanceof Element ? selection.anchorNode : selection.anchorNode?.parentElement || null;
+    return !anchor?.closest("[data-canvas-world]");
+}
+
+/** 从 text/html 里取第一张图片地址；只接受能直接读取的协议。 */
+function clipboardImageSource(html: string) {
+    if (!html) return "";
+    const match = /<img[^>]+src\s*=\s*["']([^"']+)["']/i.exec(html);
+    const source = match?.[1]?.trim() || "";
+    return /^(?:data:image\/|https?:\/\/|blob:)/i.test(source) ? source : "";
+}
+
 type CanvasClipboard = {
     token: string;
+    /** 写进系统剪贴板的纯文本；粘贴时用它判断这份剪贴板是不是本程序刚复制的。 */
+    text: string;
     nodes: CanvasNodeData[];
     connections: CanvasConnection[];
 };
@@ -1216,14 +1235,23 @@ function InfiniteCanvasPage() {
 
         if (!copiedNodes.length) return;
 
+        // 文本节点写正文、其它节点写提示词或标题：复制到别的程序时得到的是可读内容，
+        // 不再是内部 token。全部为空时才退回 token，保证程序内仍能识别这份剪贴板。
+        const text = copiedNodes
+            .map((node) => (node.type === CanvasNodeType.Text ? node.metadata?.content || "" : node.metadata?.prompt || node.title || ""))
+            .filter(Boolean)
+            .join("\n");
+        const token = nanoid();
+
         clipboardRef.current = {
-            token: nanoid(),
+            token,
+            text,
             nodes: copiedNodes,
             connections: connectionsRef.current.filter((connection) => selectedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
         };
         if (data) {
-            data.setData(CANVAS_IMAGE_CLIPBOARD_TYPE, clipboardRef.current.token);
-            data.setData("text/plain", `blinkflow-canvas:${clipboardRef.current.token}`);
+            data.setData(CANVAS_IMAGE_CLIPBOARD_TYPE, token);
+            data.setData("text/plain", text || `blinkflow-canvas:${token}`);
         }
     }, []);
 
@@ -1746,6 +1774,17 @@ function InfiniteCanvasPage() {
         setDialogNodeId(id);
     }, []);
 
+    /** 粘贴 text/html 里的图片：先取回字节再入库，跨域取不到时由调用方提示失败。 */
+    const createImageFromClipboardSource = useCallback(async (source: string, position: Position) => {
+        const response = await fetch(source);
+        if (!response.ok) throw new Error("图片读取失败");
+        const blob = await response.blob();
+        if (!blob.type.startsWith("image/")) throw new Error("不是图片");
+        const extension = blob.type.split("/")[1]?.split("+")[0] || "png";
+        await createImageFileNode(new File([blob], `clipboard-${Date.now()}.${extension}`, { type: blob.type }), position);
+        message.success(t("canvas.projectPage.clipboardImageAdded"));
+    }, [createImageFileNode, message, t]);
+
     const createDroppedImageGrid = useCallback(async (files: File[], position: Position) => {
         const project = generationProjectRef.current;
         const imported: CanvasNodeData[] = [];
@@ -1838,16 +1877,17 @@ function InfiniteCanvasPage() {
                 event.preventDefault(); return;
             }
 
-            if (isModifierShortcut && key === "c" && window.getSelection()?.toString()) return;
+            if (isModifierShortcut && key === "c" && selectionBlocksCanvasCopy()) return;
 
-            if (isModifierShortcut && !event.altKey && key === "c" && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+            if (isModifierShortcut && !event.altKey && key === "c" && canWriteClipboardImage()) {
                 const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
                 const node = selected.length === 1 && selected[0].type === CanvasNodeType.Image ? selected[0] : null;
                 if (node?.metadata?.content) {
                     event.preventDefault();
                     copySelectedNodes();
-                    const token = clipboardRef.current!.token;
-                    const image = (async () => {
+                    const clipboard = clipboardRef.current!;
+                    const text = clipboard.text || `blinkflow-canvas:${clipboard.token}`;
+                    void (async () => {
                         const stored = node.metadata?.storageKey ? await getImageBlob(node.metadata.storageKey) : null;
                         const blob: Blob | null = stored || await fetch(node.metadata!.content!).then((response) => {
                             if (!response.ok) throw new Error("图片读取失败");
@@ -1867,11 +1907,14 @@ function InfiniteCanvasPage() {
                         } finally {
                             bitmap.close();
                         }
-                    })();
-                    void navigator.clipboard.write([new ClipboardItem({
-                        "image/png": image,
-                        "text/plain": new Blob([`blinkflow-canvas:${token}`], { type: "text/plain" }),
-                    })]).catch(() => message.error("复制图片失败，请检查浏览器的剪贴板权限"));
+                    })().then(
+                        (png) => writeClipboard({ png, text }),
+                        // 图片转 PNG 失败（SVG、已失效的 blob 等）时至少把文本写进去，
+                        // 这样程序内复制粘贴仍然可用，而不是留一份旧剪贴板。
+                        () => writeClipboardText(text),
+                    ).catch(() => {
+                        void writeClipboardText(text).catch(() => message.error("复制图片失败，请检查系统的剪贴板权限"));
+                    });
                     return;
                 }
             }
@@ -1941,7 +1984,9 @@ function InfiniteCanvasPage() {
 
         const handleCopy = (event: ClipboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
-            if (event.defaultPrevented || !event.clipboardData || window.getSelection()?.toString()) return;
+            if (event.defaultPrevented || !event.clipboardData) return;
+            // 只让位于侧栏/面板里的文字选区走系统复制；在画布上拖选留存的选区不该挡住节点复制。
+            if (selectionBlocksCanvasCopy()) return;
             if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-overlay],[data-canvas-shortcuts-ignore]")) return;
             if (dragRef.current.isDraggingNode || !nodesRef.current.some((node) => selectedNodeIdsRef.current.has(node.id))) return;
             copySelectedNodes(event.clipboardData);
@@ -1953,7 +1998,13 @@ function InfiniteCanvasPage() {
             if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-overlay],[data-canvas-shortcuts-ignore],.ant-modal-wrap")) return;
 
             const data = event.clipboardData;
-            if (clipboardRef.current && (data.getData(CANVAS_IMAGE_CLIPBOARD_TYPE) === clipboardRef.current.token || data.getData("text/plain") === `blinkflow-canvas:${clipboardRef.current.token}`)) {
+            const copied = clipboardRef.current;
+            const customToken = data.getData(CANVAS_IMAGE_CLIPBOARD_TYPE);
+            const plain = data.getData("text/plain");
+            // 三选一命中即视为本程序刚复制的节点：自定义类型、写进去的可读文本，
+            // 以及没有任何可读文本时退回的 token。
+            const fromCanvas = Boolean(copied) && (customToken === copied!.token || (copied!.text !== "" && plain === copied!.text) || plain === `blinkflow-canvas:${copied!.token}`);
+            if (fromCanvas) {
                 if (pasteCopiedNodes()) event.preventDefault();
                 return;
             }
@@ -1978,6 +2029,13 @@ function InfiniteCanvasPage() {
                 }
                 return;
             }
+            // 有的程序只把图片写进 text/html（Office、部分截图工具），退回解析 <img src>。
+            const imageSource = clipboardImageSource(data.getData("text/html"));
+            if (imageSource) {
+                event.preventDefault();
+                void createImageFromClipboardSource(imageSource, getCanvasCenter()).catch(() => message.error("粘贴图片失败"));
+                return;
+            }
             const text = data.getData("text/plain");
             if (createTextNodeFromClipboard(text)) {
                 event.preventDefault();
@@ -1992,7 +2050,7 @@ function InfiniteCanvasPage() {
             window.removeEventListener("copy", handleCopy);
             window.removeEventListener("paste", handlePaste);
         };
-    }, [copySelectedNodes, deleteConnection, deleteNodes, groupSelection, pasteCopiedNodes, createImageFileNode, createDroppedImageGrid, createTextNodeFromClipboard, getCanvasCenter, message, t, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
+    }, [copySelectedNodes, deleteConnection, deleteNodes, groupSelection, pasteCopiedNodes, createImageFileNode, createImageFromClipboardSource, createDroppedImageGrid, createTextNodeFromClipboard, getCanvasCenter, message, t, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
 
     const handleConnectStart = useCallback(
         (event: ReactMouseEvent, nodeId: string, handleType: "source" | "target", portId?: string) => {

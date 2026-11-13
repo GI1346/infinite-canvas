@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, shell, ipcMain, session, net } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, session, net, clipboard, nativeImage } = require('electron');
 const http = require('node:http');
 const { createNetworkProxy } = require('./network.cjs');
 const fs = require('node:fs');
@@ -79,6 +79,27 @@ else {
     ipcMain.on('network:info', (event) => {
       try { trusted(event); event.returnValue = { proxyUrl: network.proxyUrl }; }
       catch { event.returnValue = null; }
+    });
+
+    // Clipboard runs in the main process: the renderer's async clipboard API needs window
+    // focus and a fresh user gesture, which is why copying failed whenever a menu, a dialog
+    // or another window had taken focus. Writing through Electron has neither constraint.
+    const clipboardText = (value) => typeof value === 'string' ? value.slice(0, 4 * 1024 * 1024) : '';
+    ipcMain.handle('clipboard:write', (event, payload) => {
+      trusted(event);
+      const text = clipboardText(payload?.text);
+      const png = payload?.png;
+      if (png !== undefined && !(png instanceof ArrayBuffer)) throw new Error('无效的剪贴板图片数据');
+      const image = png ? nativeImage.createFromBuffer(Buffer.from(png)) : null;
+      if (image && image.isEmpty()) throw new Error('无效的剪贴板图片数据');
+      if (!image && !text) { clipboard.clear(); return true; }
+      clipboard.write({ ...(text ? { text } : {}), ...(image ? { image } : {}) });
+      return true;
+    });
+    ipcMain.handle('clipboard:read', (event) => {
+      trusted(event);
+      const image = clipboard.readImage();
+      return { text: clipboard.readText(), png: image.isEmpty() ? null : image.toPNG() };
     });
     let harnessSelection = null;
     const currentHarnessModels = () => harnessModels?.projectId === harnessProjectId ? harnessModels : null;
