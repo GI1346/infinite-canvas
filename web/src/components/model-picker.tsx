@@ -36,13 +36,11 @@ export function useCanvasMenuZoom(open: boolean) {
             if (trigger && trigger.offsetWidth) {
                 // Menus portalled to body are not inside the zoomed canvas world;
                 // only scale them for triggers that actually live in [data-canvas-world].
-                // The config panel's content layer has its own constant zoom, which must
-                // be removed so menus follow the canvas zoom only and stay at their
-                // normal size instead of blowing up with the panel.
+                // The config panel content layer already counter-scales the canvas zoom,
+                // so a menu opened there just follows its own rendered scale.
                 const inCanvasWorld = Boolean(trigger.closest("[data-canvas-world]"));
-                const panelContent = trigger.closest("[data-node-panel-content]");
-                const contentZoom = panelContent ? Number(getComputedStyle(panelContent).zoom) || 1 : 1;
-                const next = inCanvasWorld ? trigger.getBoundingClientRect().width / trigger.offsetWidth / contentZoom / 0.39 : 1;
+                const own = trigger.getBoundingClientRect().width / trigger.offsetWidth;
+                const next = inCanvasWorld ? (trigger.closest("[data-node-panel-content]") ? own : own / 0.39) : 1;
                 if (Number.isFinite(next) && next > 0) setZoom((current) => Math.abs(current - next) > 0.001 ? next : current);
             }
             frame = requestAnimationFrame(update);

@@ -6,6 +6,7 @@ import { Button, Modal } from "antd";
 import { ModelPicker, useCanvasMenuZoom } from "@/components/model-picker";
 import { resolveModelForCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { useCanvasImageSettingsStore } from "@/stores/canvas/use-canvas-image-settings-store";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions } from "@/lib/media-size";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { stopWorkflowControlDrag } from "./workflow-node-interactions";
@@ -40,7 +41,11 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
     const qualityOptions = imageQualityOptions(config.model), quality = imageQualityForModel(config.model, config.quality);
     const compressionEnabled = meta.imageCompressionEnabled === true, compressionResolution = meta.imageCompressionResolution ?? "2k", compressionMaxMb = meta.imageCompressionMaxMb ?? 1;
     const ratio = meta.imageAspectRatio || inferMediaRatio(config.size), resolution = meta.imageResolution || inferMediaScale(config.size);
-    const patch = (next: Partial<CanvasNodeMetadata>) => onConfigChange(node.id, next);
+    const patch = (next: Partial<CanvasNodeMetadata>) => {
+        // 配置栏里的选择立即进入记忆，之后新建的图片 / 生成节点直接沿用。
+        useCanvasImageSettingsStore.getState().remember(next);
+        onConfigChange(node.id, next);
+    };
     const inputStyle = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 10 };
     const editor = (large: boolean) => <CanvasConfigComposer nodeId={node.id} nodes={nodes} inputs={inputs} connectedNodes={connectedNodes} value={value} embedded expanded={large} fontSize={large ? 16 : 14} onChange={(composerContent) => patch({ composerContent })} onClose={() => setExpanded(false)} onDisconnectReference={onDisconnectReference} onAddImageReference={onAddImageReference} onStartReferenceSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection(nodeId); }} onReorderReferences={isRunning ? undefined : (referenceNodeOrder) => patch({ referenceNodeOrder })} />;
     return <div className="thin-scrollbar flex h-full min-h-0 w-full flex-col overflow-y-auto rounded-[20px] text-sm" style={{ background: theme.node.panel, color: theme.node.text }}>

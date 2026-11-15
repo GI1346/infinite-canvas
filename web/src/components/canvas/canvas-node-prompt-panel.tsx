@@ -70,6 +70,12 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
         onGenerate(node.id, mode, text);
     };
 
+    // 图片节点的模型 / 尺寸 / 质量 / 张数同样进入配置记忆，新建节点时沿用。
+    const applyImageConfig = (patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => {
+        useCanvasImageSettingsStore.getState().remember(patch);
+        onConfigChange(node.id, patch);
+    };
+
     const openExpandedEditor = () => {
         setExpanded(true);
     };
@@ -101,17 +107,12 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
                     </Tooltip>
                     {mode === "image" ? (
                         <>
-                            <ModelPicker groupByChannel config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="image" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
+                            <ModelPicker groupByChannel config={config} value={config.model} onChange={(model) => applyImageConfig({ model })} capability="image" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
                             <CanvasImageSettingsPopover
                                 config={config}
                                 placement="topLeft"
                                 buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3"
-                                onConfigChange={(key, value) => {
-                                    onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : key === "size" ? { size: value, imageResolution: inferMediaScale(value) } : { [key]: value });
-                                    if (node.type === CanvasNodeType.Image && (key === "size" || key === "quality")) {
-                                        useCanvasImageSettingsStore.getState().remember({ size: key === "size" ? value : config.size, quality: key === "quality" ? value : config.quality });
-                                    }
-                                }}
+                                onConfigChange={(key, value) => applyImageConfig(key === "count" ? { count: Number(value) || 1 } : key === "size" ? { size: value, imageResolution: inferMediaScale(value) } : { [key]: value })}
                                 onMissingConfig={() => openConfigDialog(true)}
                                 onOpenChange={onImageSettingsOpenChange}
                             />

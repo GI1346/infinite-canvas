@@ -12,12 +12,14 @@
 
 type NativeClipboardPayload = { text?: string; png?: ArrayBuffer };
 type NativeClipboardRead = { text: string; png: Uint8Array | ArrayBuffer | null };
+type NativeClipboardPeek = { text: string; hasImage: boolean };
 
 declare global {
     interface Window {
         blinkflowClipboard?: {
             write: (payload: NativeClipboardPayload) => Promise<boolean>;
             read: () => Promise<NativeClipboardRead>;
+            peek?: () => NativeClipboardPeek | null;
         };
     }
 }
@@ -127,4 +129,23 @@ export async function readClipboardText(): Promise<string> {
         }
     }
     return "";
+}
+
+/**
+ * 同步读一眼系统剪贴板：桌面版走主进程，网页版没有这个能力（返回 null）。
+ * 只在 Ctrl+V 的判断里用，拿不到的调用方继续交给浏览器默认粘贴。
+ */
+export function peekNativeClipboard(): NativeClipboardPeek | null {
+    const bridge = native();
+    if (!bridge?.peek) return null;
+    try {
+        return bridge.peek() || null;
+    } catch {
+        return null;
+    }
+}
+
+/** 文本跨程序往返时换行会被平台改成 CRLF，比对前先统一。 */
+export function normalizeClipboardText(text: string) {
+    return text.replace(/\r\n?/g, "\n").trim();
 }

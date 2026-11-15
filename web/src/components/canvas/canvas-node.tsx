@@ -23,11 +23,11 @@ import { useTranslation } from "react-i18next";
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const selectionBlue = "#2f80ff";
 // 节点下方的配置窗是屏幕上的固定浮层：不参与画布 zoom，也不随内容撑大。
-const NODE_PANEL_WIDTH = 1700;
-const NODE_PANEL_HEIGHT = 1000;
-// 面板内容按 680×400 的自然布局设计，整体放大 2.5 倍铺满 1700×1000 的画布框。
-// 框和内容都随画布缩放，只是内容的设计基准比框小，视觉比例保持稳定。
-const NODE_PANEL_CONTENT_ZOOM = 2.5;
+const NODE_PANEL_WIDTH = 700;
+const NODE_PANEL_HEIGHT = 412;
+// 面板内容按 680×400 的自然布局设计，按框宽等比铺满；整块反向抵消画布 zoom，屏幕上尺寸恒定。
+const NODE_PANEL_CONTENT_WIDTH = 680;
+const NODE_PANEL_CONTENT_HEIGHT = 400;
 
 type CanvasNodeProps = {
     data: CanvasNodeData;
@@ -477,9 +477,8 @@ export const CanvasNode = React.memo(function CanvasNode({
             {!referenceSelectionState && !isGroup && data.type !== "dxos:table" ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             {!referenceSelectionState && (definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config ? <ConnectionHandleDot side="right" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
 
-            {/* Panel lives in the canvas world: pans with the node, scales with the canvas zoom.
-                The box is fixed in canvas units; the inner layer counter-scales so text and
-                controls keep their natural, readable size at any zoom level. */}
+            {/* Panel floats in the world so it pans with the node, but its size is fixed in screen pixels:
+                the box is divided by the canvas zoom, and the content layer zooms back up by the same factor. */}
             {showPanel && !isGroup && data.type !== CanvasNodeType.Config && renderPanel ? (
                 <div
                     data-node-panel={data.id}
@@ -488,9 +487,9 @@ export const CanvasNode = React.memo(function CanvasNode({
                     data-canvas-shortcuts-ignore
                     className="absolute left-1/2 top-full z-[70] overflow-hidden rounded-[20px] border shadow-2xl"
                     style={{
-                        width: NODE_PANEL_WIDTH,
-                        height: NODE_PANEL_HEIGHT,
-                        marginTop: 16,
+                        width: NODE_PANEL_WIDTH / scale,
+                        height: NODE_PANEL_HEIGHT / scale,
+                        marginTop: 16 / scale,
                         transform: "translateX(-50%)",
                         background: theme.node.panel,
                         color: theme.node.text,
@@ -501,7 +500,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     onWheel={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
                 >
-                    <div data-node-panel-content style={{ width: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_ZOOM, height: NODE_PANEL_HEIGHT / NODE_PANEL_CONTENT_ZOOM, zoom: NODE_PANEL_CONTENT_ZOOM }}>
+                    <div data-node-panel-content style={{ width: NODE_PANEL_CONTENT_WIDTH, height: NODE_PANEL_CONTENT_HEIGHT, zoom: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH / scale }}>
                         {renderPanel(data)}
                     </div>
                 </div>

@@ -12,9 +12,15 @@ contextBridge.exposeInMainWorld('blinkflowDownloads', { saveImages: (files) => i
 contextBridge.exposeInMainWorld('blinkflowClipboard', {
   write: (payload) => ipcRenderer.invoke('clipboard:write', payload),
   read: () => ipcRenderer.invoke('clipboard:read'),
+  peek: () => ipcRenderer.sendSync('clipboard:peek'),
 });
 
 contextBridge.exposeInMainWorld('blinkflowTheme', { set: (theme) => ipcRenderer.invoke('theme:set', theme) });
+
+contextBridge.exposeInMainWorld('blinkflowApp', {
+  onCloseRequest: (handler) => { const listener = () => handler(); ipcRenderer.on('app:close-request', listener); return () => ipcRenderer.removeListener('app:close-request', listener); },
+  confirmClose: () => ipcRenderer.send('app:confirm-close'),
+});
 
 contextBridge.exposeInMainWorld('blinkflowHarness', {
   open: (options) => ipcRenderer.invoke('harness:open', options),

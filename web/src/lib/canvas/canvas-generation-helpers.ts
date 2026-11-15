@@ -4,6 +4,7 @@ import i18n from "@/i18n";
 import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { imageMetadata, referenceUrl } from "@/lib/canvas/canvas-node-factory";
+import { useCanvasImageSettingsStore, type CanvasGenerationSettings } from "@/stores/canvas/use-canvas-image-settings-store";
 import type { NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import type { CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
@@ -91,6 +92,17 @@ export async function hydrateAssistantImages(sessions: CanvasAssistantSession[])
 
 export function getGenerationCount(count: string) {
     return Math.max(1, Math.min(15, Math.floor(Math.abs(Number(count)) || 1)));
+}
+
+/** 新建图片 / 生成节点的默认配置：有记忆就用记忆里的选择，没有才落到全局设置。 */
+export function newGenerationMetadata(config: AiConfig): CanvasNodeMetadata {
+    const remembered: CanvasGenerationSettings = useCanvasImageSettingsStore.getState().settings || {};
+    return {
+        ...remembered,
+        model: remembered.model || config.imageModel || config.model,
+        size: remembered.size || config.size,
+        count: remembered.count || getGenerationCount(config.canvasImageCount || config.count),
+    };
 }
 
 export function getInputSummary(inputs: NodeGenerationInput[]) {

@@ -10,6 +10,7 @@ import "dayjs/locale/zh-cn";
 import { useTranslation } from "react-i18next";
 
 import { ClientRootInit } from "@/components/layout/client-root-init";
+import { AppCloseGuard } from "@/components/layout/app-close-guard";
 import type { AppLocale } from "@/i18n";
 import { getAntThemeConfig } from "@/lib/app-theme";
 import { syncNativeTheme } from "@/lib/native-theme";
@@ -51,6 +52,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
                 <App>
                     <QueryClientProvider client={queryClient}>
                         <ClientRootInit>{children}</ClientRootInit>
+                        <AppCloseGuard />
                     </QueryClientProvider>
                 </App>
             </ProConfigProvider>

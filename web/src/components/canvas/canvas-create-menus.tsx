@@ -98,25 +98,29 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
         return () => document.removeEventListener("pointerdown", handlePointerDown, true);
     }, [onClose]);
     return (
-        <div
-            ref={menuRef}
-            className="absolute z-[120] max-h-[70vh] w-[300px] overflow-y-auto rounded-2xl border p-2 shadow-2xl backdrop-blur thin-scrollbar"
-            data-canvas-no-zoom
-            style={{ left: position.x, top: position.y, transform: `scale(${1 / scale})`, transformOrigin: "top left", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
-            onPointerDown={(event) => event.stopPropagation()}
-        >
-            <div className="mb-1.5 flex items-center justify-between px-1">
-                <span className="text-sm font-medium" style={{ color: theme.node.muted }}>
-                    {t("canvas.createMenu.select")}
-                </span>
-                <button type="button" className="grid size-7 place-items-center rounded-lg opacity-55 transition hover:opacity-100" onClick={onClose} aria-label={t("canvas.createMenu.close")}>
-                    <X className="size-4" />
-                </button>
-            </div>
-            <div className="grid gap-0.5">
-                {definitions.map((def) => (
-                    <ConnectionCreateOption key={def.type} theme={theme} icon={def.icon} title={def.type === CanvasNodeType.Image ? "生成节点" : getNodeSpec(def.type).title} description={def.type === CanvasNodeType.Image ? "输入文字与参考图，生成结果就在节点里" : def.description} onClick={() => onCreate(def.type)} />
-                ))}
+        // 外层只负责锚定画布坐标；内层用 zoom 抵消画布缩放，菜单尺寸与文字始终是屏幕像素，
+        // 又不像 transform 反向缩放那样把布局压到极窄，低缩放时条目不会重叠。
+        <div className="absolute z-[120]" style={{ left: position.x, top: position.y }}>
+            <div
+                ref={menuRef}
+                className="w-[300px] overflow-y-auto rounded-2xl border p-2 shadow-2xl backdrop-blur thin-scrollbar"
+                data-canvas-no-zoom
+                style={{ zoom: 1 / Math.max(scale, 0.01), maxHeight: "70vh", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
+                onPointerDown={(event) => event.stopPropagation()}
+            >
+                <div className="mb-1.5 flex items-center justify-between px-1">
+                    <span className="text-sm font-medium" style={{ color: theme.node.muted }}>
+                        {t("canvas.createMenu.select")}
+                    </span>
+                    <button type="button" className="grid size-7 place-items-center rounded-lg opacity-55 transition hover:opacity-100" onClick={onClose} aria-label={t("canvas.createMenu.close")}>
+                        <X className="size-4" />
+                    </button>
+                </div>
+                <div className="grid gap-0.5">
+                    {definitions.map((def) => (
+                        <ConnectionCreateOption key={def.type} theme={theme} icon={def.icon} title={def.type === CanvasNodeType.Image ? "生成节点" : getNodeSpec(def.type).title} description={def.type === CanvasNodeType.Image ? "输入文字与参考图，生成结果就在节点里" : def.description} onClick={() => onCreate(def.type)} />
+                    ))}
+                </div>
             </div>
         </div>
     );

@@ -19,7 +19,7 @@ import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
-import { canWriteClipboardImage, writeClipboard, writeClipboardText } from "@/lib/clipboard";
+import { canWriteClipboardImage, hasNativeClipboard, normalizeClipboardText, peekNativeClipboard, readClipboardImages, writeClipboard, writeClipboardText } from "@/lib/clipboard";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -85,6 +85,7 @@ import {
     imageExtension,
     isAudioFile,
     isGenerationCanceled,
+    newGenerationMetadata,
     resetInterruptedGeneration,
     resolveMetadataReferences,
     sourceNodeReferenceImages,
@@ -149,16 +150,25 @@ type CanvasClipboard = {
     token: string;
     /** 写进系统剪贴板的纯文本；粘贴时用它判断这份剪贴板是不是本程序刚复制的。 */
     text: string;
+    /** 只记节点：普通粘贴不带连线，保留连线走 Alt 拖拽。 */
     nodes: CanvasNodeData[];
-    connections: CanvasConnection[];
 };
+
+/** 这份剪贴板是不是本程序刚复制的节点：兜底 token，或与复制时写入的可读文本一致。 */
+function matchesCopiedNodes(copied: CanvasClipboard, text: string) {
+    if (text === `blinkflow-canvas:${copied.token}`) return true;
+    const normalized = normalizeClipboardText(text);
+    return normalized !== "" && normalized === normalizeClipboardText(copied.text);
+}
 
 type ConnectionDropTarget = {
     nodeId: string | null;
     isNearNode: boolean;
 };
 
-type CanvasHistoryEntry = Pick<CanvasClipboard, "nodes" | "connections"> & {
+type CanvasHistoryEntry = {
+    nodes: CanvasNodeData[];
+    connections: CanvasConnection[];
     chatSessions: CanvasAssistantSession[];
     activeChatId: string | null;
     backgroundMode: CanvasBackgroundMode;
@@ -241,6 +251,8 @@ function InfiniteCanvasPage() {
     const imageInputRef = useRef<HTMLInputElement>(null);
     const uploadTargetRef = useRef<{ nodeId?: string; position?: Position } | null>(null);
     const clipboardRef = useRef<CanvasClipboard | null>(null);
+    // 记录 Ctrl+V 按键自己粘过的时刻，避免同一次按键又走一遍 paste 事件重复粘贴。
+    const clipboardPasteGuardRef = useRef(0);
     const historyRef = useRef<{ past: CanvasHistoryEntry[]; future: CanvasHistoryEntry[] }>({ past: [], future: [] });
     const lastHistoryRef = useRef<CanvasHistoryEntry | null>(null);
     const historyCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -784,7 +796,7 @@ function InfiniteCanvasPage() {
 
     const createConnectedNode = useCallback(
         (type: string, pending: PendingConnectionCreate) => {
-            const metadata = (type === CanvasNodeType.Config || type === CanvasNodeType.Image) ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
+            const metadata = (type === CanvasNodeType.Config || type === CanvasNodeType.Image) ? newGenerationMetadata(effectiveConfig) : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
             newNode.position.x = pending.position.x - (pending.connection.handleType === "target" ? newNode.width : 0);
             const graph = [...nodesRef.current, newNode];
@@ -1005,11 +1017,7 @@ function InfiniteCanvasPage() {
             const targetPosition = position || getCanvasCenter();
             const configMetadata =
                 type === CanvasNodeType.Config || type === CanvasNodeType.Image
-                    ? {
-                          model: effectiveConfig.imageModel || effectiveConfig.model,
-                          size: effectiveConfig.size,
-                          count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
-                      }
+                    ? newGenerationMetadata(effectiveConfig)
                     : undefined;
             const newNode = createCanvasNode(type, targetPosition, configMetadata);
 
@@ -1247,17 +1255,20 @@ function InfiniteCanvasPage() {
             .filter(Boolean)
             .join("\n");
         const token = nanoid();
+        const plain = text || `blinkflow-canvas:${token}`;
 
         clipboardRef.current = {
             token,
             text,
             nodes: copiedNodes,
-            connections: connectionsRef.current.filter((connection) => selectedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
         };
         if (data) {
             data.setData(CANVAS_IMAGE_CLIPBOARD_TYPE, token);
-            data.setData("text/plain", text || `blinkflow-canvas:${token}`);
+            data.setData("text/plain", plain);
         }
+        // 桌面版必须自己写系统剪贴板：copy 事件里的 clipboardData 只在页面内可见，
+        // 而 Ctrl+V 的判定读的是系统剪贴板，不写就会把刚复制的节点当成外部内容。
+        if (hasNativeClipboard()) void writeClipboardText(plain).catch(() => { });
     }, []);
 
     const readCopiedImages = useCallback((data: DataTransfer): ReferenceImage[] => {
@@ -1304,21 +1315,8 @@ function InfiniteCanvasPage() {
             return { ...node, metadata: { ...node.metadata, groupId: idMap.get(groupId) } };
         });
 
-        const nextConnections = clipboard.connections.flatMap((connection, index) => {
-            const toNodeId = idMap.get(connection.toNodeId);
-            if (!toNodeId) return [];
-            return [
-                {
-                    ...connection,
-                    id: `conn-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
-                    fromNodeId: idMap.get(connection.fromNodeId) ?? connection.fromNodeId,
-                    toNodeId,
-                },
-            ];
-        });
-
+        // 普通粘贴只复制节点本身，连线不带过来；需要连同连线一起复制时用 Alt 拖拽。
         setNodes((prev) => [...prev, ...pastedNodes]);
-        setConnections((prev) => [...prev, ...nextConnections]);
         setSelectedNodeIds(new Set(pastedNodes.map((node) => node.id)));
         setSelectedConnectionId(null);
         setContextMenu(null);
@@ -1890,39 +1888,75 @@ function InfiniteCanvasPage() {
             if (isModifierShortcut && !event.altKey && key === "c" && canWriteClipboardImage()) {
                 const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
                 const node = selected.length === 1 && selected[0].type === CanvasNodeType.Image ? selected[0] : null;
-                if (node?.metadata?.content) {
+                // 桌面版由这里统一接管节点复制：DOM copy 事件在桌面外壳里不一定能到达页面，
+                // 内容落不到系统剪贴板时，Ctrl+V 就会把上一次的外部内容粘出来。
+                if (selected.length && (hasNativeClipboard() || node?.metadata?.content)) {
                     event.preventDefault();
                     copySelectedNodes();
-                    const clipboard = clipboardRef.current!;
-                    const text = clipboard.text || `blinkflow-canvas:${clipboard.token}`;
-                    void (async () => {
-                        const stored = node.metadata?.storageKey ? await getImageBlob(node.metadata.storageKey) : null;
-                        const blob: Blob | null = stored || await fetch(node.metadata!.content!).then((response) => {
-                            if (!response.ok) throw new Error("图片读取失败");
-                            return response.blob();
+                    if (node?.metadata?.content) {
+                        const clipboard = clipboardRef.current!;
+                        const text = clipboard.text || `blinkflow-canvas:${clipboard.token}`;
+                        void (async () => {
+                            const stored = node.metadata?.storageKey ? await getImageBlob(node.metadata.storageKey) : null;
+                            const blob: Blob | null = stored || await fetch(node.metadata!.content!).then((response) => {
+                                if (!response.ok) throw new Error("图片读取失败");
+                                return response.blob();
+                            });
+                            if (!blob) throw new Error("图片读取失败");
+                            if (blob.type === "image/png") return blob;
+                            const bitmap = await createImageBitmap(blob);
+                            try {
+                                const canvas = document.createElement("canvas");
+                                canvas.width = bitmap.width;
+                                canvas.height = bitmap.height;
+                                const context = canvas.getContext("2d");
+                                if (!context) throw new Error("图片读取失败");
+                                context.drawImage(bitmap, 0, 0);
+                                return await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("图片转换失败")), "image/png"));
+                            } finally {
+                                bitmap.close();
+                            }
+                        })().then(
+                            (png) => writeClipboard({ png, text }),
+                            // 图片转 PNG 失败（SVG、已失效的 blob 等）时至少把文本写进去，
+                            // 这样程序内复制粘贴仍然可用，而不是留一份旧剪贴板。
+                            () => writeClipboardText(text),
+                        ).catch(() => {
+                            void writeClipboardText(text).catch(() => message.error("复制图片失败，请检查系统的剪贴板权限"));
                         });
-                        if (!blob) throw new Error("图片读取失败");
-                        if (blob.type === "image/png") return blob;
-                        const bitmap = await createImageBitmap(blob);
-                        try {
-                            const canvas = document.createElement("canvas");
-                            canvas.width = bitmap.width;
-                            canvas.height = bitmap.height;
-                            const context = canvas.getContext("2d");
-                            if (!context) throw new Error("图片读取失败");
-                            context.drawImage(bitmap, 0, 0);
-                            return await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("图片转换失败")), "image/png"));
-                        } finally {
-                            bitmap.close();
-                        }
-                    })().then(
-                        (png) => writeClipboard({ png, text }),
-                        // 图片转 PNG 失败（SVG、已失效的 blob 等）时至少把文本写进去，
-                        // 这样程序内复制粘贴仍然可用，而不是留一份旧剪贴板。
-                        () => writeClipboardText(text),
-                    ).catch(() => {
-                        void writeClipboardText(text).catch(() => message.error("复制图片失败，请检查系统的剪贴板权限"));
-                    });
+                    }
+                    return;
+                }
+            }
+
+            if (isModifierShortcut && !event.altKey && key === "v" && !target?.closest(".ant-modal-wrap")) {
+                // 桌面版 Ctrl+V 有可能被系统菜单的粘贴命令吃掉，页面收不到 paste 事件（表现为按了没反应）。
+                // 这里同步看一眼系统剪贴板：能自己粘就先粘，读不到再交给系统默认粘贴。
+                const peek = peekNativeClipboard();
+                const plain = peek?.text || "";
+                const copied = clipboardRef.current;
+                if (peek && copied && matchesCopiedNodes(copied, plain)) {
+                    event.preventDefault();
+                    clipboardPasteGuardRef.current = Date.now();
+                    pasteCopiedNodes();
+                    return;
+                }
+                if (peek?.hasImage) {
+                    event.preventDefault();
+                    clipboardPasteGuardRef.current = Date.now();
+                    void (async () => {
+                        const [blob] = await readClipboardImages();
+                        if (!blob) return;
+                        const extension = blob.type.split("/")[1]?.split("+")[0] || "png";
+                        await createImageFileNode(new File([blob], `clipboard-${Date.now()}.${extension}`, { type: blob.type }), getCanvasCenter());
+                        message.success(t("canvas.projectPage.clipboardImageAdded"));
+                    })().catch(() => message.error("粘贴图片失败"));
+                    return;
+                }
+                if (plain.trim()) {
+                    event.preventDefault();
+                    clipboardPasteGuardRef.current = Date.now();
+                    if (createTextNodeFromClipboard(plain)) message.success(t("canvas.projectPage.clipboardTextAdded"));
                     return;
                 }
             }
@@ -2002,6 +2036,8 @@ function InfiniteCanvasPage() {
         };
         const handlePaste = (event: ClipboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
+            // 同一次按键已经由 Ctrl+V 的按键处理粘过时，跳过随后派发的 paste 事件。
+            if (Date.now() - clipboardPasteGuardRef.current < 500) { event.preventDefault(); return; }
             if (event.defaultPrevented || !event.clipboardData || dragRef.current.isDraggingNode) return;
             if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-overlay],[data-canvas-shortcuts-ignore],.ant-modal-wrap")) return;
 
@@ -2009,9 +2045,8 @@ function InfiniteCanvasPage() {
             const copied = clipboardRef.current;
             const customToken = data.getData(CANVAS_IMAGE_CLIPBOARD_TYPE);
             const plain = data.getData("text/plain");
-            // 三选一命中即视为本程序刚复制的节点：自定义类型、写进去的可读文本，
-            // 以及没有任何可读文本时退回的 token。
-            const fromCanvas = Boolean(copied) && (customToken === copied!.token || (copied!.text !== "" && plain === copied!.text) || plain === `blinkflow-canvas:${copied!.token}`);
+            // 命中即视为本程序刚复制的节点：自定义类型，或与复制时写入的可读文本 / 兜底 token 一致。
+            const fromCanvas = Boolean(copied) && (customToken === copied!.token || matchesCopiedNodes(copied!, plain));
             if (fromCanvas) {
                 if (pasteCopiedNodes()) event.preventDefault();
                 return;
@@ -3483,9 +3518,7 @@ function InfiniteCanvasPage() {
                 },
                 {
                     prompt: "",
-                    model: effectiveConfig.imageModel || effectiveConfig.model,
-                    size: effectiveConfig.size,
-                    count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
+                    ...newGenerationMetadata(effectiveConfig),
                 },
             );
             const connection = { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: configNode.id };

@@ -9,7 +9,9 @@ import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, ty
 
 export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
     const spec = getNodeSpec(type);
-    const initialMetadata = { ...spec.metadata, ...(type === CanvasNodeType.Image ? useCanvasImageSettingsStore.getState().settings : undefined), ...metadata };
+    // 图片节点和生成节点共用同一份配置记忆：新建时沿用上一次在配置栏选好的项。
+    const remembered = type === CanvasNodeType.Image || type === CanvasNodeType.Config ? useCanvasImageSettingsStore.getState().settings : undefined;
+    const initialMetadata = { ...spec.metadata, ...remembered, ...metadata };
     const dimensions = type === CanvasNodeType.Image ? nodeSizeFromRatio(initialMetadata.size || "", spec.width, spec.height) || spec : spec;
     const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 

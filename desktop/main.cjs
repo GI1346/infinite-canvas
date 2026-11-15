@@ -25,7 +25,7 @@ try {
 }
 const root = path.join(__dirname, 'web');
 const mime = { '.html': 'text/html; charset=utf-8', '.webmanifest': 'application/manifest+json', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
-let server, harness, harnessWindow, harnessOpening, harnessBridge, harnessProjectId, quitting = false;
+let server, harness, harnessWindow, harnessOpening, harnessBridge, harnessProjectId, quitting = false, allowClose = false;
 const harnessRequests = new Map();
 let harnessModels = null;
 // The bridge receives labels and IDs only; credentials stay in the main canvas renderer.
@@ -81,6 +81,20 @@ else {
       catch { event.returnValue = null; }
     });
 
+    // Close is confirmed inside the app so the dialog follows the app theme; the renderer only
+    // gets to say "yes" or nothing at all. A second X while the dialog is open is ignored.
+    win.on('close', (event) => {
+      if (allowClose || quitting) return;
+      event.preventDefault();
+      if (win.webContents.isDestroyed()) { allowClose = true; win.destroy(); return; }
+      win.webContents.send('app:close-request');
+    });
+    ipcMain.on('app:confirm-close', (event) => {
+      try { trusted(event); } catch { return; }
+      allowClose = true;
+      app.quit();
+    });
+
     // Clipboard runs in the main process: the renderer's async clipboard API needs window
     // focus and a fresh user gesture, which is why copying failed whenever a menu, a dialog
     // or another window had taken focus. Writing through Electron has neither constraint.
@@ -100,6 +114,12 @@ else {
       trusted(event);
       const image = clipboard.readImage();
       return { text: clipboard.readText(), png: image.isEmpty() ? null : image.toPNG() };
+    });
+    // Ctrl+V 时要先同步判断这份剪贴板能不能由画布自己粘：preventDefault 只能同步调用，
+    // 异步读完再决定就已经晚了。所以这里只回文本和"有没有图片"，不搬大图字节。
+    ipcMain.on('clipboard:peek', (event) => {
+      try { trusted(event); event.returnValue = { text: clipboard.readText(), hasImage: !clipboard.readImage().isEmpty() }; }
+      catch { event.returnValue = null; }
     });
 
     // Native menus (including the <select> popup on Windows) are drawn by the platform and
@@ -294,5 +314,7 @@ else {
     win.show();
   }).catch((error) => { dialog.showErrorBox('启动失败', String(error.message || error)); app.quit(); });
   app.on('window-all-closed', () => app.quit());
+  // 关机 / 注销时不再拦着问，系统会话结束就让它结束。
+  app.on('query-session-end', () => { allowClose = true; });
   app.on('before-quit', () => { quitting = true; harness?.stop(); harnessBridge?.server.close(); server?.close(); });
 }
