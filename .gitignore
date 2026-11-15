@@ -34,3 +34,9 @@ desktop/release-local-20261105-config-preview/
 .preview/
 desktop/.checks/
 desktop/release-local*/
+
+# 带版本号的打包输出目录（每个约 1.5G，不进仓库）
+desktop/release-*/
+
+# 本地工具的项目记忆/缓存
+.workbuddy/
