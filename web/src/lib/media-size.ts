@@ -39,6 +39,18 @@ export function parseAspectRatio(value: string) {
     return { width, height };
 }
 
+/** 比例化成整数（1.5:1 → 3:2），再约分，用于按比例算出精确像素尺寸。 */
+export function integerAspectRatio(width: number, height: number) {
+    let w = width, h = height;
+    for (let i = 0; i < 3 && (!Number.isInteger(w) || !Number.isInteger(h)); i++) { w *= 10; h *= 10; }
+    const divisor = gcd(Math.round(w), Math.round(h)) || 1;
+    return { width: Math.max(1, Math.round(w) / divisor), height: Math.max(1, Math.round(h) / divisor) };
+}
+
+function gcd(a: number, b: number): number {
+    return b ? gcd(b, a % b) : Math.abs(a);
+}
+
 export const videoRatioOptions = [
     { value: "1:1", width: 1, height: 1 },
     { value: "3:4", width: 3, height: 4 },
@@ -78,10 +90,13 @@ export function inferMediaScale(size: string, storedScale?: string) {
 export function inferMediaRatio(size: string, fallback = "1:1") {
     if (!size || size === "auto") return "auto";
     if (mediaRatioOptions.some((item) => item.value === size)) return size;
-    const pixels = parsePixelSize(size) || parseAspectRatio(size);
+    // 显式的比例字符串（9:1、6:1 这类不在预设里的）原样返回，不再吸附到最接近的 3:1。
+    const ratio = parseAspectRatio(size);
+    if (ratio) return `${formatRatioPart(ratio.width)}:${formatRatioPart(ratio.height)}`;
+    const pixels = parsePixelSize(size);
     if (!pixels) return fallback;
     const target = pixels.width / pixels.height;
-    return mediaRatioOptions
+    const nearest = mediaRatioOptions
         .filter((item) => item.value !== "auto")
         .reduce((best, item) => {
             const current = item.width / item.height;
@@ -89,13 +104,33 @@ export function inferMediaRatio(size: string, fallback = "1:1") {
             const bestRatio = (bestOption?.width || 1) / Math.max(1, bestOption?.height || 1);
             return Math.abs(current - target) < Math.abs(bestRatio - target) ? item.value : best;
         }, fallback);
+    const nearestOption = mediaRatioOptions.find((option) => option.value === nearest);
+    // 预设尺寸（2k/4k 的 3:2 是 2048x1360 这种非整比）误差很小，仍按预设显示；
+    // 自定义比例算出来的尺寸是精确整数比，直接显示约分后的真实比例。
+    if (nearestOption && Math.abs(nearestOption.width / nearestOption.height / target - 1) <= 0.005) return nearest;
+    const reduced = integerAspectRatio(pixels.width, pixels.height);
+    return `${reduced.width}:${reduced.height}`;
 }
+
+function formatRatioPart(value: number) {
+    return String(Math.round(value * 1000) / 1000);
+}
+
+/** 自定义比例按 8 的倍数取整，保证尺寸仍是 8 的倍数且比例精确（9:1、6:1 不会有小数残差）。 */
+const RATIO_LONG_SIDE: Record<string, number> = { "1k": 1536, "2k": 2048, "4k": 3840 };
 
 export function computeMediaSize(scale: string, ratio: string) {
     if (ratio === "auto" || !ratio) return "auto";
     const normalizedScale = normalizeMediaScale(scale);
     if (normalizedScale === "auto") return ratio;
-    return imageSizePresets[normalizedScale][ratio];
+    const preset = imageSizePresets[normalizedScale]?.[ratio];
+    if (preset) return preset;
+    const parsed = parseAspectRatio(ratio);
+    if (!parsed) return ratio;
+    const exact = integerAspectRatio(parsed.width, parsed.height);
+    const longSide = RATIO_LONG_SIDE[normalizedScale] || RATIO_LONG_SIDE["1k"];
+    const step = Math.max(8, Math.floor(longSide / Math.max(exact.width, exact.height) / 8) * 8);
+    return `${exact.width * step}x${exact.height * step}`;
 }
 
 export function readMediaDimensions(size: string, scale: string, ratio: string) {

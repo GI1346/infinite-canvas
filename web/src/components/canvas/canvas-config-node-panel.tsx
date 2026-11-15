@@ -7,7 +7,7 @@ import { ModelPicker, useCanvasMenuZoom } from "@/components/model-picker";
 import { resolveModelForCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useCanvasImageSettingsStore } from "@/stores/canvas/use-canvas-image-settings-store";
-import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions } from "@/lib/media-size";
+import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, parseAspectRatio } from "@/lib/media-size";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { stopWorkflowControlDrag } from "./workflow-node-interactions";
 import { CanvasConfigComposer } from "./canvas-config-composer";
@@ -47,7 +47,7 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
         onConfigChange(node.id, next);
     };
     const inputStyle = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 10 };
-    const editor = (large: boolean) => <CanvasConfigComposer nodeId={node.id} nodes={nodes} inputs={inputs} connectedNodes={connectedNodes} value={value} embedded expanded={large} fontSize={large ? 16 : 14} onChange={(composerContent) => patch({ composerContent })} onClose={() => setExpanded(false)} onDisconnectReference={onDisconnectReference} onAddImageReference={onAddImageReference} onStartReferenceSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection(nodeId); }} onReorderReferences={isRunning ? undefined : (referenceNodeOrder) => patch({ referenceNodeOrder })} />;
+    const editor = (large: boolean) => <CanvasConfigComposer nodeId={node.id} nodes={nodes} inputs={inputs} connectedNodes={connectedNodes} value={value} embedded expanded={large} fontSize={large ? 16 : 14} onChange={(composerContent) => patch({ composerContent })} onRun={isRunning || (!value.trim() && !inputs.length) ? undefined : () => onGenerate(node.id)} onClose={() => setExpanded(false)} onDisconnectReference={onDisconnectReference} onAddImageReference={onAddImageReference} onStartReferenceSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection(nodeId); }} onReorderReferences={isRunning ? undefined : (referenceNodeOrder) => patch({ referenceNodeOrder })} />;
     return <div className="thin-scrollbar flex h-full min-h-0 w-full flex-col overflow-y-auto rounded-[20px] text-sm" style={{ background: theme.node.panel, color: theme.node.text }}>
         <div data-canvas-no-zoom className="flex min-h-0 flex-1 flex-col p-2" onMouseDown={stopWorkflowControlDrag}>
             <div className="mb-1 flex shrink-0 justify-end"><button type="button" aria-label="放大编辑生成配置" className="inline-flex items-center gap-1.5 text-sm opacity-70 hover:opacity-100" onClick={() => setExpanded(true)}><Maximize2 size={16} />放大编辑</button></div>
@@ -57,10 +57,10 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
             <div className="flex min-w-0 items-center gap-2">
                 <span className="inline-block shrink-0 rounded-full px-2.5 py-1 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.toolbar.activeText }}>探索</span>
                 <div className="min-w-0 flex-1"><ModelPicker className="!h-10 !gap-2 !rounded-xl !px-3 !text-sm" config={config} value={config.model} onChange={(model) => patch({ model, quality: imageQualityForModel(model, config.quality) })} capability="image" groupByChannel="list" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} fullWidth /></div>
-                <Button type="primary" shape="circle" aria-label={isRunning ? "停止生成" : "生成图片"} disabled={!isRunning && !value.trim() && !inputs.length} danger={isRunning} style={{ width: 36, height: 36 }} icon={isRunning ? <Square size={15} /> : <Play size={16} />} onClick={() => isRunning ? onStop(node.id) : onGenerate(node.id)} />
+                <Button type="primary" shape="circle" aria-label={isRunning ? "停止生成" : "生成图片"} title={isRunning ? "停止生成" : "生成图片（Ctrl+Enter）"} disabled={!isRunning && !value.trim() && !inputs.length} danger={isRunning} style={{ width: 36, height: 36 }} icon={isRunning ? <Square size={15} /> : <Play size={16} />} onClick={() => isRunning ? onStop(node.id) : onGenerate(node.id)} />
             </div>
             <div className="grid grid-cols-4 gap-2">
-                <ParameterMenu label="比例" ariaLabel="生成配置比例" value={ratio === "auto" ? "自动" : ratio} disabled={isRunning} wide>{(close) => <ParameterOptions columns={4} value={ratio} options={mediaRatioOptions.map((item) => ({ value: item.value, label: item.value === "auto" ? "自动" : item.value, icon: item.value === "auto" ? <span className="text-xs font-bold">A</span> : <span className="inline-block rounded-[2px] border" style={{ width: Math.min(12, 10 * item.width / item.height), height: Math.min(12, 10 * item.height / item.width) }} /> }))} onChange={(next) => { patch({ imageAspectRatio: next, imageResolution: resolution, size: computeMediaSize(resolution, next) }); close(); }} />}</ParameterMenu>
+                <RatioParameter value={ratio} disabled={isRunning} onChange={(next) => patch({ imageAspectRatio: next, imageResolution: resolution, size: computeMediaSize(resolution, next) })} />
                 <ParameterMenu label="清晰度" ariaLabel="生成配置分辨率" value={resolution === "auto" ? "自动" : resolution.toUpperCase()} disabled={isRunning}>{(close) => <ParameterOptions value={resolution} options={mediaScaleOptions.map((item) => ({ value: item, label: item === "auto" ? "自动" : item.toUpperCase() }))} onChange={(next) => { patch({ imageResolution: next, imageAspectRatio: ratio, size: computeMediaSize(next, ratio) }); close(); }} />}</ParameterMenu>
                 <ParameterMenu label="质量" ariaLabel="生成配置质量" value={quality} disabled={isRunning || !qualityOptions.length}>{(close) => <ParameterOptions columns={qualityOptions.length > 4 ? 3 : 2} value={quality} options={qualityOptions.map((item) => ({ value: item, label: item }))} onChange={(next) => { patch({ quality: next }); close(); }} />}</ParameterMenu>
                 <CountParameter value={Number(config.count)} disabled={isRunning} onChange={(count) => patch({ count })} />
@@ -99,6 +99,16 @@ function ParameterMenu({ label, ariaLabel, value, disabled, wide, onOpenChange, 
 function ParameterOptions({ options, value, onChange, columns = 2 }: { options: { value: string; label: string; icon?: ReactNode }[]; value: string; onChange: (value: string) => void; columns?: number }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     return <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{options.map((option) => <button key={option.value} type="button" aria-pressed={option.value === value} className="flex min-h-7 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-1 py-1 font-semibold transition-colors hover:opacity-75" style={{ fontSize: 12, lineHeight: "16px", ...(option.value === value ? { background: theme.canvas.selectionStroke, color: theme.node.panel } : {}) }} onClick={() => onChange(option.value)}>{option.icon && <span aria-hidden="true" className="flex w-3 shrink-0 items-center justify-center">{option.icon}</span>}{option.label}</button>)}</div>;
+}
+
+function RatioParameter({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (ratio: string) => void }) {
+    const [custom, setCustom] = useState(false), [draft, setDraft] = useState("");
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const isPreset = mediaRatioOptions.some((item) => item.value === value);
+    return <ParameterMenu label="比例" ariaLabel="生成配置比例" value={value === "auto" ? "自动" : value} disabled={disabled} wide onOpenChange={(open) => { if (open) { setCustom(false); setDraft(isPreset ? "" : value); } }}>{(close) => <>
+        <ParameterOptions columns={4} value={isPreset ? value : "custom"} options={[...mediaRatioOptions.map((item) => ({ value: item.value, label: item.value === "auto" ? "自动" : item.value, icon: item.value === "auto" ? <span className="text-xs font-bold">A</span> : <span className="inline-block rounded-[2px] border" style={{ width: Math.min(12, 10 * item.width / item.height), height: Math.min(12, 10 * item.height / item.width) }} /> })), { value: "custom", label: "自定义" }]} onChange={(next) => { if (next === "custom") { setCustom(true); return; } onChange(next); close(); }} />
+        {custom && <form className="mt-2 flex gap-2 border-t pt-2" style={{ borderColor: theme.node.stroke }} onSubmit={(event) => { event.preventDefault(); const parsed = parseAspectRatio(draft.replace(/：/g, ":").replace(/\s/g, "")); if (!parsed) return; onChange(`${parsed.width}:${parsed.height}`); close(); }}><input autoFocus aria-label="自定义生成比例" placeholder="9:1" value={draft} onChange={(event) => setDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} /><button type="submit" className="rounded-lg px-2 py-1 text-sm" style={{ background: theme.canvas.selectionStroke, color: theme.node.panel }}>确定</button></form>}
+    </>}</ParameterMenu>;
 }
 
 function CountParameter({ value, disabled, onChange }: { value: number; disabled: boolean; onChange: (value: number) => void }) {

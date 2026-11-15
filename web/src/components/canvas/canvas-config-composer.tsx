@@ -31,6 +31,8 @@ type CanvasConfigComposerProps = {
     onDisconnectReference?: (fromNodeId: string, toNodeId: string) => void;
     onStartReferenceSelection?: (nodeId: string) => void;
     onAddImageReference?: (nodeId: string, item: GalleryImage) => Promise<NodeGenerationInput>;
+    /** Ctrl/Cmd + Enter 直接运行节点；回车本身仍是换行。 */
+    onRun?: () => void;
 };
 
 type Token =
@@ -43,7 +45,7 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], embedded = false, expanded = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences, onAddImageReference }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], embedded = false, expanded = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences, onAddImageReference, onRun }: CanvasConfigComposerProps) {
     const { t } = useTranslation();
     const { message } = App.useApp();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -193,6 +195,13 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                     onPointerUp={rememberCaret}
                     onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                         event.stopPropagation();
+                        // 回车保留换行；Ctrl/Cmd + Enter 直接运行当前节点。
+                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && onRun && !composingRef.current) {
+                            event.preventDefault();
+                            syncFromEditor();
+                            onRun();
+                            return;
+                        }
                         if (mention && candidates.length) {
                             if (event.key === "ArrowDown") {
                                 event.preventDefault();

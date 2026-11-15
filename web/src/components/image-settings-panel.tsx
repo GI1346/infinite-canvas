@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, readMediaDimensions } from "@/lib/media-size";
+import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, parseAspectRatio, readMediaDimensions } from "@/lib/media-size";
 import type { AiConfig } from "@/stores/use-config-store";
 import { decodeChannelModel, modelOptionName } from "@/stores/use-config-store";
 
@@ -36,6 +36,9 @@ type ImageSettingsPanelProps = {
 export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
     const { t } = useTranslation();
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
+    // 预设之外的比例（9:1、6:1）直接从输入框填，面板里不再只给固定档位。
+    const [customRatioOpen, setCustomRatioOpen] = useState(false);
+    const [ratioDraft, setRatioDraft] = useState("");
     const qualityModel = config.model || config.imageModel;
     // Gemini 只有分辨率档位，没有 quality 参数；这里直接收窄，避免选了 quality 却被静默忽略。
     const qualityIgnored = geminiChannel(config, qualityModel);
@@ -123,6 +126,45 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             </button>
                         ))}
                     </div>
+                    {customRatioOpen ? (
+                        <form
+                            className="flex gap-2"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                const parsed = parseAspectRatio(ratioDraft.replace(/：/g, ":").replace(/\s/g, ""));
+                                if (!parsed) return;
+                                selectRatio(`${parsed.width}:${parsed.height}`);
+                                setCustomRatioOpen(false);
+                            }}
+                        >
+                            <input
+                                autoFocus
+                                aria-label={t("settingsPanels.image.customRatio")}
+                                placeholder="9:1"
+                                value={ratioDraft}
+                                onChange={(event) => setRatioDraft(event.target.value)}
+                                className="min-w-0 flex-1 rounded-xl border bg-transparent px-3 py-1.5 text-sm outline-none"
+                                style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                            />
+                            <button type="submit" className="cursor-pointer rounded-xl px-3 py-1.5 text-sm" style={{ background: theme.canvas.selectionStroke, color: theme.node.panel }}>
+                                {t("settingsPanels.image.customRatioApply")}
+                            </button>
+                        </form>
+                    ) : (
+                        <button
+                            type="button"
+                            className="w-full cursor-pointer rounded-xl border bg-transparent py-1.5 text-xs transition hover:opacity-80"
+                            style={{ borderColor: theme.node.stroke, color: theme.node.muted }}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={() => {
+                                setRatioDraft(selectedRatio === "auto" ? "" : selectedRatio);
+                                setCustomRatioOpen(true);
+                            }}
+                        >
+                            {t("settingsPanels.image.customRatio")}
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">

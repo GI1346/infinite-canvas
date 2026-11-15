@@ -152,6 +152,8 @@ type CanvasClipboard = {
     text: string;
     /** 只记节点：普通粘贴不带连线，保留连线走 Alt 拖拽。 */
     nodes: CanvasNodeData[];
+    /** 系统剪贴板还在写入中：此时按 Ctrl+V 不能拿旧内容判断，直接按本程序复制处理。 */
+    pending?: boolean;
 };
 
 /** 这份剪贴板是不是本程序刚复制的节点：兜底 token，或与复制时写入的可读文本一致。 */
@@ -1261,6 +1263,7 @@ function InfiniteCanvasPage() {
             token,
             text,
             nodes: copiedNodes,
+            pending: hasNativeClipboard(),
         };
         if (data) {
             data.setData(CANVAS_IMAGE_CLIPBOARD_TYPE, token);
@@ -1268,7 +1271,13 @@ function InfiniteCanvasPage() {
         }
         // 桌面版必须自己写系统剪贴板：copy 事件里的 clipboardData 只在页面内可见，
         // 而 Ctrl+V 的判定读的是系统剪贴板，不写就会把刚复制的节点当成外部内容。
-        if (hasNativeClipboard()) void writeClipboardText(plain).catch(() => { });
+        if (hasNativeClipboard()) {
+            void writeClipboardText(plain)
+                .catch(() => { })
+                .finally(() => {
+                    if (clipboardRef.current?.token === token) clipboardRef.current.pending = false;
+                });
+        }
     }, []);
 
     const readCopiedImages = useCallback((data: DataTransfer): ReferenceImage[] => {
@@ -1875,10 +1884,14 @@ function InfiniteCanvasPage() {
         const handleKeyDown = (event: KeyboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
             if (event.defaultPrevented) return;
-            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest(".cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
-
             const key = event.key.toLowerCase();
             const isModifierShortcut = event.metaKey || event.ctrlKey;
+            // 真正的文本输入区完全交给系统处理。
+            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest(".cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false'])")) return;
+            // 面板里的按钮/开关会保留焦点，这些都带 data-canvas-no-zoom。复制粘贴仍应作用于画布，
+            // 否则点过一次比例、模型之类的设置之后，Ctrl+C / Ctrl+V 就彻底没反应了。
+            const clipboardShortcut = isModifierShortcut && !event.altKey && (key === "c" || key === "v");
+            if (!clipboardShortcut && target?.closest("[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
             if (dragRef.current.isDraggingNode && ((isModifierShortcut && ["z", "y", "a", "c", "v", "g"].includes(key)) || key === "delete" || key === "backspace")) {
                 event.preventDefault(); return;
             }
@@ -1887,7 +1900,10 @@ function InfiniteCanvasPage() {
 
             if (isModifierShortcut && !event.altKey && key === "c" && canWriteClipboardImage()) {
                 const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
-                const node = selected.length === 1 && selected[0].type === CanvasNodeType.Image ? selected[0] : null;
+                // 选中里只有一张图片（可以同时带上文本等其它节点）就把图片也写进系统剪贴板，
+                // 复制到微信/文件夹里仍是图片。
+                const selectedImages = selected.filter((item) => item.type === CanvasNodeType.Image && item.metadata?.content);
+                const node = selectedImages.length === 1 ? selectedImages[0] : null;
                 // 桌面版由这里统一接管节点复制：DOM copy 事件在桌面外壳里不一定能到达页面，
                 // 内容落不到系统剪贴板时，Ctrl+V 就会把上一次的外部内容粘出来。
                 if (selected.length && (hasNativeClipboard() || node?.metadata?.content)) {
@@ -1935,7 +1951,7 @@ function InfiniteCanvasPage() {
                 const peek = peekNativeClipboard();
                 const plain = peek?.text || "";
                 const copied = clipboardRef.current;
-                if (peek && copied && matchesCopiedNodes(copied, plain)) {
+                if (copied && (copied.pending || (peek && matchesCopiedNodes(copied, plain)))) {
                     event.preventDefault();
                     clipboardPasteGuardRef.current = Date.now();
                     pasteCopiedNodes();
@@ -1946,7 +1962,13 @@ function InfiniteCanvasPage() {
                     clipboardPasteGuardRef.current = Date.now();
                     void (async () => {
                         const [blob] = await readClipboardImages();
-                        if (!blob) return;
+                        // 剪贴板说自己有图却读不出字节（部分来源只给文件或延迟位图）时退回文本，
+                        // 别让这次粘贴彻底没反应。
+                        if (!blob) {
+                            if (plain.trim() && createTextNodeFromClipboard(plain)) message.success(t("canvas.projectPage.clipboardTextAdded"));
+                            else message.error("粘贴图片失败");
+                            return;
+                        }
                         const extension = blob.type.split("/")[1]?.split("+")[0] || "png";
                         await createImageFileNode(new File([blob], `clipboard-${Date.now()}.${extension}`, { type: blob.type }), getCanvasCenter());
                         message.success(t("canvas.projectPage.clipboardImageAdded"));
@@ -2029,17 +2051,20 @@ function InfiniteCanvasPage() {
             if (event.defaultPrevented || !event.clipboardData) return;
             // 只让位于侧栏/面板里的文字选区走系统复制；在画布上拖选留存的选区不该挡住节点复制。
             if (selectionBlocksCanvasCopy()) return;
-            if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-overlay],[data-canvas-shortcuts-ignore]")) return;
+            if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false'])")) return;
             if (dragRef.current.isDraggingNode || !nodesRef.current.some((node) => selectedNodeIdsRef.current.has(node.id))) return;
             copySelectedNodes(event.clipboardData);
             event.preventDefault();
         };
         const handlePaste = (event: ClipboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
+            // 文本输入区交给系统；面板、浮层里的按钮拿到焦点时仍然粘到画布，
+            // 否则点过设置项之后粘贴就再也没反应。
+            if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),.ant-modal-wrap")) return;
             // 同一次按键已经由 Ctrl+V 的按键处理粘过时，跳过随后派发的 paste 事件。
-            if (Date.now() - clipboardPasteGuardRef.current < 500) { event.preventDefault(); return; }
+            // 用完即清零：连续两次粘贴不会因为这条去重被吞掉第二次。
+            if (Date.now() - clipboardPasteGuardRef.current < 500) { clipboardPasteGuardRef.current = 0; event.preventDefault(); return; }
             if (event.defaultPrevented || !event.clipboardData || dragRef.current.isDraggingNode) return;
-            if (target?.closest("input,textarea,select,.cm-editor,[role=\"textbox\"],[contenteditable]:not([contenteditable='false']),[data-canvas-overlay],[data-canvas-shortcuts-ignore],.ant-modal-wrap")) return;
 
             const data = event.clipboardData;
             const copied = clipboardRef.current;

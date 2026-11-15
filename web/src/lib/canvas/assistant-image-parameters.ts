@@ -1,5 +1,5 @@
 import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
-import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, parsePixelSize } from "@/lib/media-size";
+import { computeMediaSize, inferMediaRatio, inferMediaScale, parseAspectRatio, parsePixelSize } from "@/lib/media-size";
 import { resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasNodeMetadata } from "@/types/canvas";
 
@@ -17,9 +17,12 @@ export function assistantImageParameters(patch: CanvasNodeMetadata, current: Can
     const size = patch.size?.trim().toLowerCase().replace("×", "x");
     const pixels = size && parsePixelSize(size);
     if (pixels && (pixels.width <= 0 || pixels.height <= 0)) throw new Error("图片像素宽高必须大于零");
-    if (size && size !== "auto" && !parsePixelSize(size) && !mediaRatioOptions.some((item) => item.value === size)) throw new Error("size 必须是像素宽x高、支持的比例或 auto");
+    if (size && size !== "auto" && !parsePixelSize(size) && !parseAspectRatio(size)) throw new Error("size 必须是像素宽x高、比例（如 9:1）或 auto");
     const ratio = patch.imageAspectRatio?.trim() || (size ? inferMediaRatio(size) : current.size ? inferMediaRatio(current.size) : current.imageAspectRatio || inferMediaRatio(config.size));
-    if (!mediaRatioOptions.some((item) => item.value === ratio)) throw new Error(`不支持的图片比例：${ratio}`);
+    // 比例不再限定在预设清单里：9:1、6:1 这类长幅需求要能真的发出去，只拦极端值。
+    const parsedRatio = parseAspectRatio(ratio);
+    if (ratio !== "auto" && !parsedRatio) throw new Error(`不支持的图片比例：${ratio}`);
+    if (parsedRatio && Math.max(parsedRatio.width, parsedRatio.height) / Math.min(parsedRatio.width, parsedRatio.height) > 50) throw new Error("图片比例过于极端：长边不能超过短边的 50 倍");
     const scale = resolution || (size && parsePixelSize(size) ? inferMediaScale(size) : current.imageResolution || config.imageResolution || inferMediaScale(current.size || config.size));
     if (size && parsePixelSize(size) && patch.imageAspectRatio && inferMediaRatio(size) !== ratio) throw new Error("size 与 imageAspectRatio 冲突，请先明确一致的生成尺寸");
     return { ...patch, imageResolution: scale.toLowerCase(), imageAspectRatio: ratio, size: size && parsePixelSize(size) ? size : computeMediaSize(scale, ratio) };
@@ -34,5 +37,5 @@ export function explicitAssistantImageRequirements(text: string): CanvasNodeMeta
     const ratios = unique(/(?<![\d:：])(\d+\s*[:：]\s*\d+)(?![\d:：])/g), scales = unique(/(?<![\da-z])(1\s*k|2\s*k|4\s*k)(?![\da-z])/gi), sizes = unique(/(?<!\d)(\d{3,5}\s*[xX×]\s*\d{3,5})(?!\d)/g);
     const qualityValues: Record<string, string> = { 自动: "auto", 低: "low", 中: "medium", 高: "high", 极高: "xhigh", 最高: "max", auto: "auto", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
     const qualities = [...new Set([...plain.matchAll(/(?:图像质量|图片质量|质量|画质)\s*(?:设置为|设为|调为|为|[:：=])?\s*(最高|极高|自动|低|中|高|xhigh|max|auto|low|medium|high)(?![a-z])|(最高|极高|自动|低|中|高)\s*(?:图像质量|图片质量|质量|画质)|\bquality\s*[:=]?\s*(xhigh|max|auto|low|medium|high)\b/gi)].filter((match) => positive(match.index!)).map((match) => qualityValues[(match[1] || match[2] || match[3]).toLowerCase()]))];
-    return { ...(qualities.length === 1 ? { quality: qualities[0] } : {}), ...(ratios.length === 1 && mediaRatioOptions.some((item) => item.value === ratios[0]) ? { imageAspectRatio: ratios[0] } : {}), ...(scales.length === 1 ? { imageResolution: scales[0] } : {}), ...(sizes.length === 1 ? { size: sizes[0] } : {}) };
+    return { ...(qualities.length === 1 ? { quality: qualities[0] } : {}), ...(ratios.length === 1 && parseAspectRatio(ratios[0]) ? { imageAspectRatio: ratios[0] } : {}), ...(scales.length === 1 ? { imageResolution: scales[0] } : {}), ...(sizes.length === 1 ? { size: sizes[0] } : {}) };
 }
