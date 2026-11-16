@@ -2,7 +2,7 @@ import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
 import { useState, type ReactNode } from "react";
 import { ChevronDown, Maximize2, Play, Square } from "lucide-react";
 import { Popover } from "radix-ui";
-import { Button, Modal } from "antd";
+import { ConfigProvider, Button, Modal } from "antd";
 import { ModelPicker, useCanvasMenuZoom } from "@/components/model-picker";
 import { resolveModelForCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -11,6 +11,7 @@ import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, 
 import { useThemeStore } from "@/stores/use-theme-store";
 import { stopWorkflowControlDrag } from "./workflow-node-interactions";
 import { CanvasConfigComposer } from "./canvas-config-composer";
+import { CanvasStylePicker } from "./canvas-style-picker";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 import type { GalleryImage } from "@/pages/gallery/gallery-data";
@@ -48,9 +49,20 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
     };
     const inputStyle = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 10 };
     const editor = (large: boolean) => <CanvasConfigComposer nodeId={node.id} nodes={nodes} inputs={inputs} connectedNodes={connectedNodes} value={value} embedded expanded={large} fontSize={large ? 16 : 14} onChange={(composerContent) => patch({ composerContent })} onRun={isRunning || (!value.trim() && !inputs.length) ? undefined : () => onGenerate(node.id)} onClose={() => setExpanded(false)} onDisconnectReference={onDisconnectReference} onAddImageReference={onAddImageReference} onStartReferenceSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection(nodeId); }} onReorderReferences={isRunning ? undefined : (referenceNodeOrder) => patch({ referenceNodeOrder })} />;
-    return <div className="thin-scrollbar flex h-full min-h-0 w-full flex-col overflow-y-auto rounded-[20px] text-sm" style={{ background: theme.node.panel, color: theme.node.text }}>
+    return <ConfigProvider theme={{ token: { colorPrimary: theme.accent.base, colorPrimaryBg: theme.accent.soft, colorInfo: theme.accent.base } }}><div className="thin-scrollbar flex h-full min-h-0 w-full flex-col overflow-y-auto rounded-[20px] text-sm" style={{ background: theme.node.panel, color: theme.node.text }}>
         <div data-canvas-no-zoom className="flex min-h-0 flex-1 flex-col p-2" onMouseDown={stopWorkflowControlDrag}>
             <div className="mb-1 flex shrink-0 justify-end"><button type="button" aria-label="放大编辑生成配置" className="inline-flex items-center gap-1.5 text-sm opacity-70 hover:opacity-100" onClick={() => setExpanded(true)}><Maximize2 size={16} />放大编辑</button></div>
+            {!expanded ? (
+                <div className="mb-2 shrink-0">
+                    <CanvasStylePicker
+                    selections={{ camera: node.metadata?.presetCamera ?? {}, palette: node.metadata?.presetPalette ?? "", style: node.metadata?.presetStyle ?? "" }}
+                    onSelect={(next) => patch({ presetCamera: next.camera, presetPalette: next.palette, presetStyle: next.style })}
+                    customPalettes={node.metadata?.presetCustomPalettes ?? []}
+                    onCustomPalettesChange={(list) => patch({ presetCustomPalettes: list })}
+                    theme={theme}
+                />
+                </div>
+            ) : null}
             {!expanded ? editor(false) : <p className="opacity-60">正在放大编辑 · 内容实时同步</p>}
         </div>
         <div data-canvas-no-zoom className="shrink-0 space-y-2 border-t p-2" style={{ borderColor: theme.node.stroke, background: theme.node.fill }} onMouseDown={stopWorkflowControlDrag}>
@@ -82,7 +94,7 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
             </div>
         </div>
         <Modal title="生成配置 · 放大编辑" open={expanded} footer={null} centered width="min(1000px, 94vw)" zIndex={1400} onCancel={() => setExpanded(false)} destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}><div className="flex h-[65vh] min-h-0 flex-col text-base">{expanded && editor(true)}</div></Modal>
-    </div>;
+    </div></ConfigProvider>;
 }
 
 function ParameterMenu({ label, ariaLabel, value, disabled, wide, onOpenChange, children }: { label: string; ariaLabel: string; value: string; disabled?: boolean; wide?: boolean; onOpenChange?: (open: boolean) => void; children: (close: () => void) => ReactNode }) {
@@ -98,7 +110,7 @@ function ParameterMenu({ label, ariaLabel, value, disabled, wide, onOpenChange, 
 
 function ParameterOptions({ options, value, onChange, columns = 2 }: { options: { value: string; label: string; icon?: ReactNode }[]; value: string; onChange: (value: string) => void; columns?: number }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    return <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{options.map((option) => <button key={option.value} type="button" aria-pressed={option.value === value} className="flex min-h-7 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-1 py-1 font-semibold transition-colors hover:opacity-75" style={{ fontSize: 12, lineHeight: "16px", ...(option.value === value ? { background: theme.canvas.selectionStroke, color: theme.node.panel } : {}) }} onClick={() => onChange(option.value)}>{option.icon && <span aria-hidden="true" className="flex w-3 shrink-0 items-center justify-center">{option.icon}</span>}{option.label}</button>)}</div>;
+    return <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{options.map((option) => <button key={option.value} type="button" aria-pressed={option.value === value} className="flex min-h-7 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-1 py-1 font-semibold transition-colors hover:opacity-75" style={{ fontSize: 12, lineHeight: "16px", ...(option.value === value ? { background: theme.accent.soft, color: theme.accent.base } : {}) }} onClick={() => onChange(option.value)}>{option.icon && <span aria-hidden="true" className="flex w-3 shrink-0 items-center justify-center">{option.icon}</span>}{option.label}</button>)}</div>;
 }
 
 function RatioParameter({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (ratio: string) => void }) {
@@ -107,7 +119,7 @@ function RatioParameter({ value, disabled, onChange }: { value: string; disabled
     const isPreset = mediaRatioOptions.some((item) => item.value === value);
     return <ParameterMenu label="比例" ariaLabel="生成配置比例" value={value === "auto" ? "自动" : value} disabled={disabled} wide onOpenChange={(open) => { if (open) { setCustom(false); setDraft(isPreset ? "" : value); } }}>{(close) => <>
         <ParameterOptions columns={4} value={isPreset ? value : "custom"} options={[...mediaRatioOptions.map((item) => ({ value: item.value, label: item.value === "auto" ? "自动" : item.value, icon: item.value === "auto" ? <span className="text-xs font-bold">A</span> : <span className="inline-block rounded-[2px] border" style={{ width: Math.min(12, 10 * item.width / item.height), height: Math.min(12, 10 * item.height / item.width) }} /> })), { value: "custom", label: "自定义" }]} onChange={(next) => { if (next === "custom") { setCustom(true); return; } onChange(next); close(); }} />
-        {custom && <form className="mt-2 flex gap-2 border-t pt-2" style={{ borderColor: theme.node.stroke }} onSubmit={(event) => { event.preventDefault(); const parsed = parseAspectRatio(draft.replace(/：/g, ":").replace(/\s/g, "")); if (!parsed) return; onChange(`${parsed.width}:${parsed.height}`); close(); }}><input autoFocus aria-label="自定义生成比例" placeholder="9:1" value={draft} onChange={(event) => setDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} /><button type="submit" className="rounded-lg px-2 py-1 text-sm" style={{ background: theme.canvas.selectionStroke, color: theme.node.panel }}>确定</button></form>}
+        {custom && <form className="mt-2 flex gap-2 border-t pt-2" style={{ borderColor: theme.node.stroke }} onSubmit={(event) => { event.preventDefault(); const parsed = parseAspectRatio(draft.replace(/：/g, ":").replace(/\s/g, "")); if (!parsed) return; onChange(`${parsed.width}:${parsed.height}`); close(); }}><input autoFocus aria-label="自定义生成比例" placeholder="9:1" value={draft} onChange={(event) => setDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} /><button type="submit" className="rounded-lg px-2 py-1 text-sm" style={{ background: theme.accent.soft, color: theme.accent.base }}>确定</button></form>}
     </>}</ParameterMenu>;
 }
 
@@ -116,6 +128,6 @@ function CountParameter({ value, disabled, onChange }: { value: number; disabled
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     return <ParameterMenu label="数量" ariaLabel="生成配置数量" value={`${value}张`} disabled={disabled} onOpenChange={(open) => { if (open) { setCustom(false); setDraft(String(value)); } }}>{(close) => <>
         <ParameterOptions value={custom || ![1, 2, 4].includes(value) ? "custom" : String(value)} options={[{ value: "1", label: "1张" }, { value: "2", label: "2张" }, { value: "4", label: "4张" }, { value: "custom", label: "自定义" }]} onChange={(next) => { if (next === "custom") setCustom(true); else { onChange(Number(next)); close(); } }} />
-        {custom && <form className="mt-2 flex gap-2 border-t pt-2" style={{ borderColor: theme.node.stroke }} onSubmit={(event) => { event.preventDefault(); const count = Number(draft); if (!Number.isInteger(count) || count < 1 || count > 15) return; onChange(count); close(); }}><input autoFocus aria-label="自定义生成张数" type="number" min={1} max={15} required value={draft} onChange={(event) => setDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} /><button type="submit" className="rounded-lg px-2 py-1 text-sm" style={{ background: theme.canvas.selectionStroke, color: theme.node.panel }}>确定</button></form>}
+        {custom && <form className="mt-2 flex gap-2 border-t pt-2" style={{ borderColor: theme.node.stroke }} onSubmit={(event) => { event.preventDefault(); const count = Number(draft); if (!Number.isInteger(count) || count < 1 || count > 15) return; onChange(count); close(); }}><input autoFocus aria-label="自定义生成张数" type="number" min={1} max={15} required value={draft} onChange={(event) => setDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} /><button type="submit" className="rounded-lg px-2 py-1 text-sm" style={{ background: theme.accent.soft, color: theme.accent.base }}>确定</button></form>}
     </>}</ParameterMenu>;
 }

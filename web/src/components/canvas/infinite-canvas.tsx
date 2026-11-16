@@ -1,7 +1,9 @@
 import { wheelZoomFactor } from "@/stores/use-canvas-navigation-store";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
+import { canvasThemes } from "@/lib/canvas-theme";
+import { CanvasNodeBurstLayer } from "./canvas-node-burst-layer";
+import { gridMetrics } from "@/lib/canvas/canvas-grid";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ViewportTransform } from "@/types/canvas";
 
@@ -9,7 +11,6 @@ type InfiniteCanvasProps = {
     containerRef: React.RefObject<HTMLDivElement | null>;
     viewport: ViewportTransform;
     tool: "select" | "pan";
-    backgroundMode?: CanvasBackgroundMode;
     onViewportChange: (viewport: ViewportTransform) => void;
     onCanvasMouseDown?: (event: React.PointerEvent<HTMLDivElement>) => void;
     onCanvasDeselect?: () => void;
@@ -20,7 +21,7 @@ type InfiniteCanvasProps = {
     children: React.ReactNode;
 };
 
-export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = "lines", onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasContextMenu, onConnectionCutStart, isCuttingConnections = false, onDrop, children }: InfiniteCanvasProps) {
+export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasContextMenu, onConnectionCutStart, isCuttingConnections = false, onDrop, children }: InfiniteCanvasProps) {
     const colorTheme = useThemeStore((state) => state.theme);
     const theme = canvasThemes[colorTheme];
     const background = useThemeStore((state) => state.canvasBackgrounds[colorTheme]) || theme.canvas.background;
@@ -50,9 +51,10 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
         if (worldRef.current) worldRef.current.style.zoom = String(next.k);
         const grid = gridRef.current?.firstElementChild as HTMLElement | null;
         if (grid) {
-            const size = gridSpacing(next.k);
+            const { size, opacity } = gridMetrics(next.k);
             grid.style.backgroundSize = `${size}px ${size}px`;
             grid.style.backgroundPosition = `${next.x % size}px ${next.y % size}px`;
+            grid.style.opacity = String(opacity);
         }
     };
     const frameRef = useRef<number | null>(null);
@@ -323,8 +325,9 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
 
     const activeTool = isSpacePressed ? "pan" : tool;
     // 切断连线用的角色图标：浅色主题用黑色线稿，深色主题用白色线稿，红点（热点）两版一致。
-    const whaleCursor = `url("${import.meta.env?.BASE_URL ?? "/"}whale-cursor-${colorTheme === "dark" ? "dark" : "light"}.png") 18 8, auto`;
-    const cursor = cutReady ? whaleCursor : isPanning ? "grabbing" : activeTool === "pan" ? "grab" : undefined;
+    // Ctrl+Alt 剪切光标：绿色兔子线稿，热点取左上角红点中心（96px 图上的 21,30）。
+    const cutCursor = `url("${import.meta.env?.BASE_URL ?? "/"}cut-cursor.png") 21 30, auto`;
+    const cursor = cutReady ? cutCursor : isPanning ? "grabbing" : activeTool === "pan" ? "grab" : undefined;
 
     return (
         <div
@@ -339,8 +342,9 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
             onDragOver={(event) => event.preventDefault()}
             onDrop={onDrop}
         >
-            {cutReady ? <style>{`[data-cut-cursor], [data-cut-cursor] * { cursor: ${whaleCursor} !important; }`}</style> : null}
-            <div ref={gridRef} className="pointer-events-none absolute inset-0"><CanvasGrid viewport={viewport} mode={backgroundMode} /></div>
+            {cutReady ? <style>{`[data-cut-cursor], [data-cut-cursor] * { cursor: ${cutCursor} !important; }`}</style> : null}
+            <div ref={gridRef} className="pointer-events-none absolute inset-0"><CanvasGrid viewport={viewport} /></div>
+            <CanvasNodeBurstLayer viewport={viewport} />
             <div ref={paintedRef} className="absolute" style={{ left: viewport.x, top: viewport.y }}>
                 <div ref={worldRef} data-canvas-world style={{ zoom: viewport.k }}>
                     {children}
@@ -350,30 +354,19 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     );
 }
 
-// Coarsen only the visual grid below one readable cell; avoid dense subpixel lines shimmering in overview.
-function gridSpacing(scale: number) {
-    const size = 48 * scale;
-    return size * Math.pow(2, Math.max(0, Math.ceil(Math.log2(24 / size))));
-}
-
-function CanvasGrid({ viewport, mode }: { viewport: ViewportTransform; mode: CanvasBackgroundMode }) {
+function CanvasGrid({ viewport }: { viewport: ViewportTransform }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    if (mode === "blank") return null;
-
-    const gridSize = gridSpacing(viewport.k);
-    const x = viewport.x % gridSize;
-    const y = viewport.y % gridSize;
-    const dotSize = viewport.k < 0.12 ? 0.8 : 1.15;
-    const backgroundImage =
-        mode === "dots" ? `radial-gradient(circle, ${theme.canvas.dot} ${dotSize}px, transparent ${dotSize + 0.2}px)` : `linear-gradient(${theme.canvas.line} 1px, transparent 1px), linear-gradient(90deg, ${theme.canvas.line} 1px, transparent 1px)`;
+    const { size, opacity } = gridMetrics(viewport.k);
 
     return (
         <div
-            className="pointer-events-none absolute inset-0 opacity-40"
+            className="pointer-events-none absolute inset-0"
             style={{
-                backgroundImage,
-                backgroundSize: `${gridSize}px ${gridSize}px`,
-                backgroundPosition: `${x}px ${y}px`,
+                // 1px 细点，间距随缩放变化：缩小看点更细，放大点间距变大（与即梦一致）。
+                backgroundImage: `radial-gradient(circle, ${theme.canvas.dot} 1px, transparent 1.05px)`,
+                backgroundSize: `${size}px ${size}px`,
+                backgroundPosition: `${viewport.x % size}px ${viewport.y % size}px`,
+                opacity,
             }}
         />
     );

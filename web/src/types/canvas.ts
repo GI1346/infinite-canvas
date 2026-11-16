@@ -61,6 +61,11 @@ export type CanvasNodeMetadata = {
     cropContext?: CanvasCropContext;
     fusionColorMatch?: boolean;
     llmOutputMode?: "text" | "list";
+    /** 「相机 / 配色 / 风格」选择器的当前选择，生成时注入提示词。 */
+    presetCamera?: Record<string, string>;
+    presetPalette?: string;
+    presetStyle?: string;
+    presetCustomPalettes?: { value: string; name: string; colors: string[]; prompt: string }[];
     llmChannelId?: string;
     llmOutputNodeId?: string;
     table?: import("@/lib/canvas/dxos-table").DxTable;
@@ -72,6 +77,8 @@ export type CanvasNodeMetadata = {
     tableBatchSelectedRows?: number[];
     tableBatchRun?: import("@/lib/canvas/dxos-table").DxBatchRun;
     content?: string;
+    /** 编辑面板（调色等）正在预览时的临时 CSS filter，确认或关闭后清除。 */
+    previewFilter?: string;
     composerContent?: string;
     prompt?: string;
     status?: CanvasNodeStatus;

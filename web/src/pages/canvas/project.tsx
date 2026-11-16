@@ -1,3 +1,4 @@
+import { presetFragments } from "@/lib/canvas/canvas-image-presets";
 import { createGenerationBranch } from "@/lib/canvas/canvas-generation-branch";
 import { migrateConfigNodes } from "@/lib/canvas/canvas-node-migration";
 import { shouldShowNodePanel, showsGenerationPanel } from "@/lib/canvas/canvas-node-panel-visibility";
@@ -6,7 +7,7 @@ import { isCanvasNodeVisible } from "@/lib/canvas/canvas-visibility";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Group, Video } from "lucide-react";
+import { Crosshair, Group, Video } from "lucide-react";
 import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
 
@@ -20,15 +21,16 @@ import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { canWriteClipboardImage, hasNativeClipboard, normalizeClipboardText, peekNativeClipboard, readClipboardImages, writeClipboard, writeClipboardText } from "@/lib/clipboard";
-import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
+import { canvasGlass, canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
-import { fitNodeSize, generatedImageNodeSize, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
+import { configNodeSize, fitNodeSize, generatedImageNodeSize, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { captureVideoFrame, type VideoFramePosition } from "@/lib/canvas/canvas-video-frame";
 import { App, Button, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "@/constant/canvas";
 import { ActiveConnectionPath, ConnectionPath, connectionDragNodeIds } from "@/components/canvas/canvas-connections";
+import { CanvasImageEditPanel, type ImageEditPanelMode } from "@/components/canvas/canvas-image-edit-panel";
 import { ConnectionCutEffects, useConnectionCutter } from "@/components/canvas/use-connection-cutter";
 import { tableConnectionPort } from "@/lib/canvas/canvas-table-port";
 import { connectionCutHistory } from "@/lib/canvas/canvas-connection-cut-history";
@@ -341,6 +343,7 @@ function InfiniteCanvasPage() {
     const [upscaleNodeId, setUpscaleNodeId] = useState<string | null>(null);
     const [superResolveNodeId, setSuperResolveNodeId] = useState<string | null>(null);
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
+    const [editPanel, setEditPanel] = useState<{ nodeId: string; mode: ImageEditPanelMode } | null>(null);
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
     const [previewImageId, setPreviewImageId] = useState<string | null>(null);
     const [titleEditing, setTitleEditing] = useState(false);
@@ -924,6 +927,7 @@ function InfiniteCanvasPage() {
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
+    const editPanelNode = editPanel ? nodeById.get(editPanel.nodeId) || null : null;
     const contextMenuNode = contextMenu?.type === "node" ? nodeById.get(contextMenu.nodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
     const previewContent = previewImageId ? previewNode?.metadata?.images?.find((image) => image.id === previewImageId)?.content : previewNode?.metadata?.content;
@@ -1363,6 +1367,20 @@ function InfiniteCanvasPage() {
         },
         [size.height, size.width],
     );
+
+    // 视窗里一个节点都看不到时，回到离视窗中心最近的节点。
+    const backToClosestNode = useCallback(() => {
+        const list = nodesRef.current.filter((node) => node.type !== CanvasNodeType.Group);
+        if (!list.length) return;
+        const current = viewportRef.current;
+        const cx = (size.width / 2 - current.x) / current.k;
+        const cy = (size.height / 2 - current.y) / current.k;
+        const nearest = list.reduce((best, node) => {
+            const distance = Math.hypot(node.position.x + node.width / 2 - cx, node.position.y + node.height / 2 - cy);
+            return distance < best.distance ? { node, distance } : best;
+        }, { node: list[0], distance: Number.POSITIVE_INFINITY }).node;
+        focusNode(nearest.id);
+    }, [focusNode, size.height, size.width]);
 
     const focusNodeRef = useRef(focusNode);
     useEffect(() => {
@@ -2632,6 +2650,65 @@ function InfiniteCanvasPage() {
         [effectiveConfig, finishGenerationRequest, openConfigDialog, startGenerationRequest, t],
     );
 
+    // 图片调色：把烘焙后的像素写回节点本身（不新增节点，尺寸保持不变）。
+    const bakeImageNode = useCallback(
+        async (nodeId: string, dataUrl: string, title?: string) => {
+            const image = await uploadImage(dataUrl);
+            setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, title: title || item.title, metadata: { ...item.metadata, ...imageMetadata(image), previewFilter: undefined } } : item)));
+        },
+        [],
+    );
+
+    // 人像质感 / 表情调节：复制角度节点那条图生图链路，结果落到源图右侧的新节点。
+    const runImageAiEdit = useCallback(
+        async (args: { node: CanvasNodeData; title: string; prompt: string; model: string; size: string; quality: string }) => {
+            const { node } = args;
+            if (!node.metadata?.content) return;
+            const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1", model: args.model, size: args.size, quality: args.quality };
+            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+                openConfigDialog(true);
+                return;
+            }
+            const childId = nanoid();
+            const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+            const reference = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey };
+            const generationMetadata = { ...buildImageGenerationMetadata("edit", generationConfig, 1, [reference]), cropContext: imageOutputCropContext([{ id: node.id }], nodesRef.current, connectionsRef.current) };
+            setEditPanel(null);
+            setRunningNodeId(childId);
+            setNodes((prev) => [
+                ...prev,
+                {
+                    id: childId,
+                    type: CanvasNodeType.Image,
+                    title: args.title,
+                    position: { x: node.position.x + node.width + 96, y: node.position.y },
+                    width: imageConfig.width,
+                    height: imageConfig.height,
+                    metadata: { prompt: args.prompt, status: NODE_STATUS_LOADING, ...generationMetadata },
+                },
+            ]);
+            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+            setSelectedNodeIds(new Set([childId]));
+            setDialogNodeId(childId);
+            const controller = startGenerationRequest(childId, node.id, childId);
+            try {
+                const image = await requestEdit(generationConfig, args.prompt, [reference], { signal: controller.signal }).then((items) => items[0]);
+                const uploaded = await uploadImage(image.dataUrl, { signal: controller.signal });
+                setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, ...generatedImageNodeSize(uploaded.width, uploaded.height, item), metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt: args.prompt, ...generationMetadata } } : item)));
+            } catch (error) {
+                if (isGenerationCanceled(error)) return;
+                const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
+                recordDiagnostic("画布任务", error, { projectId });
+                message.error(errorDetails);
+                setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
+            } finally {
+                finishGenerationRequest(childId, controller);
+                setRunningNodeId(null);
+            }
+        },
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
+    );
+
     const handleFontSizeChange = useCallback((nodeId: string, fontSize: number) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, fontSize } } : node)));
     }, []);
@@ -2849,6 +2926,9 @@ function InfiniteCanvasPage() {
             const updateExpandedBatchNodeIds = guardGenerationSetter(setExpandedBatchNodeIds, active);
             assertActive();
             let sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            // 「相机 / 配色 / 风格」的参数在这里注入真正的提示词，不污染输入框
+            const presetText = presetFragments(sourceNode?.metadata).join("，");
+            if (presetText) prompt = [presetText, prompt].filter(Boolean).join("，");
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
@@ -2966,8 +3046,8 @@ function InfiniteCanvasPage() {
                     const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
                     const generationMetadata = { ...buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages), imageCompressionEnabled: sourceNode?.metadata?.imageCompressionEnabled, imageCompressionResolution: sourceNode?.metadata?.imageCompressionResolution, imageCompressionMaxMb: sourceNode?.metadata?.imageCompressionMaxMb, cropContext: imageOutputCropContext(referenceImages, nodesRef.current, connectionsRef.current, originalSourceNode) };
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
-                    const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
-                    const placeholderSize = nodeSizeFromRatio(generationConfig.size, imageConfig.width, imageConfig.height) || imageConfig;
+                    // 占位卡片和生成节点的卡片用同一套比例尺寸，出图后尺寸不跳。
+                    const placeholderSize = configNodeSize(generationConfig.size);
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
                     const rootId = reuseImageNode ? nodeId : nanoid();
                     const imageIds = Array.from({ length: count }, () => nanoid());
@@ -3054,7 +3134,8 @@ function InfiniteCanvasPage() {
                                         if (node.id !== rootId) return node;
                                         const images = node.metadata?.images?.map((image) => (image.id === imageId ? item : image)) || [];
                                         if (node.metadata?.primaryImageId) return { ...node, metadata: { ...node.metadata, images } };
-                                        const imageSize = generatedImageNodeSize(uploaded.width, uploaded.height, node, Boolean(reuseImageNode && sourceNode?.metadata?.content));
+                                        // 出图直接落在这张卡片里，保持卡片尺寸与该比例一致，不再二次缩到 640。
+                                        const imageSize = generatedImageNodeSize(uploaded.width, uploaded.height, node, true);
                                         return {
                                             ...node,
                                             ...imageSize,
@@ -3779,7 +3860,6 @@ function InfiniteCanvasPage() {
                     containerRef={containerRef}
                     viewport={viewport}
                     tool={canvasTool}
-                    backgroundMode={backgroundMode}
                     onConnectionCutStart={(event) => {
                         if (referencePickerNodeId || connectingParams) return false;
                         if (focusAnimRef.current) cancelAnimationFrame(focusAnimRef.current);
@@ -3813,6 +3893,8 @@ function InfiniteCanvasPage() {
                                 from={from}
                                 to={to}
                                 active={selectedConnectionId === connection.id}
+                                flowing={!selectedConnectionId && (selectedNodeIds.has(connection.fromNodeId) || selectedNodeIds.has(connection.toNodeId))}
+                                scale={viewport.k}
                                 onSelect={handleConnectionSelect}
                                 onContextMenu={handleConnectionContextMenu}
                             />
@@ -3918,6 +4000,9 @@ function InfiniteCanvasPage() {
                     onUpscale={(node) => setUpscaleNodeId(node.id)}
                     onSuperResolve={(node) => setSuperResolveNodeId(node.id)}
                     onAngle={(node) => setAngleNodeId(node.id)}
+                    onColor={(node) => setEditPanel({ nodeId: node.id, mode: "color" })}
+                    onPortrait={(node) => setEditPanel({ nodeId: node.id, mode: "portrait" })}
+                    onExpression={(node) => setEditPanel({ nodeId: node.id, mode: "expression" })}
                     onViewImage={handleNodeViewImage}
                     onReversePrompt={createImageReversePromptNodes}
                     onRetry={(node) => void handleRetryNode(node)}
@@ -3974,7 +4059,6 @@ function InfiniteCanvasPage() {
                     onFocusSelected={focusSelectedNode}
                     canUndo={historyState.canUndo}
                     canRedo={historyState.canRedo}
-                    backgroundMode={backgroundMode}
                     showImageInfo={showImageInfo}
                     onAddImage={() => createNode(CanvasNodeType.Image)}
                     onAddVideo={() => createNode(CanvasNodeType.Video)}
@@ -3989,13 +4073,29 @@ function InfiniteCanvasPage() {
                     onDelete={() => deleteNodes(new Set(selectedNodeIds))}
                     onClear={() => setClearConfirmOpen(true)}
                     onCanvasToolChange={setCanvasTool}
-                    onBackgroundModeChange={setBackgroundMode}
                     onShowImageInfoChange={setShowImageInfo}
                 />
 
                 {isMiniMapOpen ? <Minimap nodes={nodes} viewport={viewport} viewportSize={size} onViewportChange={setViewport} /> : null}
 
                 <CanvasZoomControls scale={viewport.k} onScaleChange={setZoomScale} onReset={resetViewport} isMiniMapOpen={isMiniMapOpen} onToggleMiniMap={() => setIsMiniMapOpen((value) => !value)} />
+
+                {nodes.length && !nodes.some((node) => {
+                    const x = node.position.x * viewport.k + viewport.x;
+                    const y = node.position.y * viewport.k + viewport.y;
+                    const w = node.width * viewport.k;
+                    const h = node.height * viewport.k;
+                    return x + w > 0 && y + h > 0 && x < size.width && y < size.height;
+                }) ? (
+                    <div className="pointer-events-none absolute left-1/2 top-16 z-40 -translate-x-1/2" data-canvas-overlay data-canvas-no-zoom>
+                        <div className="pointer-events-auto flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px]" style={{ ...canvasGlass(theme), color: theme.node.text }}>
+                            <span style={{ color: theme.node.muted }}>当前视窗没有内容</span>
+                            <button type="button" className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 transition hover:opacity-80" style={{ background: theme.accent.soft, color: theme.accent.base }} onClick={backToClosestNode}>
+                                <Crosshair className="size-3.5" />回到节点
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
 
                 {contextMenu ? (
                     <CanvasNodeContextMenu
@@ -4064,6 +4164,26 @@ function InfiniteCanvasPage() {
                 </Modal>
 
                 {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} /> : null}
+
+                {editPanel && editPanelNode?.metadata?.content ? (
+                    <CanvasImageEditPanel
+                        node={editPanelNode}
+                        mode={editPanel.mode}
+                        theme={theme}
+                        config={effectiveConfig}
+                        screen={{ x: viewport.x + editPanelNode.position.x * viewport.k, y: viewport.y + editPanelNode.position.y * viewport.k, w: editPanelNode.width * viewport.k, h: editPanelNode.height * viewport.k }}
+                        running={Boolean(runningNodeId)}
+                        onClose={() => { setEditPanel(null); setNodes((prev) => prev.map((item) => (item.id === editPanel.nodeId ? { ...item, metadata: { ...item.metadata, previewFilter: undefined } } : item))); }}
+                        onPreviewFilter={(nodeId, filter) => setNodes((prev) => {
+                            const target = prev.find((item) => item.id === nodeId);
+                            if (!target) return prev;
+                            if ((target.metadata?.previewFilter || undefined) === (filter || undefined)) return prev;
+                            return prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, previewFilter: filter || undefined } } : item));
+                        })}
+                        onBakeImage={(nodeId, dataUrl, title) => void bakeImageNode(nodeId, dataUrl, title).catch((error) => message.error(error instanceof Error ? error.message : "应用调色失败"))}
+                        onRunAiEdit={(args) => void runImageAiEdit(args).catch((error) => message.error(error instanceof Error ? error.message : "生成失败"))}
+                    />
+                ) : null}
 
                 <CanvasImagePreviewDialog dataUrl={previewContent || ""} title={previewNode?.title || t("assets.kinds.image")} open={Boolean(previewContent)} onClose={() => { setPreviewNodeId(null); setPreviewImageId(null); }} onPrevious={() => navigatePreview(-1)} onNext={() => navigatePreview(1)} position={previewIndex + 1} total={previewImages.length} images={previewImages} onSelect={(index) => { const image = previewImages[index]; if (image) { setPreviewNodeId(image.nodeId); setPreviewImageId(image.imageId || null); } }} />
 

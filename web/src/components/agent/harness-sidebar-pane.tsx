@@ -84,7 +84,7 @@ export function HarnessSidebarPane() {
         <div className="shrink-0 p-2"><AssistantImageCompression owner="harness" /></div>
         {loginUrl && <p className="shrink-0 px-3 py-2 text-xs"><a href={loginUrl} target="_blank" rel="noreferrer" className="underline">打开 DeepSeek 官方登录页面</a><button className="ml-3" onClick={() => setLoginUrl("")}>关闭</button></p>}
         {sidebar.url && <iframe ref={frame} title="DeepSeek Harness" src={frameUrl} onLoad={connect} className="h-full min-h-0 w-full flex-1 border-0" style={{ visibility: matching ? "visible" : "hidden" }} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads" allow="clipboard-read; clipboard-write" />}
-        {(sidebar.loading || sidebar.error || !sidebar.url || !matching) && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center text-sm" style={{ background: canvasTheme().panel }}>
+        {(sidebar.loading || sidebar.error || !sidebar.url || !matching) && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center text-sm" style={{ background: "transparent" }}>
             <p>{sidebar.loading ? "正在打开 DeepSeek Harness…" : sidebar.error || "打开当前画布的 DeepSeek Harness"}</p>
             {!sidebar.loading && <button type="button" className="rounded border px-3 py-2" onClick={() => void openDeepSeekHarness().catch(() => {})}>打开 Harness</button>}
         </div>}

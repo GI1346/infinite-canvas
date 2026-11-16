@@ -1,9 +1,9 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Button, ColorPicker, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, Grid2x2, Hand, History, Images, Info, Library, Moon, MousePointer2, Palette, Puzzle, Square, Sun, Trash2, Upload } from "lucide-react";
+import { Button, ColorPicker, Switch } from "antd";
+import { Eraser, Hand, History, Images, Info, Library, Moon, MousePointer2, Palette, Puzzle, Sun, Trash2, Upload } from "lucide-react";
 
-import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
+import { canvasGlass, canvasThemes, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { getNodePluginId, listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
 import { getNodeSpec } from "@/constant/canvas";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -14,21 +14,18 @@ import { useTranslation } from "react-i18next";
 export function CanvasToolbar({
     selectedCount,
     canvasTool,
-    backgroundMode,
     showImageInfo,
     onAddExtensionNode,
     onUpload,
     onDelete,
     onClear,
     onCanvasToolChange,
-    onBackgroundModeChange,
     onShowImageInfoChange,
 }: {
     selectedCount: number;
     canvasTool: "select" | "pan";
     canUndo: boolean;
     canRedo: boolean;
-    backgroundMode: CanvasBackgroundMode;
     showImageInfo: boolean;
     onAddImage: () => void;
     onAddVideo: () => void;
@@ -43,7 +40,6 @@ export function CanvasToolbar({
     onDelete: () => void;
     onClear: () => void;
     onCanvasToolChange: (tool: "select" | "pan") => void;
-    onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
     onShowImageInfoChange: (show: boolean) => void;
     onFocusSelected: () => void;
 }) {
@@ -67,9 +63,11 @@ export function CanvasToolbar({
     // Keep extension plugin nodes synchronized with registry changes.
     useNodeRegistryVersion();
     const extensionDefs = listNodeDefinitions().filter((def) => def.showInCreateMenu !== false && getNodePluginId(def.type) !== "builtin");
-    const dockStyle = { background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item, boxShadow: theme.toolbar.shadow };
+    // 左侧工具栏与弹层统一磨砂玻璃：半透明底色 + 背景模糊，画布内容透出来。
+    const dockStyle = { ...canvasGlass(theme), color: theme.toolbar.item };
     const hoverStyle = { background: theme.toolbar.itemHover, color: theme.toolbar.activeText };
-    const activeStyle = { background: theme.toolbar.activeBg, color: theme.toolbar.activeText };
+    // 激活态用绿色强调：和设计稿一致的浅绿底 + 绿图标。
+    const activeStyle = { background: theme.accent.soft, color: theme.accent.base };
     const tip = hovered ? toolLabel(hovered, t) : "";
 
     // Close extension-node and canvas-appearance popovers when clicking outside the toolbar and its panels.
@@ -88,7 +86,7 @@ export function CanvasToolbar({
     return (
         <div ref={rootRef} className="pointer-events-none absolute left-4 top-1/2 z-50 -translate-y-1/2" data-canvas-overlay data-canvas-no-zoom data-canvas-left-toolbar>
             {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
-            <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex max-h-[calc(100dvh-240px)] w-12 flex-col items-center gap-1 overflow-y-auto rounded-2xl border py-2 shadow-lg backdrop-blur [&>*]:shrink-0" style={dockStyle}>
+            <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex max-h-[calc(100dvh-240px)] w-12 flex-col items-center gap-1 overflow-y-auto rounded-full border py-2.5 backdrop-blur [&>*]:shrink-0" style={dockStyle}>
                 <ToolbarButton id={`tool-${canvasTool}`} label={t(`canvas.toolbar.${canvasTool}`)} active hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onCanvasToolChange(canvasTool === "select" ? "pan" : "select")}>
                     {canvasTool === "select" ? <MousePointer2 className="size-4.5" /> : <Hand className="size-4.5" />}
                 </ToolbarButton>
@@ -153,7 +151,7 @@ export function CanvasToolbar({
             {extensionsOpen && extensionDefs.length ? (
                 <div
                     className="thin-scrollbar pointer-events-auto absolute left-16 top-0 z-30 max-h-[calc(100dvh-120px)] w-[240px] overflow-y-auto rounded-xl border p-2 shadow-xl backdrop-blur"
-                    style={{ boxShadow: theme.toolbar.shadow, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item }}
+                    style={{ ...canvasGlass(theme), color: theme.toolbar.item }}
                 >
                     <div className="px-1.5 pb-1.5 text-[11px] font-medium opacity-50">{t("canvas.toolbar.extensions")}</div>
                     <div className="grid gap-0.5">
@@ -183,7 +181,7 @@ export function CanvasToolbar({
             {appearanceOpen ? (
                 <div
                     className="pointer-events-auto absolute bottom-0 left-16 z-30 w-[248px] rounded-xl border p-2.5 shadow-xl backdrop-blur"
-                    style={{ boxShadow: theme.toolbar.shadow, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item }}
+                    style={{ ...canvasGlass(theme), color: theme.toolbar.item }}
                 >
                     <div className="px-1 pb-2 text-sm font-medium opacity-65">{t("canvas.toolbar.appearance")}</div>
                     <div className="px-1 pb-1.5 text-[11px] font-medium opacity-50">{t("canvas.toolbar.themeMode")}</div>
@@ -197,39 +195,6 @@ export function CanvasToolbar({
                             {t("canvas.toolbar.dark")}
                         </CanvasThemeButton>
                     </div>
-                    <div className="mt-3 px-1 pb-1.5 text-[11px] font-medium opacity-50">{t("canvas.toolbar.gridStyle")}</div>
-                    <Segmented
-                        className="w-full !p-1 [&_.ant-segmented-group]:!flex [&_.ant-segmented-item]:!min-h-8 [&_.ant-segmented-item]:!flex-1 [&_.ant-segmented-item-label]:!min-h-8 [&_.ant-segmented-item-label]:!leading-8"
-                        value={backgroundMode}
-                        onChange={(value) => onBackgroundModeChange(value as CanvasBackgroundMode)}
-                        options={[
-                            {
-                                value: "dots",
-                                label: (
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <CircleDot className="size-4" />{t("canvas.toolbar.dots")}
-                                    </span>
-                                ),
-                            },
-                            {
-                                value: "lines",
-                                label: (
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <Grid2x2 className="size-4" />{t("canvas.toolbar.lines")}
-                                    </span>
-                                ),
-                            },
-                            {
-                                value: "blank",
-                                label: (
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <Square className="size-4" />
-                                        {t("canvas.toolbar.blank")}
-                                    </span>
-                                ),
-                            },
-                        ]}
-                    />
                     <div className="mt-3 px-1" data-canvas-overlay data-canvas-no-zoom>
                         <div className="mb-2 flex items-center justify-between text-[11px] font-medium">
                             <span className="opacity-65">自定义画布颜色</span>
@@ -306,7 +271,7 @@ function Divider({ theme }: { theme: CanvasTheme }) {
 function CanvasThemeButton({ colorTheme, targetTheme, onThemeChange, children }: { colorTheme: CanvasColorTheme; targetTheme: CanvasColorTheme; onThemeChange: (theme: CanvasColorTheme) => void; children: ReactNode }) {
     const theme = canvasThemes[colorTheme];
     const active = colorTheme === targetTheme;
-    const activeStyle = colorTheme === "light" ? { background: theme.toolbar.activeBg, color: theme.toolbar.activeText } : { background: theme.toolbar.activeBg, color: theme.toolbar.activeText };
+    const activeStyle = { background: theme.accent.soft, color: theme.accent.base };
     const { t } = useTranslation();
     const label = targetTheme === "dark" ? t("topNav.darkTheme") : t("topNav.lightTheme");
 

@@ -35,6 +35,9 @@ type CanvasNodeHoverToolbarProps = {
     onUpscale: (node: CanvasNodeData) => void;
     onSuperResolve: (node: CanvasNodeData) => void;
     onAngle: (node: CanvasNodeData) => void;
+    onColor: (node: CanvasNodeData) => void;
+    onPortrait: (node: CanvasNodeData) => void;
+    onExpression: (node: CanvasNodeData) => void;
     onViewImage: (node: CanvasNodeData) => void;
     onReversePrompt: (node: CanvasNodeData) => void;
     onRetry: (node: CanvasNodeData) => void;
@@ -79,6 +82,9 @@ export function CanvasNodeHoverToolbar({
     onUpscale,
     onSuperResolve,
     onAngle,
+    onColor,
+    onPortrait,
+    onExpression,
     onViewImage,
     onReversePrompt,
     onRetry,
@@ -117,7 +123,7 @@ export function CanvasNodeHoverToolbar({
         }
         copyText(prompt, t("common.promptCopied"));
     };
-    const imageTools = buildImageToolbarTools(node, { onUpload, onToggleFreeResize, onPaint, onMaskEdit, onCrop, onSplit, onUpscale, onSuperResolve, onAngle, onViewImage, onCopyPrompt: copyImagePrompt, onReversePrompt });
+    const imageTools = buildImageToolbarTools(node, { onUpload, onToggleFreeResize, onPaint, onMaskEdit, onCrop, onSplit, onUpscale, onSuperResolve, onAngle, onColor, onPortrait, onExpression, onViewImage, onCopyPrompt: copyImagePrompt, onReversePrompt });
 
     const baseToolbarTools: ToolbarTool[] = [
         { id: "addToAgent", title: "添加到 Agent", label: "添加到 Agent", icon: <Bot className="size-4" />, onClick: () => onAddToAgent(node) },
@@ -142,7 +148,7 @@ export function CanvasNodeHoverToolbar({
         ...(isAudio ? [{ id: "uploadAudio", title: t(hasAudio ? "canvas.nodeToolbar.replaceAudio" : "canvas.nodeToolbar.uploadAudio"), label: t(hasAudio ? "canvas.nodeToolbar.replaceAudio" : "canvas.nodeToolbar.uploadAudio"), icon: <Music2 className="size-4" />, onClick: () => onUpload(node) }] : []),
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
-    const pinnedIds = ["paint", "crop", "split"];
+    const pinnedIds = ["paint", "crop", "split", "color", "portrait", "expression"];
     const pinnedTools = imageTools.filter((tool) => pinnedIds.includes(tool.id)).sort((a, b) => pinnedIds.indexOf(a.id) - pinnedIds.indexOf(b.id));
     const toolbarTools = hasImage ? [
         ...pinnedTools,
@@ -154,7 +160,7 @@ export function CanvasNodeHoverToolbar({
     return (
         <>
             <div
-                className="absolute z-[70] flex h-12 -translate-x-1/2 -translate-y-full items-center overflow-x-auto rounded-2xl border text-[15px]"
+                className="absolute z-[70] flex max-h-24 -translate-x-1/2 -translate-y-full flex-wrap items-center justify-center rounded-2xl border py-1 text-[15px]"
                 data-node-toolbar={node.id}
                 style={{ left, top, maxWidth: "calc(100% - 24px)", boxShadow: theme.toolbar.shadow, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 onMouseEnter={() => onKeep(node.id)}

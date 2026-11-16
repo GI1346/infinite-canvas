@@ -12,6 +12,8 @@ export const ConnectionPath = memo(function ConnectionPath({
     from,
     to,
     active,
+    flowing,
+    scale = 1,
     onSelect,
     onContextMenu,
 }: {
@@ -19,6 +21,8 @@ export const ConnectionPath = memo(function ConnectionPath({
     from: CanvasNodeData;
     to: CanvasNodeData;
     active: boolean;
+    flowing?: boolean;
+    scale?: number;
     onSelect: (connectionId: string) => void;
     onContextMenu?: (event: ReactMouseEvent<SVGPathElement>, connectionId: string) => void;
 }) {
@@ -48,10 +52,24 @@ export const ConnectionPath = memo(function ConnectionPath({
                 d={pathD}
                 stroke={active ? theme.node.activeStroke : theme.node.muted}
                 strokeWidth={active ? 3 : 2}
-                strokeOpacity={active ? 1 : 0.82}
+                strokeOpacity={active ? 1 : flowing ? 0.95 : 0.82}
                 fill="none"
                 style={{ filter: active ? `drop-shadow(0 0 8px ${theme.node.activeStroke}66)` : undefined, pointerEvents: "none" }}
             />
+            {/* 选中节点时，连线上一颗颗光点朝目标方向流动（叠在实线之上才看得见）。
+                画布是用 CSS zoom 缩放的，线宽和虚线间距都要按 1/scale 反算，屏幕上才恒定。 */}
+            {flowing ? (
+                <path
+                    d={pathD}
+                    data-connection-flow={connection.id}
+                    stroke={theme.accent.base}
+                    strokeWidth={3.2 / scale}
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 / scale} ${11 / scale}`}
+                    fill="none"
+                    style={{ pointerEvents: "none", animation: "canvas-connection-flow 1s linear infinite", filter: `drop-shadow(0 0 ${4 / scale}px ${theme.accent.base})`, ["--flow-cycle" as string]: `${13 / scale}px` }}
+                />
+            ) : null}
         </g>
     );
 });

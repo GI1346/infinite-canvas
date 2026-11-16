@@ -1,5 +1,6 @@
 import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/constant/canvas";
-import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
+import { markNodeCreated } from "@/lib/canvas/canvas-node-creation";
+import { configNodeSize } from "@/lib/canvas/canvas-node-size";
 import { useCanvasImageSettingsStore } from "@/stores/canvas/use-canvas-image-settings-store";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { UploadedImage } from "@/services/image-storage";
@@ -12,8 +13,10 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
     // 图片节点和生成节点共用同一份配置记忆：新建时沿用上一次在配置栏选好的项。
     const remembered = type === CanvasNodeType.Image || type === CanvasNodeType.Config ? useCanvasImageSettingsStore.getState().settings : undefined;
     const initialMetadata = { ...spec.metadata, ...remembered, ...metadata };
-    const dimensions = type === CanvasNodeType.Image ? nodeSizeFromRatio(initialMetadata.size || "", spec.width, spec.height) || spec : spec;
+    // 生成节点沿用记忆里的比例，所以创建时就按比例给卡片；其它节点仍统一同一张卡片尺寸。
+    const dimensions = isGenerationCard({ type, metadata: initialMetadata }) ? configNodeSize(initialMetadata.imageAspectRatio) : spec;
     const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    markNodeCreated(id);
 
     return {
         id,
@@ -69,9 +72,15 @@ export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetada
 }
 
 export function applyNodeConfigPatch(node: CanvasNodeData, patch: Partial<CanvasNodeData["metadata"]>) {
-    const safePatch = patch || {};
-    const next = { ...node, metadata: { ...node.metadata, ...safePatch } };
-    const spec = node.type === CanvasNodeType.Video ? NODE_DEFAULT_SIZE[CanvasNodeType.Video] : NODE_DEFAULT_SIZE[CanvasNodeType.Image];
-    const size = typeof safePatch.size === "string" && !node.metadata?.content ? nodeSizeFromRatio(safePatch.size, spec.width, spec.height) : null;
-    return size && (node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video) ? { ...next, ...size, position: { x: node.position.x + node.width / 2 - size.width / 2, y: node.position.y + node.height / 2 - size.height / 2 } } : next;
+    const next = { ...node, metadata: { ...node.metadata, ...(patch || {}) } };
+    // 只有还没出图的生成节点跟着比例变形，并且以中心为锚点收放，避免卡片只往下长顶住面板。
+    const ratio = patch?.imageAspectRatio ?? (typeof patch?.size === "string" ? patch.size : undefined);
+    if (!isGenerationCard(node) || !ratio) return next;
+    const size = configNodeSize(ratio);
+    return { ...next, ...size, position: { x: node.position.x + (node.width - size.width) / 2, y: node.position.y + (node.height - size.height) / 2 } };
+}
+
+/** 空图片节点就是待生成的生成节点（配置 + 比例都挂它上面）。 */
+function isGenerationCard(node: { type: CanvasNodeTypeId; metadata?: CanvasNodeMetadata }) {
+    return node.type === CanvasNodeType.Config || (node.type === CanvasNodeType.Image && !node.metadata?.content && !node.metadata?.images?.length);
 }

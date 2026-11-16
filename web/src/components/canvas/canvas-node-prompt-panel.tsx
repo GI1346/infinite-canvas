@@ -18,6 +18,8 @@ import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "@/types/canvas";
 import { buildCanvasResourceReferences, getGroupResourceNodes, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
+import { CanvasStylePicker } from "./canvas-style-picker";
+import { presetFragments } from "@/lib/canvas/canvas-image-presets";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
 
@@ -49,6 +51,7 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
     const [expanded, setExpanded] = useState(false);
+    const [presetTab, setPresetTab] = useState<string | null>(null);
     const upstreamNodes = connectedNodes.flatMap((input) => input.type === CanvasNodeType.Group ? getGroupResourceNodes(input.id, nodes) : [input]);
     const canGenerate = Boolean(prompt.trim()) || (!modeOverride && buildCanvasResourceReferences(upstreamNodes).some((reference) => Boolean(reference.text?.trim())));
 
@@ -67,7 +70,9 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
     const submit = () => {
         const text = prompt.trim();
         if (!canGenerate || isRunning) return;
-        onGenerate(node.id, mode, text);
+        // 预设参数不写进提示词输入框，生成时才注入
+        const presetText = presetFragments(node.metadata).join("，");
+        onGenerate(node.id, mode, [presetText, text].filter(Boolean).join("，"));
     };
 
     // 图片节点的模型 / 尺寸 / 质量 / 张数同样进入配置记忆，新建节点时沿用。
@@ -80,6 +85,7 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
         setExpanded(true);
     };
 
+
     return (
         <div
             data-canvas-no-zoom
@@ -90,6 +96,13 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
             onWheel={(event) => event.stopPropagation()}
         >
             <CanvasNodeReferenceBar nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onReorder={isRunning ? undefined : (referenceNodeOrder) => onConfigChange(node.id, { referenceNodeOrder })} onStartSelection={onStartReferenceSelection} />
+            {mode === "image" ? <div className="mb-2"><CanvasStylePicker
+                selections={{ camera: node.metadata?.presetCamera ?? {}, palette: node.metadata?.presetPalette ?? "", style: node.metadata?.presetStyle ?? "" }}
+                onSelect={(next) => onConfigChange(node.id, { presetCamera: next.camera, presetPalette: next.palette, presetStyle: next.style })}
+                customPalettes={node.metadata?.presetCustomPalettes ?? []}
+                onCustomPalettesChange={(list) => onConfigChange(node.id, { presetCustomPalettes: list })}
+                theme={theme}
+            /></div> : null}
             <CanvasPromptChipInput
                 value={prompt}
                 references={mentionReferences}

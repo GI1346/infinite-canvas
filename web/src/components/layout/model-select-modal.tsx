@@ -116,7 +116,7 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
         <div className="min-h-48 space-y-3">
             {groups.map((group) => {
                 const count = group.models.filter((model) => selected.has(model.name)).length;
-                return <section key={group.family} className="overflow-hidden rounded-2xl border border-border bg-muted/20">
+                return <section key={group.family} className="overflow-hidden rounded-2xl border border-white/50 bg-white/35 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
                     <div className="flex items-center justify-between gap-3 px-4 py-3"><button type="button" className="flex items-center gap-2 text-left" onClick={() => setCollapsed((current) => { const next = new Set(current); next.has(group.family) ? next.delete(group.family) : next.add(group.family); return next; })}><ChevronDown className={`size-4 text-muted-foreground transition-transform ${collapsed.has(group.family) ? "-rotate-90" : ""}`} /><span><strong className="block text-xs">{group.family}</strong><span className="mt-1 block text-[11px] text-muted-foreground">{group.models.length} 个版本 · 已选 {count}</span></span></button><div className="flex gap-2"><Button size="small" disabled={count === group.models.length} onClick={() => toggleModels(group.models.map((model) => model.name), true)}>全选本组</Button><Button size="small" disabled={!count} onClick={() => toggleModels(group.models.map((model) => model.name), false)}>清空本组</Button></div></div>
                     {!collapsed.has(group.family) && <div className="flex flex-wrap gap-2 border-t border-border p-3">{group.models.map((model) => {
                         const checked = selected.has(model.name);
@@ -128,5 +128,5 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
         </div>
 
     </>;
-    return embedded ? <section className="rounded-3xl border border-border bg-card p-5 shadow-sm">{content}</section> : <Modal open={open} width={920} centered onCancel={onClose} title={<div className="flex items-baseline gap-3"><span>编辑模型</span><span className="text-xs font-normal text-muted-foreground">{channel?.name} · 已选 {selected.size} / {models.length}</span></div>} styles={{ body: { maxHeight: "68vh", overflowY: "auto" } }} footer={<div className="flex justify-end gap-2"><Button onClick={onClose}>取消</Button><Button type="primary" onClick={confirm}>保存选择</Button></div>}>{content}</Modal>;
+    return embedded ? <section className="rounded-3xl border border-white/60 bg-white/45 p-5 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">{content}</section> : <Modal open={open} width={920} centered onCancel={onClose} title={<div className="flex items-baseline gap-3"><span>编辑模型</span><span className="text-xs font-normal text-muted-foreground">{channel?.name} · 已选 {selected.size} / {models.length}</span></div>} styles={{ body: { maxHeight: "68vh", overflowY: "auto" } }} footer={<div className="flex justify-end gap-2"><Button onClick={onClose}>取消</Button><Button type="primary" onClick={confirm}>保存选择</Button></div>}>{content}</Modal>;
 }
