@@ -64,7 +64,7 @@ export const CanvasSidePanel = memo(function CanvasSidePanel({ nodes, connection
     const { title, Icon } = PANEL_INFO[tab];
     return (
         <motion.aside
-            className="absolute bottom-4 left-20 top-20 z-[160] flex min-h-0 flex-col overflow-hidden rounded-[28px] border"
+            className="absolute bottom-4 left-20 top-20 z-[60] flex min-h-0 flex-col overflow-hidden rounded-[28px] border"
             initial={{ x: -24, opacity: 0 }}
             animate={{ x: panelClosing ? -24 : 0, opacity: panelClosing ? 0 : 1 }}
             transition={{ duration: CANVAS_SIDE_PANEL_MOTION_MS / 1000, ease: [0.22, 1, 0.36, 1] }}

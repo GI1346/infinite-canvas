@@ -175,38 +175,55 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
 
     const handleWheel = (event: WheelEvent) => {
         const target = event.target instanceof Element ? event.target : null;
-        if (target?.closest("[data-canvas-overlay],.ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
-        if (!target?.closest("[data-node-id]") && target?.closest("[data-canvas-no-zoom]")) return;
-        const editor = target?.closest("input,textarea,select,[contenteditable]:not([contenteditable='false']),.cm-editor");
-        if (editor && (editor === document.activeElement || editor.contains(document.activeElement))) return;
+        // antd 的弹窗 / 下拉 / 气泡自己滚动。
+        if (target?.closest(".ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
+        // 画布上的固定浮层（顶部栏、左侧栏、右键菜单）不抢滚轮；节点内部（含文本节点卡片）一律放行给画布。
+        const overlay = target?.closest("[data-canvas-overlay],[data-canvas-no-zoom]");
+        if (overlay && !overlay.closest("[data-node-id],[data-node-panel]")) return;
 
         if (cuttingRef.current) { event.preventDefault(); event.stopPropagation(); return; }
 
+        const current = nextViewportRef.current || viewportRef.current;
+        const commit = (next: typeof current) => {
+            if (panState.current.isPanning) {
+                panState.current.initialX += next.x - current.x;
+                panState.current.initialY += next.y - current.y;
+            }
+            viewportRef.current = next; nextViewportRef.current = next; wheelCommitRef.current = true;
+            scheduleFrame();
+        };
+
+        // Ctrl / Cmd + 滚轮：无论光标停在面板哪个位置，都缩放画布。
+        if (event.ctrlKey || event.metaKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            const factor = wheelZoomFactor(event.deltaY);
+            const newScale = Math.min(Math.max(current.k * factor, 0.05), 5);
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            const worldX = (mouseX - current.x) / current.k;
+            const worldY = (mouseY - current.y) / current.k;
+            commit({ x: mouseX - worldX * newScale, y: mouseY - worldY * newScale, k: newScale });
+            return;
+        }
+
+        // Shift + 滚轮：无论光标停在面板哪个位置，都左右平移画布（兼容 Windows 下产生 deltaX 或 deltaY）。
+        if (event.shiftKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+            commit({ ...current, x: current.x - horizontal });
+            return;
+        }
+
+        // 单独滚轮：只有「已激活且自身有纵向滚动条」的输入框、或节点内数据滚动区才让给原生滚动。
+        if (focusedScrollableEditor(target) || nodeScrollArea(target)) return;
+
         event.preventDefault();
         event.stopPropagation();
-        const current = nextViewportRef.current || viewportRef.current;
-        const delta = -event.deltaY;
-        const factor = wheelZoomFactor(-delta);
-        const newScale = Math.min(Math.max(current.k * factor, 0.05), 5);
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (!rect) return;
-
-        const mouseX = event.clientX - rect.left;
-        const mouseY = event.clientY - rect.top;
-        const worldX = (mouseX - current.x) / current.k;
-        const worldY = (mouseY - current.y) / current.k;
-
-        const next = {
-            x: mouseX - worldX * newScale,
-            y: mouseY - worldY * newScale,
-            k: newScale,
-        };
-        if (panState.current.isPanning) {
-            panState.current.initialX += next.x - current.x;
-            panState.current.initialY += next.y - current.y;
-        }
-        viewportRef.current = next; nextViewportRef.current = next; wheelCommitRef.current = true;
-        scheduleFrame();
+        commit({ ...current, y: current.y - event.deltaY });
     };
 
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -352,6 +369,22 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
             </div>
         </div>
     );
+}
+
+/** 已激活且自身有纵向滚动条的输入框：滚轮交给它原生滚动，其余情况一律交给画布。 */
+function focusedScrollableEditor(target: Element | null) {
+    const box = target?.closest("textarea,input,[contenteditable='true']");
+    if (!(box instanceof HTMLElement)) return false;
+    const active = document.activeElement;
+    if (!(active === box || (active instanceof Node && box.contains(active)))) return false;
+    return box.scrollHeight > box.clientHeight + 1;
+}
+
+/** 节点内部的数据滚动区（多维表格、分析结果等）：悬停即原生滚动。 */
+function nodeScrollArea(target: Element | null) {
+    const box = target?.closest("[data-node-scroll]");
+    if (!(box instanceof HTMLElement)) return false;
+    return box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1;
 }
 
 function CanvasGrid({ viewport }: { viewport: ViewportTransform }) {

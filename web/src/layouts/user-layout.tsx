@@ -7,10 +7,13 @@ import "./workspace.css";
 
 import { CanvasAssistantDock } from "@/components/agent/canvas-assistant-dock";
 import { AppTopNav } from "@/components/layout/app-top-nav";
+import { useAutoPairQuotes } from "@/hooks/use-auto-pair-quotes";
 import { useDeepSeekHarness } from "@/hooks/use-deepseek-harness";
 
 export default function UserLayout({ children }: { children: ReactNode }) {
     useDeepSeekHarness();
+    // 全局双引号自动配对：画布节点、生成提示词、表格单元格、Agent 对话框都走这一份监听。
+    useAutoPairQuotes();
     const { pathname } = useLocation();
     const projectPage = /^\/canvas\/[^/]+/.test(pathname);
     // 除画布内页外，所有页面都套同一层底图 + 两张磨砂玻璃卡（左侧导航 + 右侧内容）。

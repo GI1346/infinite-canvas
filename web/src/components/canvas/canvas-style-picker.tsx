@@ -62,22 +62,22 @@ export function CanvasStylePicker({ selections, onSelect, customPalettes, onCust
     const resetAll = () => setTemp({ camera: Object.fromEntries(cameraSections.map((section) => [section.key, "自动"])), palette: "", style: "" });
 
     return (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
             {collapsed ? (
                 <button type="button" className="grid size-8 shrink-0 place-items-center rounded-full border transition hover:opacity-80" style={{ borderColor: theme.node.stroke, color: theme.node.muted }} onClick={() => setCollapsed(false)} aria-label="展开相机 / 配色 / 风格">
                     <Aperture size={15} />
                 </button>
             ) : (
                 <>
-                    <div className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-xl border" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
+                    <div className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.08] dark:bg-white/[0.04]" style={{ borderColor: theme.node.stroke }}>
                         <Segment theme={theme} thumb={cameraThumb} label="相机" value={cameraSummary} onClick={() => open("camera")} />
-                        <span className="my-2 w-px shrink-0" style={{ background: theme.node.stroke }} />
+                        <span className="my-1.5 w-px shrink-0" style={{ background: theme.node.stroke }} />
                         <Segment theme={theme} thumb={paletteThumb} label="配色" value={paletteLabel} onClick={() => open("palette")} />
-                        <span className="my-2 w-px shrink-0" style={{ background: theme.node.stroke }} />
+                        <span className="my-1.5 w-px shrink-0" style={{ background: theme.node.stroke }} />
                         <Segment theme={theme} thumb={styleThumb} label="风格" value={selections.style} onClick={() => open("style")} />
                     </div>
-                    <button type="button" className="grid size-9 shrink-0 place-items-center rounded-lg transition hover:opacity-80" style={{ color: theme.node.muted }} onClick={() => setCollapsed(true)} aria-label="收起预设">
-                        <ChevronDown size={16} />
+                    <button type="button" className="grid size-7 shrink-0 place-items-center rounded-lg transition hover:opacity-80" style={{ color: theme.node.muted }} onClick={() => setCollapsed(true)} aria-label="收起预设">
+                        <ChevronDown size={15} />
                     </button>
                 </>
             )}
@@ -128,14 +128,14 @@ function Segment({ theme, thumb, label, value, onClick }: { theme: CanvasTheme; 
     return (
         <button
             type="button"
-            className="flex h-10 min-w-0 flex-1 items-center gap-2 px-2.5 text-left transition hover:opacity-85"
+            className="flex h-8 min-w-0 flex-1 items-center gap-1.5 px-2 text-left transition hover:bg-[#0ea977]/10"
             onClick={onClick}
         >
-            <span className="relative size-[22px] shrink-0 overflow-hidden rounded-[6px]" style={{ boxShadow: `inset 0 0 0 1px ${theme.node.stroke}` }}>
+            <span className="relative size-[18px] shrink-0 overflow-hidden rounded-[5px]" style={{ boxShadow: `inset 0 0 0 1px ${theme.node.stroke}` }}>
                 {thumb}
             </span>
             <span className="flex min-w-0 flex-1 items-baseline gap-1">
-                <span className="shrink-0 text-[13px]" style={{ color: value ? theme.accent.base : theme.node.text }}>{label}</span>
+                <span className="shrink-0 text-[12px]" style={{ color: value ? theme.accent.base : theme.node.text }}>{label}</span>
                 {value ? <span className="truncate text-[11px]" style={{ color: theme.node.muted }}>{value}</span> : null}
             </span>
         </button>

@@ -28,14 +28,14 @@ export function ConnectionCreateMenu({
     const { t } = useTranslation();
     return (
         <div
-            className="absolute z-[120] w-[300px] rounded-2xl border p-2 shadow-2xl backdrop-blur"
+            className="bf-canvas-glass absolute z-[120] w-[300px] rounded-2xl border p-2.5 shadow-2xl backdrop-blur"
             data-canvas-no-zoom
             data-connection-create-menu
             style={{ left: pending.position.x, top: pending.position.y, transform: `scale(${1 / scale})${pending.connection.handleType === "target" ? " translateX(-100%)" : ""}`, transformOrigin: "top left", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >
-            <div className="mb-1.5 flex items-center justify-between px-1">
+            <div className="mb-1.5 flex items-center justify-between border-b border-black/[0.06] px-1 pb-2 dark:border-white/[0.08]">
                 <span className="text-sm font-medium" style={{ color: theme.node.muted }}>
                     {t("canvas.createMenu.fromNode")}
                 </span>
@@ -56,21 +56,12 @@ export function ConnectionCreateMenu({
 
 export function ConnectionCreateOption({ theme, icon, title, description, onClick }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes]; icon: React.ReactNode; title: string; description?: string; onClick?: () => void }) {
     return (
-        <button
-            type="button"
-            className="flex min-h-12 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition"
-            style={{ color: theme.node.text, overflow: "hidden", whiteSpace: "normal" }}
-            onClick={onClick}
-            onMouseEnter={(event) => (event.currentTarget.style.background = theme.node.fill)}
-            onMouseLeave={(event) => (event.currentTarget.style.background = "transparent")}
-        >
-            <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: theme.node.fill, color: theme.node.muted }}>
-                {icon}
-            </span>
-            <span className="min-w-0 flex-1" style={{ overflow: "hidden" }}>
-                <span className="block text-sm font-medium leading-5" style={{ overflowWrap: "anywhere" }}>{title}</span>
+        <button type="button" className="group flex w-full min-w-0 items-center gap-3 rounded-xl p-2 text-left transition hover:bg-[#0ea977]/[0.08] dark:hover:bg-[#37d39b]/[0.12]" style={{ color: theme.node.text }} onClick={onClick}>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-black/[0.04] transition group-hover:bg-[#0ea977] group-hover:text-white dark:bg-white/[0.06] dark:group-hover:bg-[#37d39b] dark:group-hover:text-[#0a0c0f]">{icon}</span>
+            <span className="min-w-0 flex-1">
+                <span className="block text-xs font-semibold leading-5">{title}</span>
                 {description ? (
-                    <span className="mt-0.5 block text-xs leading-4" style={{ color: theme.node.muted, whiteSpace: "normal", overflowWrap: "anywhere" }}>
+                    <span className="mt-0.5 block truncate text-[11px] leading-4" style={{ color: theme.node.muted }}>
                         {description}
                     </span>
                 ) : null}
@@ -78,6 +69,15 @@ export function ConnectionCreateOption({ theme, icon, title, description, onClic
         </button>
     );
 }
+
+/** 创建菜单里每个节点的一句话说明；补齐没有 description 的内置节点。 */
+const CREATEMENU_DESCRIPTIONS: Record<string, string> = {
+    [CanvasNodeType.Image]: "输入文字与参考图，生成结果就在节点里",
+    [CanvasNodeType.Text]: "输入和编辑文字，可直接生图",
+    "dxos:table": "图片与文本按输入列逐行组合",
+    "dxos:llm": "分析图片与文本，输出文本或表格",
+    "blinkflow:fusion": "将局部修改融合回原图",
+};
 
 export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { position: Position; scale?: number; onCreate: (type: string) => void; onClose: () => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -103,12 +103,12 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
         <div className="absolute z-[120]" style={{ left: position.x, top: position.y }}>
             <div
                 ref={menuRef}
-                className="w-[300px] overflow-y-auto rounded-2xl border p-2 shadow-2xl backdrop-blur thin-scrollbar"
+                className="bf-canvas-glass thin-scrollbar w-[300px] overflow-y-auto rounded-2xl border p-2.5 shadow-2xl backdrop-blur"
                 data-canvas-no-zoom
                 style={{ zoom: 1 / Math.max(scale, 0.01), maxHeight: "70vh", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
                 onPointerDown={(event) => event.stopPropagation()}
             >
-                <div className="mb-1.5 flex items-center justify-between px-1">
+                <div className="mb-1.5 flex items-center justify-between border-b border-black/[0.06] px-1 pb-2 dark:border-white/[0.08]">
                     <span className="text-sm font-medium" style={{ color: theme.node.muted }}>
                         {t("canvas.createMenu.select")}
                     </span>
@@ -118,7 +118,7 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
                 </div>
                 <div className="grid gap-0.5">
                     {definitions.map((def) => (
-                        <ConnectionCreateOption key={def.type} theme={theme} icon={def.icon} title={def.type === CanvasNodeType.Image ? "生成节点" : getNodeSpec(def.type).title} description={def.type === CanvasNodeType.Image ? "输入文字与参考图，生成结果就在节点里" : def.description} onClick={() => onCreate(def.type)} />
+                        <ConnectionCreateOption key={def.type} theme={theme} icon={def.icon} title={def.type === CanvasNodeType.Image ? "生成节点" : getNodeSpec(def.type).title} description={CREATEMENU_DESCRIPTIONS[def.type] ?? def.description} onClick={() => onCreate(def.type)} />
                     ))}
                 </div>
             </div>

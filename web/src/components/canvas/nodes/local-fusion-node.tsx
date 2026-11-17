@@ -27,20 +27,20 @@ export function LocalFusionContent({ ctx }: { ctx: CanvasNodeContext }) {
         } catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : String(reason)); }
         finally { runningRef.current = false; if (alive.current) setRunning(false); }
     };
-    const pane = (label: string, url?: string) => <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg" style={{ background: theme.canvas.background, border: `1px solid ${theme.node.stroke}` }}><span className="absolute left-2 top-2 z-10 rounded px-1.5 py-0.5 text-2xl" style={{ background: theme.toolbar.panel, color: theme.node.text }}>{label}</span>{url ? <img src={url} alt={label} draggable={false} className="h-full w-full object-contain" /> : <ImageIcon className="size-7 opacity-30" />}</div>;
-    return <div data-fusion-node className="relative flex h-full w-full flex-col gap-3 p-4 text-2xl" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag}>
-        <strong data-node-drag-handle className="cursor-grab">融合节点</strong>
-        <div className="flex min-h-20 flex-1 gap-2">{pane("原图", original?.metadata?.content)}<div data-fusion-patches className="flex min-h-0 min-w-0 flex-1 flex-col gap-1">{inputs.patches.length ? inputs.patches.map((patch, index) => <div className="flex min-h-0 flex-1" key={`${patch.id}-${index}`}>{pane(`局部修改 ${index + 1}`, patch.metadata?.content)}</div>) : pane("局部修改")}</div></div>
+    const pane = (label: string, url?: string) => <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-dashed border-[#0ea977]/35 bg-[#0ea977]/[0.03] transition-colors"><span className="absolute left-2 top-2 z-10 rounded-lg bg-[#0ea977]/12 px-2 py-0.5 text-sm font-semibold text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b]">{label}</span>{url ? <img src={url} alt={label} draggable={false} className="h-full w-full object-contain" /> : <ImageIcon className="size-7 text-[#0ea977]/40" />}</div>;
+    return <div data-fusion-node className="relative flex h-full w-full flex-col gap-2 p-3 text-sm" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag}>
+        <span data-node-drag-handle className="inline-flex w-fit cursor-grab items-center gap-2 rounded-full bg-[#0ea977]/12 px-3 py-1 text-lg font-semibold text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b]"><Blend className="size-5" />局部融合</span>
+        <div className="flex min-h-[96px] flex-1 gap-2">{pane("原图", original?.metadata?.content)}<div data-fusion-patches className="flex min-h-0 min-w-0 flex-1 flex-col gap-1">{inputs.patches.length ? inputs.patches.map((patch, index) => <div className="flex min-h-0 flex-1" key={`${patch.id}-${index}`}>{pane(`局部修改 ${index + 1}`, patch.metadata?.content)}</div>) : pane("局部修改")}</div></div>
         <p style={{ color: theme.node.muted }}>{reason}</p>
-        <label className="flex items-center gap-2"><input type="checkbox" disabled={running} checked={node.metadata?.fusionColorMatch !== false} onChange={(event) => ctx.updateMetadata({ fusionColorMatch: event.target.checked })} />颜色匹配</label>
+        <label className="flex w-fit items-center gap-2 rounded-xl bg-black/[0.03] px-3 py-1.5 dark:bg-white/[0.05]"><input type="checkbox" disabled={running} checked={node.metadata?.fusionColorMatch !== false} onChange={(event) => ctx.updateMetadata({ fusionColorMatch: event.target.checked })} />颜色匹配</label>
         {error && <p role="alert" className="break-words" style={{ color: theme.node.text }}>{error}</p>}
-        <button type="button" className="rounded-lg border px-3 py-2 hover:opacity-80 disabled:opacity-40" style={{ borderColor: theme.node.stroke }} disabled={!ready || running} onClick={() => void run()}>{running ? "正在融合…" : "开始融合"}</button>
+        <button type="button" className="flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-lg font-semibold text-white shadow-sm transition hover:opacity-95 active:scale-[0.99] disabled:opacity-40" style={{ backgroundImage: "linear-gradient(to bottom right, #0ea977, #12896a)" }} disabled={!ready || running} onClick={() => void run()}>{running ? "正在融合…" : "开始融合"}</button>
     </div>;
 }
 
 export const localFusionNodeDefinition: CanvasNodeDefinition = {
     type: LOCAL_FUSION_NODE_TYPE, title: "融合节点", icon: <Blend className="size-4" />,
-    defaultSize: { width: IMAGE_NODE_MAX_EDGE, height: IMAGE_NODE_MAX_EDGE }, defaultMetadata: { fusionColorMatch: true },
+    defaultSize: { width: 310, height: 320 }, defaultMetadata: { fusionColorMatch: true },
     hidePanel: true, hasSourceHandle: true, Content: LocalFusionContent,
     resource: (node) => node.metadata?.content ? { kind: "image", url: node.metadata.content } : null,
 };

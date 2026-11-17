@@ -1,7 +1,7 @@
 import { CanvasLogsModal } from "./canvas-logs-modal";
 import { CanvasWheelSensitivity } from "./canvas-wheel-sensitivity";
 import { useEffect, useRef, useState } from "react";
-import { Bot, BookOpen, Download, Eraser, FileText, Gauge, Home, Images, Keyboard, Menu, Moon, Plus, Redo2, Settings2, Sun, Trash2, Undo2, Upload } from "lucide-react";
+import { Bot, BookOpen, Download, Eraser, FileText, Home, Images, Keyboard, Menu, Moon, Plus, Redo2, Settings2, Sun, Trash2, Undo2, Upload } from "lucide-react";
 import { App, Button, Dropdown, Modal, Popover, Slider, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
@@ -81,8 +81,10 @@ export function CanvasTopBar({
 
     return (
         <>
-            <div className="pointer-events-auto absolute left-1/2 top-2 z-50 flex h-12 w-max max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-3 rounded-full border px-3" data-canvas-overlay data-canvas-no-zoom data-canvas-top-toolbar style={{ ...canvasGlass(theme), color: theme.node.text }}>
-                <div className="pointer-events-auto flex min-w-[120px] shrink-0 items-center gap-1">
+            <header className="pointer-events-none absolute inset-x-4 top-3 z-[60] grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3" data-canvas-overlay data-canvas-no-zoom data-canvas-top-toolbar style={{ color: theme.node.text }}>
+                {/* 左上角悬浮岛：品牌徽章 + 主菜单 + 项目名 + 状态胶囊 */}
+                <div className="bf-canvas-glass pointer-events-auto flex h-11 min-w-0 items-center gap-1.5 justify-self-start rounded-2xl px-2" style={{ ...canvasGlass(theme), color: theme.node.text }}>
+                    <div className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#0ea977] to-[#37d39b] text-[11px] font-bold leading-none text-white">BF</div>
                     <Dropdown
                         trigger={["click"]}
                         menu={{
@@ -118,13 +120,13 @@ export function CanvasTopBar({
                                     if (event.key === "Enter") onFinishTitleEditing();
                                     if (event.key === "Escape") onCancelTitleEditing();
                                 }}
-                                className="max-w-[150px] bg-transparent p-0 text-left text-sm font-medium tracking-normal outline-none"
+                                className="max-w-[180px] bg-transparent p-0 text-left text-sm font-semibold tracking-normal outline-none sm:max-w-[260px] md:max-w-[340px]"
                                 style={{ color: theme.node.text }}
                             />
                         ) : (
                             <button
                                 type="button"
-                                className="max-w-[150px] truncate border-b border-dashed border-transparent text-left text-sm font-medium tracking-normal transition hover:border-current"
+                                className="max-w-[180px] truncate border-b border-dashed border-transparent text-left text-sm font-semibold tracking-normal transition hover:border-current sm:max-w-[260px] md:max-w-[340px]"
                                 onDoubleClick={onStartTitleEditing}
                                 title={t("canvas.renameHint")}
                             >
@@ -132,37 +134,65 @@ export function CanvasTopBar({
                             </button>
                         )}
                     </div>
+                    <span className="hidden shrink-0 items-center gap-1 rounded-full bg-[#0ea977]/12 px-2 py-0.5 text-[11px] font-medium text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b] xl:inline-flex">
+                        <span className="size-1.5 rounded-full bg-current" />
+                        已同步
+                    </span>
                 </div>
 
-                <div className="thin-scrollbar pointer-events-auto flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap [&>*]:shrink-0">
-                    <Tooltip title={t("canvas.undo")}><Button type="text" aria-label={t("canvas.undo")} disabled={!canUndo} icon={<Undo2 className="size-4" />} onClick={onUndo} /></Tooltip>
-                    <Tooltip title={t("canvas.redo")}><Button type="text" aria-label={t("canvas.redo")} disabled={!canRedo} icon={<Redo2 className="size-4" />} onClick={onRedo} /></Tooltip>
+                {/* 正中间悬浮岛：撤销 / 重做 + 主页 + 模型与接口 */}
+                <div className="bf-canvas-glass pointer-events-auto hidden h-11 items-center gap-1 justify-self-center rounded-2xl px-2 sm:flex" style={{ ...canvasGlass(theme), color: theme.node.text }}>
+                    <div className="flex items-center gap-0.5 rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
+                        <Tooltip title={t("canvas.undo")}><Button type="text" aria-label={t("canvas.undo")} disabled={!canUndo} icon={<Undo2 className="size-4" />} onClick={onUndo} /></Tooltip>
+                        <Tooltip title={t("canvas.redo")}><Button type="text" aria-label={t("canvas.redo")} disabled={!canRedo} icon={<Redo2 className="size-4" />} onClick={onRedo} /></Tooltip>
+                    </div>
+                    <div className="mx-1 h-4 w-px shrink-0 bg-black/10 dark:bg-white/15" />
                     <BarAction icon={<Home className="size-4" />} label={t("canvas.home")} onClick={onHome} />
-                    <BarAction icon={<Bot className="size-4" />} label="Agent" active={agentOpen} onClick={() => { const wasAgent = useHarnessSidebarStore.getState().tab === "agent"; useHarnessSidebarStore.setState({ tab: "agent" }); useCanvasAssistantStore.getState().setOpen(!agentOpen || !wasAgent); }} />
-                    <BarAction icon={<img src="/icons/deepseek.svg" alt="" className="size-4" />} label="Harness" disabled={harnessOpening} onClick={async () => {
+                    <div className="rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
+                        <BarAction icon={<Settings2 className="size-4" />} label={t("navigation.config")} onClick={() => openConfigDialog(false)} />
+                    </div>
+                </div>
+
+                {/* 右上角悬浮岛：实心翡翠绿 Agent + Harness + 主题 + 更多收纳 */}
+                <div className="bf-canvas-glass pointer-events-auto flex h-11 items-center gap-1.5 justify-self-end rounded-2xl px-2" style={{ ...canvasGlass(theme), color: theme.node.text }}>
+                    <BarAction variant="solid" icon={<Bot className="size-4" />} label="Agent" onClick={() => { const wasAgent = useHarnessSidebarStore.getState().tab === "agent"; useHarnessSidebarStore.setState({ tab: "agent" }); useCanvasAssistantStore.getState().setOpen(!agentOpen || !wasAgent); }} />
+                    <BarAction variant="soft" icon={<img src="/icons/deepseek.svg" alt="" className="size-4" />} label="Harness" disabled={harnessOpening} onClick={async () => {
                         if (harnessOpening) return;
                         setHarnessOpening(true);
                         try { await openDeepSeekHarness(); }
                         catch (error) { recordDiagnostic("DeepSeek Harness 启动", error); message.error(error instanceof Error ? error.message : "DeepSeek Harness 启动失败"); }
                         finally { setHarnessOpening(false); }
                     }} />
-                    <BarAction icon={<FileText className="size-4" />} label="日志" onClick={() => setLogsOpen(true)} />
-                    <BarAction icon={<Eraser className="size-4" />} label="清理" onClick={onOpenCleanup} />
-                    <BarAction icon={<Settings2 className="size-4" />} label={t("navigation.config")} onClick={() => openConfigDialog(false)} />
                     <AnimatedThemeToggler theme={colorTheme} onThemeChange={setTheme} className={barActionClass} style={{ color: theme.node.text }} aria-label="主题" title="切换主题">
                         {colorTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
                         <span className="text-[13px]">主题</span>
                     </AnimatedThemeToggler>
-                    <Popover trigger="click" placement="bottom" content={<WheelSpeedPanel />}>
-                        <button type="button" aria-label="滚轮缩放速度" title="滚轮缩放速度" className={barActionClass} style={{ color: theme.node.text }}>
-                            <Gauge className="size-4" />
-                            <span className="text-[13px]">速度</span>
+                    <div className="mx-0.5 h-4 w-px shrink-0 bg-black/10 dark:bg-white/15" />
+                    <Popover
+                        trigger="click"
+                        placement="bottomRight"
+                        content={
+                            <div className="flex w-64 flex-col gap-2 p-1">
+                                <div className="px-1 text-[11px] font-semibold" style={{ color: theme.node.muted }}>系统工具与画布偏好</div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                    <button type="button" className={moreItemClass} style={{ color: theme.node.text }} onClick={() => setLogsOpen(true)}><FileText className="size-3.5" />日志</button>
+                                    <button type="button" className={moreItemClass} style={{ color: theme.node.text }} onClick={onOpenCleanup}><Eraser className="size-3.5" />清理</button>
+                                    <button type="button" className={moreItemClass} style={{ color: theme.node.text }} onClick={() => setShortcutsOpen(true)}><Keyboard className="size-3.5" />快捷键</button>
+                                    <VersionReleaseModal className={moreItemClass} style={{ color: theme.node.text }} />
+                                </div>
+                                <div className="border-t pt-2" style={{ borderColor: theme.node.stroke }}>
+                                    <WheelSpeedPanel />
+                                </div>
+                            </div>
+                        }
+                    >
+                        <button type="button" className={moreTriggerClass} style={{ color: theme.node.text }} title="日志、清理、快捷键、滚轮速度与版本">
+                            <Settings2 className="size-3.5" />
+                            <span>更多</span>
                         </button>
                     </Popover>
-                    <VersionReleaseModal style={{ color: theme.node.text }} />
-                    <BarAction icon={<Keyboard className="size-4" />} label={t("canvas.shortcuts")} onClick={() => setShortcutsOpen(true)} />
                 </div>
-            </div>
+            </header>
             <CanvasLogsModal open={logsOpen} onClose={() => setLogsOpen(false)} />
             <Modal title={t("canvas.shortcuts")} open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>
                 <div className="space-y-2 border-t pt-4 text-sm" style={{ borderColor: theme.node.stroke }}>
@@ -220,12 +250,26 @@ function Shortcut({ keys, value }: { keys: string[]; value: string }) {
 }
 
 const barActionClass = "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[13px] transition hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40";
+/** 实心翡翠绿 / 柔和翠绿胶囊共用的外框（颜色走内联 style，避开 antd reset 对分层 utility 的覆盖）。 */
+const barChipClass = "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-medium transition hover:brightness-[1.06] disabled:opacity-40";
+/** 「更多」弹出面板里的网格按钮。 */
+const moreItemClass = "flex h-9 items-center gap-2 rounded-xl px-2.5 text-xs font-medium transition hover:bg-black/5 dark:hover:bg-white/10";
+/** 右上角「更多」触发器：浅底胶囊，和实心绿 Agent 拉开层级。 */
+const moreTriggerClass = "flex h-8 shrink-0 items-center gap-1.5 rounded-xl bg-black/[0.045] px-2.5 text-xs font-medium transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.12]";
 
 /** 顶栏按钮统一「图标 + 文字」。 */
-function BarAction({ icon, label, onClick, active, disabled }: { icon: React.ReactNode; label: string; onClick?: () => void | Promise<void>; active?: boolean; disabled?: boolean }) {
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+function BarAction({ icon, label, onClick, active, disabled, variant = "plain" }: { icon: React.ReactNode; label: string; onClick?: () => void | Promise<void>; active?: boolean; disabled?: boolean; variant?: "plain" | "solid" | "soft" }) {
+    const colorTheme = useThemeStore((state) => state.theme);
+    const theme = canvasThemes[colorTheme];
+    const dark = colorTheme === "dark";
+    const style =
+        variant === "solid"
+            ? { background: dark ? "#37d39b" : "#0ea977", color: dark ? "#0a0c0f" : "#ffffff" }
+            : variant === "soft"
+              ? { background: dark ? "rgba(55,211,155,.15)" : "rgba(14,169,119,.12)", color: dark ? "#37d39b" : "#0ea977" }
+              : { color: theme.node.text, background: active ? theme.accent.soft : undefined };
     return (
-        <button type="button" aria-label={label} title={label} disabled={disabled} onClick={() => void onClick?.()} className={barActionClass} style={{ color: theme.node.text, background: active ? theme.accent.soft : undefined }}>
+        <button type="button" aria-label={label} title={label} disabled={disabled} onClick={() => void onClick?.()} className={variant === "plain" ? barActionClass : barChipClass} style={style}>
             {icon}
             <span className="text-[13px]">{label}</span>
         </button>

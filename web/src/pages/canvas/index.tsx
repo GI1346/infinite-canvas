@@ -78,10 +78,8 @@ export default function CanvasPage() {
 
     if (hydrated && (mode === "new" || mode === "recent")) return <main className="flex h-full items-center justify-center text-sm" style={{ color: theme.node.muted }}>{t("canvas.opening")}</main>;
 
-    // 主页主按钮：深色主题用浅色渐变，浅色主题用深蓝渐变，和设计稿一致。
-    const primaryStyle = colorTheme === "dark"
-        ? { backgroundImage: "linear-gradient(135deg,#f5f7fb,#dbe3ee)", color: "#14161a", borderColor: "rgba(255,255,255,.5)", boxShadow: "0 10px 26px rgba(0,0,0,.35)" }
-        : { backgroundImage: "linear-gradient(135deg,#12324f,#2a6b98)", color: "#fff", borderColor: "rgba(255,255,255,.35)", boxShadow: "0 12px 28px rgba(18,50,79,.28)" };
+    // 主页主按钮：统一品牌翡翠绿渐变，深浅色主题都一致。
+    const primaryStyle = { backgroundImage: "linear-gradient(135deg,#0ea977,#12896a)", color: "#fff", borderColor: "rgba(255,255,255,.35)", boxShadow: "0 12px 28px rgba(14,169,119,.26)" };
 
     return (
         <main className="h-full overflow-auto" style={{ color: theme.node.text }}>
@@ -94,7 +92,7 @@ export default function CanvasPage() {
                     <div className="flex flex-wrap items-center gap-2.5">
                         <Input
                             aria-label="搜索项目"
-                            className="!w-[220px] !rounded-full"
+                            className="!w-[220px] !rounded-2xl"
                             style={{ background: theme.glass.inset, borderColor: theme.glass.insetBorder, color: theme.node.text }}
                             prefix={<Search className="size-4" style={{ color: theme.node.muted }} />}
                             placeholder="搜索项目"
@@ -104,14 +102,14 @@ export default function CanvasPage() {
                         />
                         {selectedIds.length ? (
                             <>
-                                <Button disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), `${t("canvas.title")}-${selectedIds.length}`)}>
+                                <Button className="!rounded-2xl" disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), `${t("canvas.title")}-${selectedIds.length}`)}>
                                     {t("canvas.exportSelected")}
                                 </Button>
-                                <Button disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>{t("canvas.deleteSelected")}</Button>
+                                <Button className="!rounded-2xl" disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>{t("canvas.deleteSelected")}</Button>
                             </>
                         ) : null}
                         {projects.length ? (
-                            <Button className="!rounded-full" icon={<Trash2 className="size-4" />} disabled={!hydrated} onClick={() => setDeleteIds(projects.map((project) => project.id))}>
+                            <Button className="!rounded-2xl" icon={<Trash2 className="size-4" />} disabled={!hydrated} onClick={() => setDeleteIds(projects.map((project) => project.id))}>
                                 {t("canvas.deleteAll")}
                             </Button>
                         ) : null}

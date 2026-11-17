@@ -65,12 +65,12 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose, inline = f
                 <label className="sm:col-span-2"><span className="mb-1.5 block text-xs text-muted-foreground">独立 API Key</span><Input.Password aria-label="渠道独立 API Key" value={draft.apiKey} onChange={(event) => patch({ apiKey: event.target.value })} placeholder="填写此渠道的 API Key" autoComplete="off" /></label>
                 {verification && <div className="rounded-xl border border-white/50 bg-white/30 p-3 text-xs backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] sm:col-span-2" role="status">
                     <div className="flex gap-2">
-                        <span className={`mt-1 size-1.5 shrink-0 rounded-full ${verification.reachable ? "bg-blue-500" : "bg-destructive"}`} />
+                        <span className={`mt-1 size-1.5 shrink-0 rounded-full ${verification.reachable ? "bg-[#0ea977]" : "bg-destructive"}`} />
                         <span className="w-16 shrink-0 text-muted-foreground">地址检测</span>
                         <span className={verification.reachable ? "" : "text-destructive"}>{verification.reachable ? `地址可达（HTTP ${verification.status}）` : `地址不可达：${verification.detail || "网络错误"}`}</span>
                     </div>
                     <div className="mt-2 flex gap-2">
-                        <span className={`mt-1 size-1.5 shrink-0 rounded-full ${verification.authenticated ? "bg-blue-500" : "bg-amber-500"}`} />
+                        <span className={`mt-1 size-1.5 shrink-0 rounded-full ${verification.authenticated ? "bg-[#0ea977]" : "bg-amber-500"}`} />
                         <span className="w-16 shrink-0 text-muted-foreground">协议握手</span>
                         <span className={verification.authenticated ? "" : "text-amber-600 dark:text-amber-400"}>{verification.authenticated ? `握手成功，发现 ${verification.modelCount} 个模型` : verification.reachable ? `握手失败：${verification.detail || `HTTP ${verification.status}`}` : "地址不可达，未握手"}</span>
                     </div>

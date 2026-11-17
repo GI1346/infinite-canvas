@@ -1,7 +1,7 @@
 import { LOCAL_FUSION_NODE_TYPE, FUSION_PATCH_PORT } from "@/lib/canvas/canvas-fusion-ports";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import { MoreHorizontal, ChevronRight, Copy, Download, Group, Image as ImageIcon, Maximize2, Music2, Plus, Puzzle, RefreshCw, Sparkles, Star, Trash2, Video } from "lucide-react";
+import { MoreHorizontal, ChevronRight, Copy, Download, Image as ImageIcon, Maximize2, Music2, Plus, Puzzle, RefreshCw, Sparkles, Star, Trash2, Video } from "lucide-react";
 import { Modal } from "antd";
 import { Popover } from "radix-ui";
 
@@ -33,6 +33,8 @@ const NODE_PANEL_HEIGHT = 412;
 // 面板内容按 680×400 的自然布局设计，按框宽等比铺满；整块反向抵消画布 zoom，屏幕上尺寸恒定。
 const NODE_PANEL_CONTENT_WIDTH = 680;
 const NODE_PANEL_CONTENT_HEIGHT = 400;
+/** 画布节点标题统一字号：所有节点的外部标题与文本节点卡片内标题都用这一档。 */
+const NODE_TITLE_FONT_SIZE = 11;
 
 type CanvasNodeProps = {
     data: CanvasNodeData;
@@ -367,7 +369,8 @@ export const CanvasNode = React.memo(function CanvasNode({
         <div
             data-node-id={data.id}
             data-text-node={data.type === CanvasNodeType.Text ? "" : undefined}
-            className={`node-element group/node absolute flex select-none flex-col transition-shadow duration-200 ${isGroup ? "z-[5]" : isSelected ? "z-50" : "z-10"} ${referenceSelectionState === "available" ? "cursor-pointer" : referenceSelectionState ? "cursor-not-allowed" : ""}`}
+            className={`bf-canvas-node-card node-element group/node absolute flex select-none flex-col rounded-2xl transition-shadow duration-200 ${isGroup ? "z-[5]" : isSelected ? "z-50" : "z-10"} ${referenceSelectionState === "available" ? "cursor-pointer" : referenceSelectionState ? "cursor-not-allowed" : ""}`}
+            data-selected={isSelected ? "true" : "false"}
             style={{
                 ...(data.type === CanvasNodeType.Text ? { left: data.position.x, top: data.position.y } : { transform: `translate3d(${data.position.x}px, ${data.position.y}px, 0)` }),
                 willChange: isDragging && data.type !== CanvasNodeType.Text ? "transform" : undefined,
@@ -395,7 +398,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 else onContextMenu(event, data.id);
             }}
         >
-            {data.type === CanvasNodeType.Text && !isEditingTitle ? null : <div className="absolute left-3 top-[-28px] z-[65] flex max-w-[calc(100%-24px)] items-center gap-2" data-node-title={data.id} style={isImage || largeTitle ? { top: -44, width: Math.max(0, data.width - 24), maxWidth: "none", overflow: "hidden" } : undefined} onMouseDown={(event) => {
+            {data.type === CanvasNodeType.Text && !isEditingTitle ? null : <div className={`absolute bottom-full left-0 z-[65] mb-1 flex max-w-full items-center gap-1.5 ${isImage || largeTitle ? "" : "rounded-full border border-black/[0.06] bg-white/90 px-2.5 py-0.5 shadow-xs backdrop-blur-md dark:border-white/[0.08] dark:bg-[#1c1f26]/90"}`} data-node-title={data.id} style={isImage || largeTitle ? { width: Math.max(0, data.width - 24), maxWidth: "none", overflow: "hidden" } : undefined} onMouseDown={(event) => {
                 if (referenceSelectionState) {
                     event.stopPropagation();
                     if (event.button === 0 && referenceSelectionState === "available") onSelectReference?.(data.id);
@@ -409,7 +412,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         aria-label={isGroup ? "组名称" : "节点名称"}
                         maxLength={64}
                         className="h-6 max-w-full border-0 border-b border-dashed bg-transparent px-0 text-left text-base font-medium outline-none"
-                        style={{ borderColor: theme.node.muted, color: theme.node.text, fontSize: CANVAS_NODE_FONT_SIZE }}
+                        style={{ borderColor: theme.node.muted, color: theme.node.text, fontSize: NODE_TITLE_FONT_SIZE }}
                         onChange={(event) => setTitleDraft(event.target.value)}
                         onBlur={finishTitleEditing}
                         onKeyDown={(event) => {
@@ -422,11 +425,11 @@ export const CanvasNode = React.memo(function CanvasNode({
                     />
                 ) : (
                     <>
-                    <span className="grid shrink-0 place-items-center [&>svg]:size-full" style={{ width: Math.round(CANVAS_NODE_FONT_SIZE * 0.85), height: Math.round(CANVAS_NODE_FONT_SIZE * 0.85), color: theme.accent.base }} aria-hidden="true">{getNodeDefinition(data.type)?.icon}</span>
+                    <span className="grid shrink-0 place-items-center [&>svg]:size-full" style={{ width: Math.round(NODE_TITLE_FONT_SIZE * 1.2), height: Math.round(NODE_TITLE_FONT_SIZE * 1.2), color: theme.accent.base }} aria-hidden="true">{getNodeDefinition(data.type)?.icon}</span>
                     <button
                         type="button"
                         className="block min-w-0 max-w-full truncate border-b border-dashed border-transparent px-0 py-0.5 text-left text-base font-medium opacity-75 transition hover:border-current hover:opacity-100"
-                        style={{ color: theme.node.text, fontSize: CANVAS_NODE_FONT_SIZE, ...(isGroup ? { padding: "2px 8px", borderRadius: 7, border: "1px solid " + groupColor, background: "color-mix(in srgb, " + groupColor + " 12%, " + theme.node.panel + ")", opacity: 1 } : {}), ...(isImage || largeTitle ? { width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } : {}) }}
+                        style={{ color: theme.node.text, fontSize: NODE_TITLE_FONT_SIZE, ...(isGroup ? { padding: "2px 8px", borderRadius: 7, border: "1px solid " + groupColor, background: "color-mix(in srgb, " + groupColor + " 12%, " + theme.node.panel + ")", opacity: 1 } : {}), ...(isImage || largeTitle ? { width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } : {}) }}
                         title={t("canvas.node.renameHint")}
                         onDoubleClick={(event) => {
                             event.stopPropagation();
@@ -440,9 +443,9 @@ export const CanvasNode = React.memo(function CanvasNode({
             </div>}
 
             <div
-                className="relative h-full w-full overflow-visible rounded-3xl border-2"
+                className="relative h-full w-full overflow-visible rounded-2xl border-2"
                 style={{
-                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text ? (theme === canvasThemes.light ? "rgba(237,237,237,.94)" : "color-mix(in srgb, " + theme.node.panel + " 86%, transparent)") : theme.node.fill,
+                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text ? (theme === canvasThemes.light ? "rgba(255,255,255,.96)" : "color-mix(in srgb, " + theme.node.panel + " 86%, transparent)") : theme.node.fill,
                     borderColor: isActive || isGroupDropTarget ? selectionStroke(theme) : hovered ? `${selectionStroke(theme)}66` : isGroup ? groupColor : hasImageContent || transparentBg ? "transparent" : theme.node.stroke,
                     borderStyle: "solid",
                     borderWidth: isGroup ? 2.5 : undefined,
@@ -475,11 +478,25 @@ export const CanvasNode = React.memo(function CanvasNode({
                     setIsEditingContent(true);
                 }}
             >
+                {isGroup ? (
+                    <div data-group-drag-bar className="absolute inset-x-0 top-0 z-[30] flex h-10 cursor-grab items-center gap-1.5 rounded-t-2xl border-b border-[#0ea977]/25 bg-[#0ea977]/15 px-2.5 text-xs font-semibold text-[#0ea977] active:cursor-grabbing dark:bg-[#37d39b]/[0.18] dark:text-[#37d39b]" title="按住这里或四边可以拖动整组">
+                        <span className="select-none font-mono text-sm leading-none opacity-80">⋮⋮</span>
+                        <span className="min-w-0 flex-1 truncate">{titleName || t("canvas.node.group")}</span>
+                        <span className="shrink-0 rounded-full bg-black/10 px-1.5 py-0.5 font-mono text-[10px] dark:bg-white/10">{t("canvas.node.nodeCount", { count: groupChildCount ?? 0 })}</span>
+                    </div>
+                ) : null}
+                {isGroup && !referenceSelectionState ? (
+                    <>
+                        <div className="absolute inset-x-0 bottom-0 z-[29] h-3.5 cursor-grab active:cursor-grabbing" title="拖动整组" />
+                        <div className="absolute inset-y-0 left-0 z-[29] w-3.5 cursor-grab active:cursor-grabbing" title="拖动整组" />
+                        <div className="absolute inset-y-0 right-0 z-[29] w-3.5 cursor-grab active:cursor-grabbing" title="拖动整组" />
+                    </>
+                ) : null}
                 <div
                     className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot || data.type === CanvasNodeType.Text ? "overflow-visible" : "overflow-hidden"}`}
                     style={
                         {
-                            background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text ? (theme === canvasThemes.light ? "rgba(237,237,237,.94)" : "color-mix(in srgb, " + theme.node.panel + " 86%, transparent)") : theme.node.fill,
+                            background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text ? (theme === canvasThemes.light ? "rgba(255,255,255,.96)" : "color-mix(in srgb, " + theme.node.panel + " 86%, transparent)") : theme.node.fill,
                             pointerEvents: contentInteractive ? undefined : "none",
                         } as React.CSSProperties
                     }
@@ -503,8 +520,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                 {!referenceSelectionState ? <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} visible={data.type === CanvasNodeType.Text} color={theme.node.muted} /> : null}
             </div>
 
-            {!referenceSelectionState && data.type === "dxos:table" ? (data.metadata?.tableInputChannels || [{ id: "input-1" }, { id: "input-2" }]).map((channel, index, all) => <div key={channel.id} className="absolute -left-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: `calc(50% + ${(index - (all.length - 1) / 2) * 56}px)` }} data-node-handle data-table-port={channel.id} title={`输入 ${index + 1}：拖动连线到此处`} onMouseDown={(event) => onConnectStart(event, data.id, "target", channel.id)}><span className="grid place-items-center rounded-full border" style={{ width: 28.8, height: 28.8, fontSize: 14.4, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>{index + 1}</span></div>) : null}
-            {!referenceSelectionState && data.type === LOCAL_FUSION_NODE_TYPE ? <div data-node-handle data-fusion-port={FUSION_PATCH_PORT} title="局部修改输入：将带选区上下文的图片连接到这里" className="absolute -right-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: 40 }} onMouseDown={(event) => onConnectStart(event, data.id, "target", FUSION_PATCH_PORT)}><span className="grid size-6 place-items-center rounded-full border text-xs" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>局</span></div> : null}
+            {!referenceSelectionState && data.type === "dxos:table" ? (data.metadata?.tableInputChannels || [{ id: "input-1" }, { id: "input-2" }]).map((channel, index, all) => <div key={channel.id} className="absolute -left-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: `calc(50% + ${(index - (all.length - 1) / 2) * 56}px)` }} data-node-handle data-table-port={channel.id} title={`输入 ${index + 1}：拖动连线到此处`} onMouseDown={(event) => onConnectStart(event, data.id, "target", channel.id)}><span className="grid place-items-center rounded-full border transition-transform duration-150 hover:scale-125" style={{ width: 28.8, height: 28.8, fontSize: 14.4, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>{index + 1}</span></div>) : null}
+            {!referenceSelectionState && data.type === LOCAL_FUSION_NODE_TYPE ? <div data-node-handle data-fusion-port={FUSION_PATCH_PORT} title="局部修改输入：将带选区上下文的图片连接到这里" className="absolute -right-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: 40 }} onMouseDown={(event) => onConnectStart(event, data.id, "target", FUSION_PATCH_PORT)}><span className="grid size-6 place-items-center rounded-full border text-xs transition-transform duration-150 hover:scale-125" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>局</span></div> : null}
             {!referenceSelectionState && !isGroup && data.type !== "dxos:table" ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             {!referenceSelectionState && (definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config ? <ConnectionHandleDot side="right" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
 
@@ -528,7 +545,6 @@ export const CanvasNode = React.memo(function CanvasNode({
                     }}
                     onPointerDown={(event) => event.stopPropagation()}
                     onMouseDown={(event) => event.stopPropagation()}
-                    onWheel={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
                 >
                     <div data-node-panel-content style={{ width: NODE_PANEL_CONTENT_WIDTH, height: NODE_PANEL_CONTENT_HEIGHT, zoom: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH / scale }}>
@@ -570,16 +586,9 @@ const nodeContentRenderers = {
     [CanvasNodeType.Group]: GroupNodeContent,
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
 
-function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererProps) {
-    const { t } = useTranslation();
-    return (
-        <div className="pointer-events-none h-full w-full">
-            <div className="relative flex h-10 items-center justify-center" style={{ background: "color-mix(in srgb, " + (node.metadata?.groupColor || theme.node.muted) + " 12%, transparent)" }}>
-                <span className="h-1 w-8 rounded-full" style={{ background: "color-mix(in srgb, " + (node.metadata?.groupColor || theme.node.muted) + " 45%, transparent)" }} />
-                <span className="absolute right-3 flex items-center gap-1 text-[11px]" style={{ color: theme.node.muted }}><Group className="size-3.5" />{t("canvas.node.nodeCount", { count: groupChildCount })}</span>
-            </div>
-        </div>
-    );
+function GroupNodeContent(_props: NodeContentRendererProps) {
+    // 打组框的标题/数量改由顶部拖拽栏（data-group-drag-bar）承担，内容层保持干净，避免两套标题叠在一起。
+    return <div className="pointer-events-none h-full w-full" />;
 }
 
 function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
@@ -625,11 +634,24 @@ function MissingPluginContent({ theme, type }: Pick<NodeContentRendererProps, "t
     );
 }
 
-function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, batchExpanded, onContentChange, onStopEditing, onToggleBatch, onSetBatchPrimary, onOpenMenu, onStartTitleEdit }: NodeContentRendererProps) {
+/** 文本节点下方悬浮操作栏：容器、凹槽分组与按钮尺度全部对齐节点上方的悬停信息栏。 */
+function TextBarAction({ icon, label, onClick, active, disabled }: { icon: ReactNode; label: string; onClick: () => void; active?: boolean; disabled?: boolean }) {
+    return (
+        <button type="button" className="group/act flex h-8 items-center whitespace-nowrap px-0.5 disabled:opacity-40" onClick={onClick} aria-label={label} title={label} disabled={disabled}>
+            <span className={`flex h-7 items-center gap-1.5 rounded-lg px-2 transition group-hover/act:bg-black/5 dark:group-hover/act:bg-white/10 ${active ? "bg-black/5 dark:bg-white/10" : ""}`}>
+                {icon}
+                <span>{label}</span>
+            </span>
+        </button>
+    );
+}
+
+function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, batchExpanded, scale, onContentChange, onStopEditing, onToggleBatch, onSetBatchPrimary, onOpenMenu, onStartTitleEdit }: NodeContentRendererProps) {
     const { t } = useTranslation();
     const [expanded, setExpanded] = useState(false);
-    const fontSize = CANVAS_NODE_FONT_SIZE;
-    const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, fontFamily: '"Microsoft YaHei", "PingFang SC", sans-serif', textRendering: "optimizeLegibility", WebkitFontSmoothing: "antialiased", boxSizing: "border-box" } as React.CSSProperties;
+    // 和生成节点提示词框的字号对齐（11px / 行高 1.5），比之前的 12px 更紧凑。
+    const fontSize = NODE_TITLE_FONT_SIZE;
+    const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.5)}px`, color: theme.node.text, fontFamily: '"Microsoft YaHei", "PingFang SC", sans-serif', textRendering: "optimizeLegibility", WebkitFontSmoothing: "antialiased", boxSizing: "border-box" } as React.CSSProperties;
     const texts = node.metadata?.texts || [];
     const batchCount = texts.length;
     const isBatchRoot = batchCount > 1;
@@ -650,38 +672,49 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                       .filter((text) => text.id !== primaryTextId)
                       .map((text, index) => <ExpandedTextCard key={text.id} node={node} text={text} index={index} onSetPrimary={() => onSetBatchPrimary?.(text.id)} />)
                 : null}
-            <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore data-node-no-drag className={`absolute left-1/2 top-full z-[70] -translate-x-1/2 pt-4 transition-opacity ${promptLibraryOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0 group-hover/node:pointer-events-auto group-hover/node:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"}`} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-                <div className="flex w-max items-center gap-1 rounded-full border p-2 text-xl shadow-lg" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}>
-                    <button type="button" className="inline-flex items-center gap-2 rounded-full px-4 py-2 hover:opacity-70" onClick={() => setExpanded(true)}><Maximize2 size={20} />放大编辑</button>
-                    <span className="h-5 border-l" style={{ borderColor: theme.toolbar.border }} />
-                    <Popover.Root open={promptLibraryOpen} onOpenChange={setPromptLibraryOpen}>
-                        <Popover.Trigger asChild><button type="button" aria-label="提示词库" className="inline-flex items-center gap-2 rounded-full px-4 py-2 hover:opacity-70" style={promptLibraryOpen ? { background: theme.node.activeStroke, color: theme.node.panel } : undefined}><Sparkles size={20} />提示词库</button></Popover.Trigger>
-                        <Popover.Portal><Popover.Content aria-label="提示词库内容" data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="z-[1200] w-80 max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border shadow-xl outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} side="top" align="center" sideOffset={10} collisionPadding={12} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
-                            <div className="flex items-center gap-2 border-b px-4 py-3 text-sm font-medium" style={{ borderColor: theme.node.stroke }}><Sparkles size={16} />提示词库</div>
-                            <div className="thin-scrollbar max-h-80 min-h-28 overflow-y-auto overscroll-contain p-2">
-                                {prompts.length ? prompts.map((prompt) => <button key={prompt.id} type="button" className="group/prompt flex w-full min-w-0 items-start gap-2 rounded-xl p-3 text-left transition hover:opacity-70" style={{ background: theme.node.fill }} onClick={() => { onContentChange(node.id, prompt.data.content); setPromptLibraryOpen(false); }}><Sparkles size={16} className="mt-0.5 shrink-0" style={{ color: theme.node.activeStroke }} /><span className="min-w-0"><span className="block truncate text-sm font-medium">{prompt.title}</span><span className="mt-1 block truncate text-xs" style={{ color: theme.node.muted }}>{prompt.data.content}</span></span></button>) : <div className="grid min-h-28 place-items-center px-4 text-sm" style={{ color: theme.node.muted }}>提示词库暂无内容</div>}
-                            </div>
-                        </Popover.Content></Popover.Portal>
-                    </Popover.Root>
-                    <span className="h-5 border-l" style={{ borderColor: theme.toolbar.border }} />
-                    <button type="button" title={savedPrompt ? "已加入提示词库" : "加入提示词库"} disabled={!content.trim() || savedPrompt} className="inline-flex items-center gap-2 rounded-full px-4 py-2 hover:opacity-70 disabled:opacity-40" onClick={() => { addAsset({ kind: "text", title: node.title?.trim() && !["文本", "文本提示词"].includes(node.title.trim()) ? node.title.trim() : content.trim().split(/\r?\n/)[0].slice(0, 40) || "文本提示词", coverUrl: "", tags: [], source: "画布", data: { content }, metadata: { resourceType: "prompt" } }); setSavedPrompt(true); }}><Plus size={20} />加入提示词库</button>
+            <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore data-node-no-drag className={`absolute left-1/2 top-full z-[70] -translate-x-1/2 transition-opacity ${promptLibraryOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0 group-hover/node:pointer-events-auto group-hover/node:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"}`} style={{ paddingTop: 16 / Math.max(scale, 0.01) }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+                {/* 和信息栏一样固定屏幕像素：外层吃画布缩放，内层用 zoom 抵消回来，任何缩放级别下都同高同字号。 */}
+                <div className="bf-canvas-glass flex w-max items-center gap-1.5 whitespace-nowrap rounded-2xl p-1.5 text-[13px]" style={{ zoom: 1 / Math.max(scale, 0.01), background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+                    <div className="flex items-center gap-0.5 rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
+                        <TextBarAction icon={<Maximize2 className="size-4" />} label="放大编辑" onClick={() => setExpanded(true)} />
+                    </div>
+                    <div className="flex items-center gap-0.5 rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
+                        <Popover.Root open={promptLibraryOpen} onOpenChange={setPromptLibraryOpen}>
+                            <Popover.Trigger asChild>
+                                <button type="button" aria-label="提示词库" title="提示词库" className="group/act flex h-8 items-center whitespace-nowrap px-0.5">
+                                    <span className={`flex h-7 items-center gap-1.5 rounded-lg px-2 transition group-hover/act:bg-black/5 dark:group-hover/act:bg-white/10 ${promptLibraryOpen ? "bg-black/5 dark:bg-white/10" : ""}`}>
+                                        <Sparkles className="size-4" />
+                                        <span>提示词库</span>
+                                    </span>
+                                </button>
+                            </Popover.Trigger>
+                            <Popover.Portal><Popover.Content aria-label="提示词库内容" data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="z-[1200] w-80 max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border shadow-xl outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} side="top" align="center" sideOffset={10} collisionPadding={12} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+                                <div className="flex items-center gap-2 border-b px-4 py-3 text-sm font-medium" style={{ borderColor: theme.node.stroke }}><Sparkles size={16} />提示词库</div>
+                                <div className="thin-scrollbar max-h-80 min-h-28 overflow-y-auto overscroll-contain p-2">
+                                    {prompts.length ? prompts.map((prompt) => <button key={prompt.id} type="button" className="group/prompt flex w-full min-w-0 items-start gap-2 rounded-xl p-3 text-left transition hover:opacity-70" style={{ background: theme.node.fill }} onClick={() => { onContentChange(node.id, prompt.data.content); setPromptLibraryOpen(false); }}><Sparkles size={16} className="mt-0.5 shrink-0" style={{ color: theme.node.activeStroke }} /><span className="min-w-0"><span className="block truncate text-sm font-medium">{prompt.title}</span><span className="mt-1 block truncate text-xs" style={{ color: theme.node.muted }}>{prompt.data.content}</span></span></button>) : <div className="grid min-h-28 place-items-center px-4 text-sm" style={{ color: theme.node.muted }}>提示词库暂无内容</div>}
+                                </div>
+                            </Popover.Content></Popover.Portal>
+                        </Popover.Root>
+                        <TextBarAction icon={<Plus className="size-4" />} label="加入提示词库" disabled={!content.trim() || savedPrompt} onClick={() => { addAsset({ kind: "text", title: node.title?.trim() && !["文本", "文本提示词"].includes(node.title.trim()) ? node.title.trim() : content.trim().split(/\r?\n/)[0].slice(0, 40) || "文本提示词", coverUrl: "", tags: [], source: "画布", data: { content }, metadata: { resourceType: "prompt" } }); setSavedPrompt(true); }} />
+                    </div>
                     {savedPrompt ? <span role="status" className="sr-only">已加入提示词库</span> : null}
                 </div>
             </div>
             <Modal title={<div className="flex items-center justify-between pr-8"><span>{node.title || "文本"}</span><span className="text-xs font-normal opacity-60">{content.length.toLocaleString()} 字符 · 实时同步</span></div>} open={expanded} onCancel={() => setExpanded(false)} footer={null} width="min(1000px, 94vw)" centered destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}>
-                <CanvasResourceMentionTextarea className="thin-scrollbar block h-[65vh] w-full resize-none overflow-y-auto rounded-xl border p-5 outline-none" style={{ ...textStyle, fontSize: CANVAS_NODE_FONT_SIZE, lineHeight: `${Math.round(CANVAS_NODE_FONT_SIZE * 1.65)}px`, background: theme.node.fill, borderColor: theme.node.stroke }} value={content} references={mentionReferences} highlightLabels={false} onChange={(value) => onContentChange(node.id, value)} />
+                <CanvasResourceMentionTextarea className="thin-scrollbar block h-[65vh] w-full resize-none overflow-y-auto rounded-xl border p-5 outline-none" style={{ ...textStyle, fontSize: 14, lineHeight: 1.65, background: theme.node.fill, borderColor: theme.node.stroke }} value={content} references={mentionReferences} highlightLabels={false} onChange={(value) => onContentChange(node.id, value)} />
             </Modal>
-            <div className="flex h-full w-full flex-col overflow-hidden rounded-3xl" data-canvas-no-zoom>
+            <div className="flex h-full w-full flex-col overflow-hidden rounded-2xl" data-canvas-no-zoom>
                 {/* 头部：绿色类型图标 + 标题 + 右键菜单，和设计稿的「提示词」卡片一致。 */}
-                <div className="flex shrink-0 items-center gap-2 px-4 pt-3">
-                    <span className="grid shrink-0 place-items-center [&>svg]:size-full" style={{ width: Math.round(fontSize * 0.78), height: Math.round(fontSize * 0.78), color: theme.accent.base }} aria-hidden="true">{getNodeDefinition(node.type)?.icon}</span>
+                <div className="mb-1.5 flex shrink-0 items-center gap-1.5 border-b border-black/[0.05] px-2.5 pb-1.5 pt-2 dark:border-white/[0.06]">
+                    <span className="grid shrink-0 place-items-center rounded-md bg-[#0ea977]/12 p-1 text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b] [&>svg]:size-full" style={{ width: Math.round(fontSize * 1.5), height: Math.round(fontSize * 1.5) }} aria-hidden="true">{getNodeDefinition(node.type)?.icon}</span>
                     <button type="button" className="min-w-0 flex-1 truncate text-left font-medium" style={{ color: theme.node.text, fontSize: `${fontSize}px`, fontFamily: textStyle.fontFamily }} onDoubleClick={() => onStartTitleEdit?.()}>{node.title || t("canvas.node.untitled")}</button>
-                    <button type="button" aria-label="节点菜单" className="grid size-6 shrink-0 place-items-center rounded-md opacity-60 transition hover:opacity-100" style={{ color: theme.node.muted }} onClick={(event) => onOpenMenu?.(event)}><MoreHorizontal size={Math.round(fontSize * 0.7)} /></button>
+                    <button type="button" aria-label="节点菜单" className="grid size-5 shrink-0 place-items-center rounded-md opacity-60 transition hover:opacity-100" style={{ color: theme.node.muted }} onClick={(event) => onOpenMenu?.(event)}><MoreHorizontal size={12} /></button>
                 </div>
                 {isEditingContent ? (
                     <CanvasResourceMentionTextarea
                         ref={textareaRef}
-                        className={`thin-scrollbar m-0 block min-h-0 w-full flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words border-none bg-transparent px-4 pb-3 font-sans outline-none select-text appearance-none`}
+                        containerClassName="flex min-h-0 flex-1 flex-col"
+                        className={`thin-scrollbar m-0 block w-full min-h-[120px] flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words border-none bg-transparent px-2.5 pb-2.5 font-sans outline-none select-text appearance-none`}
                         style={textStyle}
                         value={content}
                         references={mentionReferences}
@@ -693,22 +726,21 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                         }}
                         onMouseDown={(event) => event.stopPropagation()}
                         onPointerDown={(event) => event.stopPropagation()}
-                        onWheel={(event) => event.stopPropagation()}
                     />
                 ) : content ? (
-                    <div className="thin-scrollbar block min-h-0 w-full flex-1 overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-4 pb-3 font-sans" style={textStyle} onWheel={(event) => event.stopPropagation()}>
+                    <div className="thin-scrollbar block min-h-0 w-full flex-1 overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-2.5 pb-2.5 font-sans" style={textStyle}>
                         {content}
                     </div>
                 ) : primaryText ? (
                     <TextSlotStatus text={primaryText} />
                 ) : (
-                    <div className="min-h-0 flex-1 px-4 pb-3 font-sans" style={{ ...textStyle, color: theme.node.placeholder }}>
+                    <div className="min-h-0 flex-1 px-2.5 pb-2.5 font-sans" style={{ ...textStyle, color: theme.node.placeholder }}>
                         {t("canvas.node.editText")}
                     </div>
                 )}
-                <div className="flex shrink-0 items-center justify-between border-t px-4 py-2" style={{ borderColor: theme.glass.insetBorder, color: theme.node.muted, fontSize: Math.round(fontSize * 0.6) }}>
+                <div className="flex shrink-0 items-center justify-between border-t px-2.5 py-1.5" style={{ borderColor: theme.glass.insetBorder, color: theme.node.muted, fontSize: 10 }}>
                     <span>提示词 · 文本</span>
-                    <span>{content.length.toLocaleString()} 字符</span>
+                    <span className="rounded-md bg-black/[0.05] px-1.5 py-0.5 font-mono tabular-nums dark:bg-white/[0.07]">{content.length.toLocaleString()} 字符</span>
                 </div>
             </div>
             {isBatchRoot ? (
@@ -817,11 +849,13 @@ function EmptyImageContent({ theme, node }: NodeContentRendererProps) {
     // 卡片跟着比例变形后可能出现很扁/很窄的尺寸，这种时候只留图标，避免文字被裁成半截。
     const compact = node.height < 180 || node.width < 180;
     return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden" style={{ color: theme.node.placeholder }}>
-            <div className={compact ? "flex size-8 items-center justify-center rounded-lg" : "flex size-14 items-center justify-center rounded-2xl"} style={{ background: theme.toolbar.activeBg }}>
-                <ImageIcon className={compact ? "size-4 opacity-30" : "size-6 opacity-30"} />
+        <div className="flex h-full w-full items-center justify-center overflow-hidden p-3" style={{ color: theme.node.placeholder }}>
+            <div className="flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-dashed border-[#0ea977]/30 bg-gradient-to-b from-[#0ea977]/[0.04] to-transparent">
+                <div className={compact ? "flex size-8 items-center justify-center rounded-lg bg-[#0ea977]/12" : "flex size-14 items-center justify-center rounded-2xl bg-[#0ea977]/12"}>
+                    <ImageIcon className={compact ? "size-4 text-[#0ea977]/60" : "size-6 text-[#0ea977]/60"} />
+                </div>
+                {compact ? null : <span className="text-[10px] tracking-[0.18em] opacity-50">{t("canvas.node.emptyImage")}</span>}
             </div>
-            {compact ? null : <span className="text-[10px] tracking-[0.18em] opacity-50">{t("canvas.node.emptyImage")}</span>}
         </div>
     );
 }
@@ -1134,7 +1168,7 @@ function ConnectionHandleDot({ side, visible, onMouseDown }: { side: "left" | "r
             } ${visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
             onMouseDown={onMouseDown}
         >
-            <div className="size-3 rounded-full border-2 transition-all hover:scale-125" style={{ background: theme.node.panel, borderColor: theme.node.muted }} />
+            <div className="size-3 rounded-full border-2 transition-transform duration-150 hover:scale-125" style={{ background: theme.node.panel, borderColor: theme.node.muted }} />
         </div>
     );
 }

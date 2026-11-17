@@ -677,3 +677,54 @@ html.dark {
     backdrop-filter: blur(4px);
     pointer-events: none;
 }
+
+/* ============================================================================
+ * BlinkFlow Canvas UI 2.0 Scoped Styles (仅作用于 .bf-canvas-workspace 画布内，绝不影响主页)
+ * ============================================================================ */
+.bf-canvas-workspace {
+  --bf-canvas-accent: #0ea977;
+  --bf-canvas-accent-hover: #12896a;
+  --bf-canvas-accent-soft: rgba(14, 169, 119, 0.12);
+  --bf-canvas-glass-bg: rgba(255, 255, 255, 0.56);
+  --bf-canvas-glass-border: rgba(229, 231, 235, 0.92);
+  --bf-canvas-glass-shadow: 0 14px 36px -6px rgba(15, 23, 42, 0.09), 0 2px 8px -2px rgba(15, 23, 42, 0.04);
+  --bf-canvas-surface-subtle: rgba(0, 0, 0, 0.045);
+}
+
+.dark .bf-canvas-workspace,
+.bf-canvas-workspace.dark {
+  --bf-canvas-accent: #37d39b;
+  --bf-canvas-accent-hover: #2bc08a;
+  --bf-canvas-accent-soft: rgba(55, 211, 155, 0.15);
+  --bf-canvas-glass-bg: rgba(18, 20, 26, 0.48);
+  --bf-canvas-glass-border: rgba(255, 255, 255, 0.12);
+  --bf-canvas-glass-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.65), 0 2px 10px -2px rgba(0, 0, 0, 0.45);
+  --bf-canvas-surface-subtle: rgba(255, 255, 255, 0.06);
+}
+
+.bf-canvas-workspace .bf-canvas-glass {
+  background: var(--bf-canvas-glass-bg) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  border: 1px solid var(--bf-canvas-glass-border) !important;
+  box-shadow: var(--bf-canvas-glass-shadow) !important;
+}
+
+.bf-canvas-workspace .bf-canvas-node-card {
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.bf-canvas-workspace .bf-canvas-node-card[data-selected="true"] {
+  border-color: var(--bf-canvas-accent) !important;
+  box-shadow: 0 0 0 3px var(--bf-canvas-accent-soft), 0 16px 36px -8px rgba(14, 169, 119, 0.18) !important;
+}
+
+.bf-canvas-workspace .ant-slider-track {
+  background-color: var(--bf-canvas-accent) !important;
+}
+.bf-canvas-workspace .ant-slider-handle::after {
+  box-shadow: 0 0 0 2px var(--bf-canvas-accent) !important;
+}
+.bf-canvas-workspace .ant-switch.ant-switch-checked {
+  background: var(--bf-canvas-accent) !important;
+}

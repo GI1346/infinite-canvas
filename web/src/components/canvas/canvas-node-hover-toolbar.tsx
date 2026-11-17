@@ -1,7 +1,7 @@
 import { useAddImagesToHarness } from "@/services/api/deepseek-harness";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { App, Modal, Segmented, Tooltip } from "antd";
-import { Check, Palette, Bot, Scan, Download, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video } from "lucide-react";
+import { App, Modal, Popover, Segmented, Tooltip } from "antd";
+import { Check, Palette, Bot, Scan, Download, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video, Sparkles, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -157,10 +157,18 @@ export function CanvasNodeHoverToolbar({
         ...extraTools,
         ...[...baseToolbarTools, ...nodeToolbarTools].filter((tool) => ["delete", "saveAsset", "download"].includes(tool.id)),
     ] : [...baseToolbarTools, ...nodeToolbarTools, ...extraTools];
+    // 单行三段：图片编辑 / AI 协同 / 资产操作；调色、人像质感、表情调节三个低频滤镜收进「调色与人像」子菜单。
+    const imageEditIds = ["paint", "crop", "split", "extract"];
+    const refineIds = ["color", "portrait", "expression"];
+    const aiIds = ["addToAgent", "addToHarness"];
+    const imageEditTools = toolbarTools.filter((tool) => imageEditIds.includes(tool.id));
+    const refineTools = toolbarTools.filter((tool) => refineIds.includes(tool.id));
+    const aiTools = toolbarTools.filter((tool) => aiIds.includes(tool.id));
+    const assetTools = toolbarTools.filter((tool) => !imageEditIds.includes(tool.id) && !refineIds.includes(tool.id) && !aiIds.includes(tool.id));
     return (
         <>
             <div
-                className="absolute z-[70] flex max-h-24 -translate-x-1/2 -translate-y-full flex-wrap items-center justify-center rounded-2xl border py-1 text-[15px]"
+                className="bf-canvas-glass absolute z-[70] flex -translate-x-1/2 -translate-y-full items-center gap-1.5 whitespace-nowrap rounded-2xl p-1.5 text-[13px] shadow-lg"
                 data-node-toolbar={node.id}
                 style={{ left, top, maxWidth: "calc(100% - 24px)", boxShadow: theme.toolbar.shadow, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 onMouseEnter={() => onKeep(node.id)}
@@ -168,9 +176,46 @@ export function CanvasNodeHoverToolbar({
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
             >
-                {toolbarTools.map((tool) => (
-                    <ToolbarAction key={tool.id} {...tool} showLabel={true} />
-                ))}
+                {imageEditTools.length || refineTools.length ? (
+                    <div className="flex items-center gap-0.5 rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
+                        {imageEditTools.map((tool) => (
+                            <ToolbarAction key={tool.id} {...tool} showLabel />
+                        ))}
+                        {refineTools.length ? (
+                            <Popover
+                                trigger="hover"
+                                placement="top"
+                                content={
+                                    <div className="flex items-center gap-0.5">
+                                        {refineTools.map((tool) => (
+                                            <ToolbarAction key={tool.id} {...tool} showLabel />
+                                        ))}
+                                    </div>
+                                }
+                            >
+                                <button type="button" aria-label="调色与人像" title="调色与人像" className="flex h-8 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-[13px] transition hover:bg-black/5 dark:hover:bg-white/10">
+                                    <Sparkles className="size-4" />
+                                    <span>调色与人像</span>
+                                    <ChevronDown className="size-3 opacity-60" />
+                                </button>
+                            </Popover>
+                        ) : null}
+                    </div>
+                ) : null}
+                {aiTools.length ? (
+                    <div className="flex items-center gap-0.5 rounded-xl bg-[#0ea977]/10 p-0.5 text-[#0ea977] dark:bg-[#37d39b]/12 dark:text-[#37d39b]">
+                        {aiTools.map((tool) => (
+                            <ToolbarAction key={tool.id} {...tool} showLabel />
+                        ))}
+                    </div>
+                ) : null}
+                {assetTools.length ? (
+                    <div className="flex items-center gap-0.5 rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
+                        {assetTools.map((tool) => (
+                            <ToolbarAction key={tool.id} {...tool} showLabel />
+                        ))}
+                    </div>
+                ) : null}
             </div>
         </>
     );
@@ -252,8 +297,8 @@ function ToolbarAction({ title, label, icon, onClick, showLabel, active = false,
     const hasText = showLabel && Boolean(label);
     return (
         <Tooltip title={title} placement="top" mouseEnterDelay={0.2} color="#ffffff" styles={{ root: { color: "#242529", boxShadow: "0 8px 24px rgba(15,23,42,.16)", fontSize: 13, fontWeight: 500 } }}>
-            <button type="button" className={`group relative flex h-12 items-center whitespace-nowrap px-1.5 disabled:opacity-40 ${danger ? "text-[#ef4444]" : ""}`} onClick={onClick} aria-label={title} disabled={disabled}>
-                <span className={`flex h-9 items-center ${hasText ? "gap-2 px-2.5" : "justify-center px-2"} rounded-lg transition group-hover:bg-black/5 dark:group-hover:bg-white/10 ${active ? "bg-black/5 dark:bg-white/10" : ""}`}>
+            <button type="button" className={`group relative flex h-8 items-center whitespace-nowrap px-0.5 disabled:opacity-40 ${danger ? "text-[#ef4444]" : ""}`} onClick={onClick} aria-label={title} disabled={disabled}>
+                <span className={`flex h-7 items-center ${hasText ? "gap-1.5 px-2" : "justify-center px-1.5"} rounded-lg transition group-hover:bg-black/5 dark:group-hover:bg-white/10 ${active ? "bg-black/5 dark:bg-white/10" : ""}`}>
                     {icon}
                     {hasText ? <span>{label}</span> : null}
                 </span>

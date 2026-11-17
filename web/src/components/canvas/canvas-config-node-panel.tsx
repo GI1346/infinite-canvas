@@ -2,7 +2,7 @@ import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
 import { useState, type ReactNode } from "react";
 import { ChevronDown, Maximize2, Play, Square } from "lucide-react";
 import { Popover } from "radix-ui";
-import { ConfigProvider, Button, Modal } from "antd";
+import { ConfigProvider, Modal } from "antd";
 import { ModelPicker, useCanvasMenuZoom } from "@/components/model-picker";
 import { resolveModelForCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -49,29 +49,41 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
     };
     const inputStyle = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 10 };
     const editor = (large: boolean) => <CanvasConfigComposer nodeId={node.id} nodes={nodes} inputs={inputs} connectedNodes={connectedNodes} value={value} embedded expanded={large} fontSize={large ? 16 : 14} onChange={(composerContent) => patch({ composerContent })} onRun={isRunning || (!value.trim() && !inputs.length) ? undefined : () => onGenerate(node.id)} onClose={() => setExpanded(false)} onDisconnectReference={onDisconnectReference} onAddImageReference={onAddImageReference} onStartReferenceSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection(nodeId); }} onReorderReferences={isRunning ? undefined : (referenceNodeOrder) => patch({ referenceNodeOrder })} />;
-    return <ConfigProvider theme={{ token: { colorPrimary: theme.accent.base, colorPrimaryBg: theme.accent.soft, colorInfo: theme.accent.base } }}><div className="thin-scrollbar flex h-full min-h-0 w-full flex-col overflow-y-auto rounded-[20px] text-sm" style={{ background: theme.node.panel, color: theme.node.text }}>
+    return <ConfigProvider theme={{ token: { colorPrimary: theme.accent.base, colorPrimaryBg: theme.accent.soft, colorInfo: theme.accent.base } }}><div className="bf-canvas-glass thin-scrollbar flex h-full min-h-0 w-full flex-col overflow-y-auto rounded-[20px] text-sm" style={{ color: theme.node.text }}>
         <div data-canvas-no-zoom className="flex min-h-0 flex-1 flex-col p-2" onMouseDown={stopWorkflowControlDrag}>
-            <div className="mb-1 flex shrink-0 justify-end"><button type="button" aria-label="放大编辑生成配置" className="inline-flex items-center gap-1.5 text-sm opacity-70 hover:opacity-100" onClick={() => setExpanded(true)}><Maximize2 size={16} />放大编辑</button></div>
-            {!expanded ? (
-                <div className="mb-2 shrink-0">
-                    <CanvasStylePicker
-                    selections={{ camera: node.metadata?.presetCamera ?? {}, palette: node.metadata?.presetPalette ?? "", style: node.metadata?.presetStyle ?? "" }}
-                    onSelect={(next) => patch({ presetCamera: next.camera, presetPalette: next.palette, presetStyle: next.style })}
-                    customPalettes={node.metadata?.presetCustomPalettes ?? []}
-                    onCustomPalettesChange={(list) => patch({ presetCustomPalettes: list })}
-                    theme={theme}
-                />
-                </div>
-            ) : null}
+            <div className="mb-1 flex shrink-0 items-center gap-2">
+                {!expanded ? (
+                    <div className="min-w-0 flex-1">
+                        <CanvasStylePicker
+                            selections={{ camera: node.metadata?.presetCamera ?? {}, palette: node.metadata?.presetPalette ?? "", style: node.metadata?.presetStyle ?? "" }}
+                            onSelect={(next) => patch({ presetCamera: next.camera, presetPalette: next.palette, presetStyle: next.style })}
+                            customPalettes={node.metadata?.presetCustomPalettes ?? []}
+                            onCustomPalettesChange={(list) => patch({ presetCustomPalettes: list })}
+                            theme={theme}
+                        />
+                    </div>
+                ) : null}
+                <button type="button" aria-label="放大编辑生成配置" className="ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-xs opacity-70 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10" onClick={() => setExpanded(true)}><Maximize2 size={13} />放大编辑</button>
+            </div>
             {!expanded ? editor(false) : <p className="opacity-60">正在放大编辑 · 内容实时同步</p>}
         </div>
-        <div data-canvas-no-zoom className="shrink-0 space-y-2 border-t p-2" style={{ borderColor: theme.node.stroke, background: theme.node.fill }} onMouseDown={stopWorkflowControlDrag}>
-            <div className="flex min-w-0 items-center gap-2">
-                <span className="inline-block shrink-0 rounded-full px-2.5 py-1 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.toolbar.activeText }}>探索</span>
-                <div className="min-w-0 flex-1"><ModelPicker className="!h-10 !gap-2 !rounded-xl !px-3 !text-sm" config={config} value={config.model} onChange={(model) => patch({ model, quality: imageQualityForModel(model, config.quality) })} capability="image" groupByChannel="list" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} fullWidth /></div>
-                <Button type="primary" shape="circle" aria-label={isRunning ? "停止生成" : "生成图片"} title={isRunning ? "停止生成" : "生成图片（Ctrl+Enter）"} disabled={!isRunning && !value.trim() && !inputs.length} danger={isRunning} style={{ width: 36, height: 36 }} icon={isRunning ? <Square size={15} /> : <Play size={16} />} onClick={() => isRunning ? onStop(node.id) : onGenerate(node.id)} />
+        <div data-canvas-no-zoom className="shrink-0 space-y-2 border-t px-2.5 py-2" style={{ borderColor: theme.node.stroke }} onMouseDown={stopWorkflowControlDrag}>
+            <div className="relative z-20 mt-2.5 flex min-w-0 shrink-0 items-center gap-2">
+                <span className="inline-flex shrink-0 items-center rounded-lg bg-[#0ea977]/12 px-2.5 py-1 text-xs font-semibold text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b]">探索</span>
+                <div className="flex h-9 min-w-0 flex-1 items-center rounded-xl border border-black/[0.06] bg-black/[0.035] dark:border-white/[0.08] dark:bg-white/[0.05]"><ModelPicker className="!h-9 !gap-2 !rounded-xl !px-2.5 !text-xs" config={config} value={config.model} onChange={(model) => patch({ model, quality: imageQualityForModel(model, config.quality) })} capability="image" groupByChannel="list" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} fullWidth /></div>
+                <button
+                    type="button"
+                    aria-label={isRunning ? "停止生成" : "生成图片"}
+                    title={isRunning ? "停止生成" : "生成图片（Ctrl+Enter）"}
+                    disabled={!isRunning && !value.trim() && !inputs.length}
+                    onClick={() => isRunning ? onStop(node.id) : onGenerate(node.id)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#0ea977] to-[#12896a] shadow-sm transition hover:opacity-95 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                    style={isRunning ? { background: "#ef4444", backgroundImage: "none", color: "#ffffff" } : { color: "#ffffff" }}
+                >
+                    {isRunning ? <Square size={14} /> : <Play size={15} />}
+                </button>
             </div>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-1.5">
                 <RatioParameter value={ratio} disabled={isRunning} onChange={(next) => patch({ imageAspectRatio: next, imageResolution: resolution, size: computeMediaSize(resolution, next) })} />
                 <ParameterMenu label="清晰度" ariaLabel="生成配置分辨率" value={resolution === "auto" ? "自动" : resolution.toUpperCase()} disabled={isRunning}>{(close) => <ParameterOptions value={resolution} options={mediaScaleOptions.map((item) => ({ value: item, label: item === "auto" ? "自动" : item.toUpperCase() }))} onChange={(next) => { patch({ imageResolution: next, imageAspectRatio: ratio, size: computeMediaSize(next, ratio) }); close(); }} />}</ParameterMenu>
                 <ParameterMenu label="质量" ariaLabel="生成配置质量" value={quality} disabled={isRunning || !qualityOptions.length}>{(close) => <ParameterOptions columns={qualityOptions.length > 4 ? 3 : 2} value={quality} options={qualityOptions.map((item) => ({ value: item, label: item }))} onChange={(next) => { patch({ quality: next }); close(); }} />}</ParameterMenu>
@@ -103,7 +115,7 @@ function ParameterMenu({ label, ariaLabel, value, disabled, wide, onOpenChange, 
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const changeOpen = (next: boolean) => { setOpen(next); onOpenChange?.(next); };
     return <Popover.Root open={open && !disabled} onOpenChange={changeOpen}>
-        <Popover.Trigger asChild><button ref={triggerRef} type="button" aria-label={ariaLabel} disabled={disabled} data-canvas-no-zoom className="flex min-w-0 flex-col rounded-xl border px-2.5 py-1.5 text-left outline-none disabled:cursor-not-allowed disabled:opacity-40" style={{ background: theme.node.panel, color: theme.node.text, borderColor: open ? theme.node.activeStroke : theme.node.stroke }}><span className="text-xs" style={{ color: theme.node.muted }}>{label}</span><span className="flex w-full items-center justify-between gap-1 text-sm font-semibold"><span className="truncate">{value}</span><ChevronDown size={14} className="shrink-0 opacity-60" /></span></button></Popover.Trigger>
+        <Popover.Trigger asChild><button ref={triggerRef} type="button" aria-label={ariaLabel} disabled={disabled} data-canvas-no-zoom className="flex min-w-0 flex-col rounded-xl border border-black/[0.06] bg-black/[0.03] px-2.5 py-1 text-left outline-none transition hover:border-[#0ea977]/50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.08] dark:bg-white/[0.04]" style={{ color: theme.node.text, borderColor: open ? theme.node.activeStroke : undefined }}><span className="text-[10px]" style={{ color: theme.node.muted }}>{label}</span><span className="flex w-full items-center justify-between gap-1 text-xs font-semibold"><span className="truncate">{value}</span><ChevronDown size={12} className="shrink-0 opacity-60" /></span></button></Popover.Trigger>
         <Popover.Portal><Popover.Content aria-label={`${label}选项`} data-canvas-overlay data-canvas-no-zoom className="z-[1200] max-w-[calc(100vw-24px)] rounded-xl border p-1 shadow-xl outline-none" style={{ width: wide ? 240 : 170, zoom: menuZoom, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} align="start" sideOffset={8 * menuZoom} collisionPadding={12} updatePositionStrategy="always" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{children(() => changeOpen(false))}</Popover.Content></Popover.Portal>
     </Popover.Root>;
 }

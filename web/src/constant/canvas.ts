@@ -53,7 +53,6 @@ export const NODE_SPECS = {
 // Return built-in specs directly and resolve plugin types from the registry.
 export function getNodeSpec(type: string) {
     if ((Object.values(CanvasNodeType) as string[]).includes(type)) return NODE_SPECS[type as CanvasNodeType];
-    const spec = getRegistryNodeSpec(type);
-    // 插件节点同样统一卡片尺寸，避免不同节点大小参差。
-    return { width: CANVAS_NODE_DEFAULT_SIZE.width, height: CANVAS_NODE_DEFAULT_SIZE.height, title: spec.title, metadata: spec.metadata };
+    // 插件节点用各自定义的默认尺寸：多维表格 / LLM / 融合这类大面板保持宽大，别被拉成 240 的基准宽度。
+    return getRegistryNodeSpec(type);
 }

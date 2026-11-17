@@ -41,8 +41,8 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     };
 
     return (
-        <article className="group flex min-h-64 cursor-pointer flex-col overflow-hidden rounded-2xl border transition hover:-translate-y-0.5" style={{ background: theme.glass.inset, borderColor: theme.glass.insetBorder, color: theme.node.text, boxShadow: "0 10px 26px rgba(0,0,0,.14)" }} onClick={() => !editing && open()}>
-            <div className="flex h-44 items-center justify-center overflow-hidden" style={{ background: theme.glass.inset }}>{cover ? <img src={cover} alt="" className="h-full w-full object-cover" loading="lazy" /> : <div className="text-3xl font-semibold tracking-tight opacity-30">BlinkFlow</div>}</div>
+        <article className="group flex min-h-64 cursor-pointer flex-col overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_10px_26px_rgba(15,23,42,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#0ea977]/50 hover:shadow-[0_16px_36px_-8px_rgba(14,169,119,0.15)] dark:border-white/[0.12]" style={{ background: theme.glass.inset, color: theme.node.text }} onClick={() => !editing && open()}>
+            <div className="m-2.5 mb-0 flex h-40 items-center justify-center overflow-hidden rounded-xl" style={{ background: theme.glass.inset }}>{cover ? <img src={cover} alt="" className="h-full w-full object-cover" loading="lazy" /> : <div className="text-3xl font-semibold tracking-tight opacity-30">BlinkFlow</div>}</div>
             <div className="flex items-start gap-3 px-5 pt-4">
                 <input
                     type="checkbox"
@@ -63,15 +63,15 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
                             open();
                         }}
                     >
-                        <h2 className="truncate text-base font-semibold">{project.title}</h2>
-                        <p className="mt-1 text-xs leading-6" style={{ color: theme.node.muted }}>
+                        <h2 className="truncate text-base font-semibold tracking-tight">{project.title}</h2>
+                        <p className="mt-1 inline-block rounded-md bg-black/[0.04] px-2 py-0.5 font-mono text-[11px] dark:bg-white/[0.06]" style={{ color: theme.node.muted }}>
                             {t("canvas.project.stats", { nodes: project.nodes.length, connections: project.connections.length })}
                         </p>
                     </button>
                 )}
             </div>
             <div className="mt-3 flex flex-wrap items-end justify-between gap-2 px-5 pb-4">
-                <p className="text-xs" style={{ color: theme.node.muted }}>{t("canvas.project.updated", { date: new Date(project.updatedAt).toLocaleString(i18n.resolvedLanguage, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) })}</p>
+                <p className="rounded-md bg-black/[0.04] px-2 py-0.5 font-mono text-[11px] dark:bg-white/[0.06]" style={{ color: theme.node.muted }}>{t("canvas.project.updated", { date: new Date(project.updatedAt).toLocaleString(i18n.resolvedLanguage, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) })}</p>
                 <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
                     {editing ? (
                         <>

@@ -66,8 +66,8 @@ export function CanvasToolbar({
     // 左侧工具栏与弹层统一磨砂玻璃：半透明底色 + 背景模糊，画布内容透出来。
     const dockStyle = { ...canvasGlass(theme), color: theme.toolbar.item };
     const hoverStyle = { background: theme.toolbar.itemHover, color: theme.toolbar.activeText };
-    // 激活态用绿色强调：和设计稿一致的浅绿底 + 绿图标。
-    const activeStyle = { background: theme.accent.soft, color: theme.accent.base };
+    // 激活态用实心翡翠绿：一眼能看出当前工具，和凹槽灰底形成对比。
+    const activeStyle = { background: colorTheme === "dark" ? "#37d39b" : "#0ea977", color: colorTheme === "dark" ? "#0a0c0f" : "#ffffff" };
     const tip = hovered ? toolLabel(hovered, t) : "";
 
     // Close extension-node and canvas-appearance popovers when clicking outside the toolbar and its panels.
@@ -84,21 +84,44 @@ export function CanvasToolbar({
     }, [extensionsOpen, appearanceOpen]);
 
     return (
-        <div ref={rootRef} className="pointer-events-none absolute left-4 top-1/2 z-50 -translate-y-1/2" data-canvas-overlay data-canvas-no-zoom data-canvas-left-toolbar>
+        <div ref={rootRef} className="pointer-events-none absolute left-4 top-1/2 z-[60] -translate-y-1/2" data-canvas-overlay data-canvas-no-zoom data-canvas-left-toolbar>
             {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
-            <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex max-h-[calc(100dvh-240px)] w-12 flex-col items-center gap-1 overflow-y-auto rounded-full border py-2.5 backdrop-blur [&>*]:shrink-0" style={dockStyle}>
-                <ToolbarButton id={`tool-${canvasTool}`} label={t(`canvas.toolbar.${canvasTool}`)} active hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onCanvasToolChange(canvasTool === "select" ? "pan" : "select")}>
-                    {canvasTool === "select" ? <MousePointer2 className="size-4.5" /> : <Hand className="size-4.5" />}
-                </ToolbarButton>
-                <Divider theme={theme} />
-                <ToolbarButton id="tool-history" label="生成历史" active={sidePanelOpen && sidePanelTab === "history"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("history")}><History className="size-4.5" /></ToolbarButton>
-                <ToolbarButton id="tool-resources" label="资源管理器" active={sidePanelOpen && sidePanelTab === "resources"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("resources")}><Library className="size-4.5" /></ToolbarButton>
-                <ToolbarButton id="tool-gallery" label="图片库" active={sidePanelOpen && sidePanelTab === "gallery"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("gallery")}><Images className="size-4.5" /></ToolbarButton>
-                {extensionDefs.length ? (
+            <div ref={wrapRef} className="bf-canvas-glass thin-scrollbar pointer-events-auto flex max-h-[calc(100dvh-240px)] w-[54px] flex-col items-center gap-2 overflow-y-auto rounded-2xl px-1.5 py-2 backdrop-blur [&>*]:shrink-0" style={dockStyle}>
+                {/* 指针交互组 */}
+                <div className="flex w-full flex-col items-center gap-1 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.05]">
+                    <ToolbarButton id={`tool-${canvasTool}`} label={t(`canvas.toolbar.${canvasTool}`)} active hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onCanvasToolChange(canvasTool === "select" ? "pan" : "select")}>
+                        {canvasTool === "select" ? <MousePointer2 className="size-4.5" /> : <Hand className="size-4.5" />}
+                    </ToolbarButton>
+                </div>
+
+                {/* 创建与画布外观组 */}
+                <div className="flex w-full flex-col items-center gap-1 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.05]">
+                    {extensionDefs.length ? (
+                        <ToolbarButton
+                            id="tool-extensions"
+                            label={t("canvas.toolbar.extensions")}
+                            active={extensionsOpen}
+                            hovered={hovered}
+                            activeStyle={activeStyle}
+                            hoverStyle={hoverStyle}
+                            wrapRef={wrapRef}
+                            onTipX={setTipX}
+                            onHover={setHovered}
+                            onClick={() => {
+                                setAppearanceOpen(false);
+                                setExtensionsOpen((value) => !value);
+                            }}
+                        >
+                            <Puzzle className="size-4.5" />
+                        </ToolbarButton>
+                    ) : null}
+                    <ToolbarButton id="tool-upload" label={t("canvas.toolbar.upload")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUpload}>
+                        <Upload className="size-4.5" />
+                    </ToolbarButton>
                     <ToolbarButton
-                        id="tool-extensions"
-                        label={t("canvas.toolbar.extensions")}
-                        active={extensionsOpen}
+                        id="tool-style"
+                        label={t("canvas.toolbar.appearance")}
+                        active={appearanceOpen}
                         hovered={hovered}
                         activeStyle={activeStyle}
                         hoverStyle={hoverStyle}
@@ -106,51 +129,37 @@ export function CanvasToolbar({
                         onTipX={setTipX}
                         onHover={setHovered}
                         onClick={() => {
-                            setAppearanceOpen(false);
-                            setExtensionsOpen((value) => !value);
+                            setExtensionsOpen(false);
+                            setAppearanceOpen((value) => !value);
                         }}
                     >
-                        <Puzzle className="size-4.5" />
+                        <Palette className="size-4.5" />
                     </ToolbarButton>
-                ) : null}
-                <ToolbarButton id="tool-upload" label={t("canvas.toolbar.upload")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUpload}>
-                    <Upload className="size-4.5" />
-                </ToolbarButton>
-                <Divider theme={theme} />
-                <ToolbarButton
-                    id="tool-style"
-                    label={t("canvas.toolbar.appearance")}
-                    active={appearanceOpen}
-                    hovered={hovered}
-                    activeStyle={activeStyle}
-                    hoverStyle={hoverStyle}
-                    wrapRef={wrapRef}
-                    onTipX={setTipX}
-                    onHover={setHovered}
-                    onClick={() => {
-                        setExtensionsOpen(false);
-                        setAppearanceOpen((value) => !value);
-                    }}
-                >
-                    <Palette className="size-4.5" />
-                </ToolbarButton>
-                {selectedCount ? (
-                    <>
-                        <Divider theme={theme} />
+                </div>
+
+                {/* 侧边抽屉组 */}
+                <div className="flex w-full flex-col items-center gap-1 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.05]">
+                    <ToolbarButton id="tool-history" label="生成历史" active={sidePanelOpen && sidePanelTab === "history"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("history")}><History className="size-4.5" /></ToolbarButton>
+                    <ToolbarButton id="tool-resources" label="资源管理器" active={sidePanelOpen && sidePanelTab === "resources"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("resources")}><Library className="size-4.5" /></ToolbarButton>
+                    <ToolbarButton id="tool-gallery" label="图片库" active={sidePanelOpen && sidePanelTab === "gallery"} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => openTab("gallery")}><Images className="size-4.5" /></ToolbarButton>
+                </div>
+
+                {/* 危险操作组：删除 / 清空隔到底部红槽里，防误触 */}
+                <div className="flex w-full flex-col items-center gap-1 rounded-xl bg-red-500/[0.08] p-1">
+                    {selectedCount ? (
                         <ToolbarButton id="tool-delete" label={t("canvas.deleteSelected")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onDelete} danger>
                             <Trash2 className="size-4.5" />
                         </ToolbarButton>
-                    </>
-                ) : null}
-                <Divider theme={theme} />
-                <ToolbarButton id="tool-clear" label={t("canvas.toolbar.clear")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onClear} danger>
-                    <Eraser className="size-4.5" />
-                </ToolbarButton>
+                    ) : null}
+                    <ToolbarButton id="tool-clear" label={t("canvas.toolbar.clear")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onClear} danger>
+                        <Eraser className="size-4.5" />
+                    </ToolbarButton>
+                </div>
             </div>
 
             {extensionsOpen && extensionDefs.length ? (
                 <div
-                    className="thin-scrollbar pointer-events-auto absolute left-16 top-0 z-30 max-h-[calc(100dvh-120px)] w-[240px] overflow-y-auto rounded-xl border p-2 shadow-xl backdrop-blur"
+                    className="thin-scrollbar pointer-events-auto absolute left-16 top-0 z-[60] max-h-[calc(100dvh-120px)] w-[240px] overflow-y-auto rounded-xl border p-2 shadow-xl backdrop-blur"
                     style={{ ...canvasGlass(theme), color: theme.toolbar.item }}
                 >
                     <div className="px-1.5 pb-1.5 text-[11px] font-medium opacity-50">{t("canvas.toolbar.extensions")}</div>
@@ -180,7 +189,7 @@ export function CanvasToolbar({
 
             {appearanceOpen ? (
                 <div
-                    className="pointer-events-auto absolute bottom-0 left-16 z-30 w-[248px] rounded-xl border p-2.5 shadow-xl backdrop-blur"
+                    className="pointer-events-auto absolute bottom-0 left-16 z-[60] w-[248px] rounded-xl border p-2.5 shadow-xl backdrop-blur"
                     style={{ ...canvasGlass(theme), color: theme.toolbar.item }}
                 >
                     <div className="px-1 pb-2 text-sm font-medium opacity-65">{t("canvas.toolbar.appearance")}</div>
@@ -214,6 +223,9 @@ export function CanvasToolbar({
         </div>
     );
 }
+
+// 删除 / 清空按钮的警示态：hover 时红底红字，和普通工具区分开，防误触。
+const dangerHoverStyle: CSSProperties = { background: "rgba(239, 68, 68, 0.12)", color: "#ef4444" };
 
 function ToolbarButton({
     id,
@@ -250,9 +262,9 @@ function ToolbarButton({
         <Button
             type="text"
             aria-label={label}
-            data-canvas-tool={id} className="!h-8 !w-8 !min-w-8 !p-0"
+            data-canvas-tool={id} className={`!h-8 !w-8 !min-w-8 !p-0${danger ? " hover:bg-red-500/12" : ""}`}
             disabled={disabled}
-            style={active ? activeStyle : hovered === id && !disabled ? hoverStyle : { color: danger ? "#f87171" : theme.toolbar.item, opacity: disabled ? 0.35 : 1 }}
+            style={active ? activeStyle : hovered === id && !disabled ? (danger ? dangerHoverStyle : hoverStyle) : { color: danger ? "#f87171" : theme.toolbar.item, opacity: disabled ? 0.35 : 1 }}
             icon={children}
             onMouseEnter={(event) => {
                 onHover(id);
@@ -262,10 +274,6 @@ function ToolbarButton({
             onClick={onClick}
         />
     );
-}
-
-function Divider({ theme }: { theme: CanvasTheme }) {
-    return <div className="my-1 h-px w-6" style={{ background: theme.toolbar.border }} />;
 }
 
 function CanvasThemeButton({ colorTheme, targetTheme, onThemeChange, children }: { colorTheme: CanvasColorTheme; targetTheme: CanvasColorTheme; onThemeChange: (theme: CanvasColorTheme) => void; children: ReactNode }) {

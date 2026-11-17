@@ -2936,7 +2936,7 @@ function InfiniteCanvasPage() {
             }
 
             const originalSourceNode = sourceNode;
-            const branch = createGenerationBranch(sourceNode, nodesRef.current, connectionsRef.current, generationConfig, mode, prompt);
+            const branch = createGenerationBranch(sourceNode, nodesRef.current, connectionsRef.current, generationConfig, mode, prompt, { ...viewportRef.current, width: containerRef.current?.clientWidth || size.width, height: containerRef.current?.clientHeight || size.height });
             if (branch) {
                 // Publish refs synchronously before resolving context; React may defer its state update.
                 nodesRef.current = [...nodesRef.current, branch.node];
@@ -3831,7 +3831,7 @@ function InfiniteCanvasPage() {
     if (!projectLoaded) return <CanvasRefreshShell />;
 
     return (
-        <main className="flex h-full min-h-0 overflow-clip" style={{ background: theme.canvas.background, color: theme.node.text }}>
+        <main className="bf-canvas-workspace flex h-full min-h-0 overflow-clip" style={{ background: theme.canvas.background, color: theme.node.text }}>
             <section className="relative min-w-0 flex-1 overflow-clip">
                 <CanvasSidePanel nodes={contentNodes} selectedNodeIds={selectedNodeIds} connections={connections} onInsertAsset={handleAssetInsert} onInsertWorkflow={handleWorkflowInsert} />
                 <CanvasTopBar
