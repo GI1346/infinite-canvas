@@ -8,6 +8,7 @@ const { startHarness } = require('./harness-host.cjs');
 const harnessReferences = require('./harness-references.cjs').createHarnessReferences();
 const { prepareStorage, writeJson, resetFile } = require('./storage.cjs');
 const { snapshotApi, restoreApi } = require('./storage-renderer.cjs');
+const webUpdate = require('./web-update.cjs');
 const legacy = path.join(app.getPath('appData'), 'Infinite Canvas DXOS');
 // The chosen install directory, NOT the downloaded installer's location.
 const installDirectory = app.isPackaged ? path.dirname(app.getPath('exe')) : __dirname;
@@ -23,8 +24,38 @@ try {
   dialog.showErrorBox('数据目录不可写', `请将 BlinkFlow 安装在有写入权限的目录。不会改用其他存储位置。\n${error.message}`);
   app.exit(1);
 }
-const root = path.join(__dirname, 'web');
+// 前端热更新的缓存目录：BlinkFlowData/webcache/web-x.y.z。数据目录不会被覆盖安装清掉，
+// 所以热更新过的前端在重装之后仍然优先于安装包里自带的那份。
+const webCache = path.join(dataDirectory, 'webcache');
+let root = path.join(__dirname, 'web');
+try {
+  const cached = webUpdate.pickCachedWeb(webCache, app.getVersion());
+  if (cached) root = cached.dir;
+} catch { root = path.join(__dirname, 'web'); }
 const mime = { '.html': 'text/html; charset=utf-8', '.webmanifest': 'application/manifest+json', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
+
+function versionNumber(value) {
+  const clean = String(value || '').trim().replace(/^v/i, '');
+  if (!/^\d+\.\d+\.\d+$/.test(clean)) throw new Error('版本号不合法');
+  return clean;
+}
+
+// 下载到本地文件并持续上报进度；GitHub Release 的附件会 302 到 S3，net.fetch 自动跟随。
+async function downloadFile(url, target, onProgress) {
+  const response = await net.fetch(url, { redirect: 'follow' });
+  if (!response.ok || !response.body) throw new Error(`下载失败（HTTP ${response.status}）`);
+  const total = Number(response.headers.get('content-length') || 0);
+  const file = fs.createWriteStream(target);
+  let received = 0, sent = -1;
+  for await (const chunk of response.body) {
+    received += chunk.length;
+    if (!file.write(chunk)) await new Promise((resolve) => file.once('drain', resolve));
+    const percent = total ? Math.min(99, Math.floor((received / total) * 100)) : 0;
+    if (percent !== sent) { sent = percent; onProgress?.({ percent, received, total }); }
+  }
+  await new Promise((resolve, reject) => { file.on('error', reject); file.end(resolve); });
+  return { received, total };
+}
 let server, harness, harnessWindow, harnessOpening, harnessBridge, harnessProjectId, quitting = false, allowClose = false;
 const harnessRequests = new Map();
 let harnessModels = null;
@@ -67,6 +98,8 @@ else {
         const file = fs.existsSync(target) && fs.statSync(target).isFile() ? target : path.join(root, 'index.html');
         res.setHeader('Content-Type', mime[path.extname(file)] || 'application/octet-stream');
         res.setHeader('X-Content-Type-Options', 'nosniff');
+        // index.html 绝不缓存：热更新替换的是同 origin 下的文件，旧 HTML 会引到已被换掉的 hash 资源。
+        if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store');
         fs.createReadStream(file).on('error', () => { res.statusCode = 500; res.end(); }).pipe(res);
       } catch { res.writeHead(400); res.end(); }
     });
@@ -268,6 +301,48 @@ else {
         count++;
       }
       return { canceled: false, count, directory };
+    });
+    // 前端热更新：只下载 dist 压缩包（约 30MB），解压到 BlinkFlowData/webcache 后直接切根目录重载窗口。
+    // 不装安装器、不动 BlinkFlowData 里的画布数据，几秒就能用上新版本。
+    ipcMain.handle('update:hot', async (event, version) => {
+      trusted(event);
+      const clean = versionNumber(version);
+      const name = `BlinkFlow-Web-${clean}.zip`;
+      const target = path.join(app.getPath('temp'), name);
+      const report = (progress) => { if (!event.sender.isDestroyed()) event.sender.send('update:progress', progress); };
+      await downloadFile(`https://github.com/GI1346/infinite-canvas/releases/download/v${clean}/${name}`, target, report);
+      const size = fs.statSync(target).size;
+      if (size < 1024 * 1024) throw new Error('热更新包下载不完整，请重试');
+      report({ percent: 100, received: size, total: size });
+      const directory = path.join(webCache, `web-${clean}`);
+      fs.rmSync(directory, { recursive: true, force: true });
+      fs.mkdirSync(directory, { recursive: true });
+      const files = webUpdate.extractZip(fs.readFileSync(target), directory);
+      if (!fs.existsSync(path.join(directory, 'index.html'))) throw new Error('热更新包内容不完整，请改用完整安装包');
+      for (const entry of fs.readdirSync(webCache)) if (entry !== `web-${clean}`) fs.rmSync(path.join(webCache, entry), { recursive: true, force: true });
+      root = directory;
+      // 换的是同一 origin 下的文件，必须绕过缓存重载，否则可能拿旧的 index.html 去引已被替换的 hash 资源。
+      setTimeout(() => { if (!win.isDestroyed()) win.webContents.reloadIgnoringCache(); }, 600);
+      return { version: clean, files };
+    });
+
+    // 兜底：热更新不可用时下载完整安装包并拉起安装向导。
+    ipcMain.handle('update:install', async (event, version) => {
+      trusted(event);
+      const clean = versionNumber(version);
+      const name = `BlinkFlow-Setup-${clean}-x64.exe`;
+      const target = path.join(app.getPath('temp'), name);
+      const report = (progress) => { if (!event.sender.isDestroyed()) event.sender.send('update:progress', progress); };
+      await downloadFile(`https://github.com/GI1346/infinite-canvas/releases/download/v${clean}/${name}`, target, report);
+      const size = fs.statSync(target).size;
+      if (size < 50 * 1024 * 1024) throw new Error('安装包下载不完整，请重试');
+      report({ percent: 100, received: size, total: size });
+      const openError = await shell.openPath(target);
+      if (openError) throw new Error(openError);
+      // 安装器会覆盖安装并保留 BlinkFlowData，这里直接放行关闭，不再弹应用内的关闭确认。
+      allowClose = true;
+      setTimeout(() => app.quit(), 1200);
+      return { path: target };
     });
     ipcMain.handle('storage:info', (event) => { trusted(event); return { installDirectory, dataDirectory }; });
     ipcMain.handle('storage:open', async (event) => { trusted(event); const error = await shell.openPath(dataDirectory); if (error) throw new Error(error); });

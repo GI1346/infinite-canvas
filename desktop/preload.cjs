@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('blinkflowClipboard', {
 
 contextBridge.exposeInMainWorld('blinkflowTheme', { set: (theme) => ipcRenderer.invoke('theme:set', theme) });
 
+contextBridge.exposeInMainWorld('blinkflowUpdater', {
+  hot: (version) => ipcRenderer.invoke('update:hot', version),
+  install: (version) => ipcRenderer.invoke('update:install', version),
+  onProgress: (handler) => { const listener = (_event, progress) => handler(progress); ipcRenderer.on('update:progress', listener); return () => ipcRenderer.removeListener('update:progress', listener); },
+});
+
 contextBridge.exposeInMainWorld('blinkflowApp', {
   onCloseRequest: (handler) => { const listener = () => handler(); ipcRenderer.on('app:close-request', listener); return () => ipcRenderer.removeListener('app:close-request', listener); },
   confirmClose: () => ipcRenderer.send('app:confirm-close'),
