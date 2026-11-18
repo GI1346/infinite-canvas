@@ -1,5 +1,6 @@
 import { LOCAL_FUSION_NODE_TYPE, fusionConnectionPort, fusionTargetAnchor } from "@/lib/canvas/canvas-fusion-ports";
-import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ConnectionHandle, type Position, type ViewportTransform } from "@/types/canvas";
+import { recipeConnectionPort, recipeTargetAnchor } from "@/lib/canvas/canvas-character-recipe";
+import { CanvasNodeType, CHARACTER_RECIPE_NODE_TYPE, type CanvasConnection, type CanvasNodeData, type ConnectionHandle, type Position, type ViewportTransform } from "@/types/canvas";
 
 export function nodeBounds(nodes: CanvasNodeData[]) {
     return nodes.reduce(
@@ -133,6 +134,7 @@ export function findContainingGroupId(node: CanvasNodeData, nodes: CanvasNodeDat
 }
 
 export function getConnectionTargetAnchor(node: CanvasNodeData, current: ConnectionHandle, world?: Position) {
+    if (node.type === CHARACTER_RECIPE_NODE_TYPE && current.handleType === "source") return recipeTargetAnchor(node, world ? recipeConnectionPort(node, current, world, null) : undefined);
     if (node.type === LOCAL_FUSION_NODE_TYPE && current.handleType === "source") return fusionTargetAnchor(node, world ? fusionConnectionPort(node, current, world, null) : undefined);
     return {
         x: current.handleType === "source" ? node.position.x : node.position.x + node.width,
@@ -144,6 +146,11 @@ export function normalizeConnection(firstNodeId: string, secondNodeId: string, n
     const first = nodes.find((node) => node.id === firstNodeId);
     const second = nodes.find((node) => node.id === secondNodeId);
     if (!first || !second || first.id === second.id) return null;
+    if (first.type === CHARACTER_RECIPE_NODE_TYPE || second.type === CHARACTER_RECIPE_NODE_TYPE) {
+        const [from, to] = firstHandleType === "source" ? [first, second] : [second, first];
+        if (to.type === CHARACTER_RECIPE_NODE_TYPE && from.type !== CanvasNodeType.Image || to.type === CanvasNodeType.Group) return null;
+        return { fromNodeId: from.id, toNodeId: to.id };
+    }
     if (first.type.startsWith("dxos:") || second.type.startsWith("dxos:") || first.type === LOCAL_FUSION_NODE_TYPE || second.type === LOCAL_FUSION_NODE_TYPE) {
         const from = firstHandleType === "source" ? first : second;
         const to = firstHandleType === "source" ? second : first;

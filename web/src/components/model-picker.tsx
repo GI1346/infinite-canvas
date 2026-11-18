@@ -20,6 +20,7 @@ type ModelPickerProps = {
     placeholder?: string;
     onMissingConfig?: () => void;
     groupByChannel?: boolean | "list";
+    menuZoom?: number;
     disabled?: boolean;
     ariaLabel?: string;
 };
@@ -50,11 +51,12 @@ export function useCanvasMenuZoom(open: boolean) {
     }, [open]);
     return { triggerRef, zoom };
 }
-export function ModelPicker({ config, value, onChange, capability, className, fullWidth = false, placeholder, onMissingConfig, groupByChannel = false, disabled = false, ariaLabel = "选择生成模型" }: ModelPickerProps) {
+export function ModelPicker({ config, value, onChange, capability, className, fullWidth = false, placeholder, onMissingConfig, groupByChannel = false, menuZoom: fixedMenuZoom, disabled = false, ariaLabel = "选择生成模型" }: ModelPickerProps) {
     const { t } = useTranslation();
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const { triggerRef, zoom: menuZoom } = useCanvasMenuZoom(open && groupByChannel === "list");
+    const { triggerRef, zoom } = useCanvasMenuZoom(open && groupByChannel === "list" && fixedMenuZoom === undefined);
+    const menuZoom = fixedMenuZoom ?? zoom;
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const options = useMemo(() => Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))), [capability, config, value]);
     const current = value || "";

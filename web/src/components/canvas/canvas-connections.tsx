@@ -1,3 +1,5 @@
+import { recipeConnectionPort, recipeTargetAnchor } from "@/lib/canvas/canvas-character-recipe";
+import { CHARACTER_RECIPE_NODE_TYPE } from "@/types/canvas";
 import { LOCAL_FUSION_NODE_TYPE, FUSION_PATCH_PORT, fusionConnectionPort, fusionTargetAnchor } from "@/lib/canvas/canvas-fusion-ports";
 import { memo, type MouseEvent as ReactMouseEvent } from "react";
 
@@ -84,7 +86,7 @@ export function ActiveConnectionPath({ node, handle, mouseWorld, target }: { nod
 
     const startX = handle.handleType === "source" ? node.position.x + node.width : mouseWorld.x;
     const startY = handle.handleType === "source" ? node.position.y + node.height / 2 : mouseWorld.y;
-    const ownTarget = node.type === LOCAL_FUSION_NODE_TYPE ? fusionTargetAnchor(node, handle.portId) : { x: node.position.x, y: node.position.y + node.height / 2 };
+    const ownTarget = node.type === CHARACTER_RECIPE_NODE_TYPE ? recipeTargetAnchor(node, handle.portId) : node.type === LOCAL_FUSION_NODE_TYPE ? fusionTargetAnchor(node, handle.portId) : { x: node.position.x, y: node.position.y + node.height / 2 };
     const endX = handle.handleType === "source" ? mouseWorld.x : ownTarget.x;
     const channels = node.metadata?.tableInputChannels || [{ id: "input-1" }, { id: "input-2" }];
     const portOffset = node.type === "dxos:table" && handle.portId ? (Math.max(0, channels.findIndex((channel) => channel.id === handle.portId)) - (channels.length - 1) / 2) * 56 : 0;
@@ -92,7 +94,7 @@ export function ActiveConnectionPath({ node, handle, mouseWorld, target }: { nod
     const snappedStartX = handle.handleType === "target" && target ? target.position.x + target.width : startX;
     const snappedStartY = handle.handleType === "target" && target ? target.position.y + target.height / 2 : startY;
     const fusionPort = target ? fusionConnectionPort(target, handle, mouseWorld, null) : undefined;
-    const targetAnchor = target?.type === LOCAL_FUSION_NODE_TYPE ? fusionTargetAnchor(target, fusionPort) : undefined;
+    const targetAnchor = target?.type === CHARACTER_RECIPE_NODE_TYPE ? recipeTargetAnchor(target, recipeConnectionPort(target, handle, mouseWorld, null)) : target?.type === LOCAL_FUSION_NODE_TYPE ? fusionTargetAnchor(target, fusionPort) : undefined;
     const snappedEndX = handle.handleType === "source" && target ? targetAnchor?.x ?? target.position.x : endX;
     const targetChannels = target?.metadata?.tableInputChannels || [{ id: "input-1" }, { id: "input-2" }];
     const targetPort = target ? tableConnectionPort(target, handle, mouseWorld, null) : undefined;

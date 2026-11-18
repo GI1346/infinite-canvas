@@ -3,6 +3,7 @@ import { FileText, Group, Image as ImageIcon, Music2, Settings2, Video } from "l
 import { dxosNodeDefinitions } from "./dxos-workflow-nodes";
 import { llmNodeDefinition } from "./dxos-llm-node";
 import { localFusionNodeDefinition } from "./local-fusion-node";
+import { characterRecipeNodeDefinition } from "./character-recipe-node";
 
 import i18n from "@/i18n";
 
@@ -38,5 +39,5 @@ let registered = false;
 export function registerBuiltinNodes() {
     if (registered) return;
     registered = true;
-    registerNodeDefinitions([...BUILTIN_DEFINITIONS, ...dxosNodeDefinitions, llmNodeDefinition, localFusionNodeDefinition], "builtin");
+    registerNodeDefinitions([...BUILTIN_DEFINITIONS, ...dxosNodeDefinitions, llmNodeDefinition, localFusionNodeDefinition, characterRecipeNodeDefinition], "builtin");
 }

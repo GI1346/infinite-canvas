@@ -4,9 +4,9 @@ import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
+import { getNodeDefinition, listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
 import { getNodeSpec } from "@/constant/canvas";
-import { CanvasNodeType, type ConnectionHandle, type Position } from "@/types/canvas";
+import { CanvasNodeType, CHARACTER_RECIPE_NODE_TYPE, type ConnectionHandle, type Position } from "@/types/canvas";
 
 export type PendingConnectionCreate = {
     connection: ConnectionHandle;
@@ -18,14 +18,17 @@ export function ConnectionCreateMenu({
     scale = 1,
     onCreate,
     onClose,
+    showCharacterRecipe,
 }: {
     pending: PendingConnectionCreate;
     scale?: number;
     onCreate: (type: string) => void;
     onClose: () => void;
+    showCharacterRecipe?: boolean;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
+    const recipe = showCharacterRecipe ? getNodeDefinition(CHARACTER_RECIPE_NODE_TYPE) : undefined;
     return (
         <div
             className="bf-canvas-glass absolute z-[120] w-[300px] rounded-2xl border p-2.5 shadow-2xl backdrop-blur"
@@ -49,6 +52,7 @@ export function ConnectionCreateMenu({
                 <ConnectionCreateOption theme={theme} icon={<Table2 className="size-4" />} title="多维表格" description="图片与文本按输入列逐行组合" onClick={() => onCreate("dxos:table")} />
                 <ConnectionCreateOption theme={theme} icon={<BrainCircuit className="size-4" />} title="LLM 多模态分析" description="分析图片与文本，输出文本或表格" onClick={() => onCreate("dxos:llm")} />
                 <ConnectionCreateOption theme={theme} icon={<Blend className="size-4" />} title="融合节点" description="将局部修改融合回原图" onClick={() => onCreate("blinkflow:fusion")} />
+                {recipe && <ConnectionCreateOption theme={theme} icon={recipe.icon} title={recipe.title} description={recipe.description} onClick={() => onCreate(recipe.type)} />}
             </div>
         </div>
     );
@@ -84,7 +88,7 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
     const { t } = useTranslation();
     useNodeRegistryVersion();
     const menuRef = useRef<HTMLDivElement>(null);
-    const order = [CanvasNodeType.Image, CanvasNodeType.Text, "dxos:table", "dxos:llm", "blinkflow:fusion"] as string[];
+    const order = [CanvasNodeType.Image, CanvasNodeType.Text, "dxos:table", "dxos:llm", "blinkflow:fusion", CHARACTER_RECIPE_NODE_TYPE] as string[];
     const definitions = listNodeDefinitions().filter((def) => order.includes(def.type)).sort((a, b) => {
         const first = order.indexOf(a.type), second = order.indexOf(b.type);
         return (first < 0 ? order.length : first) - (second < 0 ? order.length : second);

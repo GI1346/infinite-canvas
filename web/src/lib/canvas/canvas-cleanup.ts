@@ -12,6 +12,7 @@ export function cleanProject(project: CanvasProject, options: CleanupOptions): C
             const metadata = { ...node.metadata };
             if (options.images) {
                 delete metadata.references;
+                if (metadata.characterRecipe) { metadata.characterRecipe = { ...metadata.characterRecipe }; delete metadata.characterRecipe.slots; }
                 if (node.type === "image" || node.type === "blinkflow:fusion") {
                     delete metadata.content;
                     delete metadata.storageKey;

@@ -1,3 +1,6 @@
+import { recipePortOffset } from "@/lib/canvas/canvas-character-recipe";
+import { recipeSlotLabels, recipeSlots } from "@/services/api/pose-gallery";
+import { CHARACTER_RECIPE_NODE_TYPE } from "@/types/canvas";
 import { LOCAL_FUSION_NODE_TYPE, FUSION_PATCH_PORT } from "@/lib/canvas/canvas-fusion-ports";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
@@ -6,6 +9,7 @@ import { Modal } from "antd";
 import { Popover } from "radix-ui";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { NODE_PANEL_CONTENT_WIDTH, NODE_PANEL_WIDTH } from "@/lib/canvas/canvas-node-size";
 import { formatBytes } from "@/lib/image-utils";
 import { canvasTitleWithoutExtension } from "@/lib/canvas/canvas-download-name";
 import { pickImageSource } from "@/lib/image-thumbnail";
@@ -28,10 +32,8 @@ const SELECTION_STROKE_LIGHT = "#ffffff";
 const SELECTION_STROKE_DARK = "#1a1a1a";
 function selectionStroke(theme: { canvas: { background: string } }) { return theme.canvas.background === "#0d0d0d" ? SELECTION_STROKE_LIGHT : SELECTION_STROKE_DARK; }
 // 节点下方的配置窗是屏幕上的固定浮层：不参与画布 zoom，也不随内容撑大。
-const NODE_PANEL_WIDTH = 700;
 const NODE_PANEL_HEIGHT = 412;
 // 面板内容按 680×400 的自然布局设计，按框宽等比铺满；整块反向抵消画布 zoom，屏幕上尺寸恒定。
-const NODE_PANEL_CONTENT_WIDTH = 680;
 const NODE_PANEL_CONTENT_HEIGHT = 400;
 /** 画布节点标题统一字号：所有节点的外部标题与文本节点卡片内标题都用这一档。 */
 const NODE_TITLE_FONT_SIZE = 11;
@@ -165,7 +167,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const isImage = data.type === CanvasNodeType.Image;
-    const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent", CanvasNodeType.Text, LOCAL_FUSION_NODE_TYPE].includes(data.type);
+    const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent", CanvasNodeType.Text, LOCAL_FUSION_NODE_TYPE, CHARACTER_RECIPE_NODE_TYPE].includes(data.type);
     const titleName = isImage ? canvasTitleWithoutExtension(data.title || "") : data.title || "";
     const [titleDraft, setTitleDraft] = useState(titleName);
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
@@ -386,7 +388,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 setHovered(false);
             }}
             onMouseDownCapture={(event) => {
-                if (!referenceSelectionState) onSelectCapture?.(event, data.id);
+                if (!referenceSelectionState && (data.type !== CHARACTER_RECIPE_NODE_TYPE || event.currentTarget.contains(event.target as Node))) onSelectCapture?.(event, data.id);
             }}
             onContextMenu={(event) => {
                 const target = event.target instanceof Element ? event.target : null;
@@ -522,7 +524,8 @@ export const CanvasNode = React.memo(function CanvasNode({
 
             {!referenceSelectionState && data.type === "dxos:table" ? (data.metadata?.tableInputChannels || [{ id: "input-1" }, { id: "input-2" }]).map((channel, index, all) => <div key={channel.id} className="absolute -left-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: `calc(50% + ${(index - (all.length - 1) / 2) * 56}px)` }} data-node-handle data-table-port={channel.id} title={`输入 ${index + 1}：拖动连线到此处`} onMouseDown={(event) => onConnectStart(event, data.id, "target", channel.id)}><span className="grid place-items-center rounded-full border transition-transform duration-150 hover:scale-125" style={{ width: 28.8, height: 28.8, fontSize: 14.4, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>{index + 1}</span></div>) : null}
             {!referenceSelectionState && data.type === LOCAL_FUSION_NODE_TYPE ? <div data-node-handle data-fusion-port={FUSION_PATCH_PORT} title="局部修改输入：将带选区上下文的图片连接到这里" className="absolute -right-6 z-40 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: 40 }} onMouseDown={(event) => onConnectStart(event, data.id, "target", FUSION_PATCH_PORT)}><span className="grid size-6 place-items-center rounded-full border text-xs transition-transform duration-150 hover:scale-125" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>局</span></div> : null}
-            {!referenceSelectionState && !isGroup && data.type !== "dxos:table" ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
+            {!referenceSelectionState && data.type === CHARACTER_RECIPE_NODE_TYPE ? recipeSlots.map((slot) => <div key={slot} data-node-handle data-recipe-port={slot} title={`${recipeSlotLabels[slot]}输入：连接图片节点`} aria-label={`${recipeSlotLabels[slot]}输入`} className="absolute -left-5 z-40 flex size-10 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ top: `calc(50% + ${recipePortOffset(slot)}px)` }} onMouseDown={(event) => onConnectStart(event, data.id, "target", slot)}><span className="grid size-6 place-items-center rounded-full border text-[10px] transition-transform hover:scale-110" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.muted }}>{recipeSlotLabels[slot][0]}</span></div>) : null}
+            {!referenceSelectionState && !isGroup && data.type !== "dxos:table" && data.type !== CHARACTER_RECIPE_NODE_TYPE ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             {!referenceSelectionState && (definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config ? <ConnectionHandleDot side="right" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
 
             {/* Panel floats in the world so it pans with the node, but its size is fixed in screen pixels:
@@ -560,7 +563,7 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot && props.node.type === CanvasNodeType.Image) return <ImageNodeContent {...props} />;
     if (props.node.type === CanvasNodeType.Text && props.node.metadata?.texts?.length && (props.node.metadata.status !== "error" || props.node.metadata.texts.some((text) => text.content))) return <TextContent {...props} />;
-    const workflowDefinition = (props.node.type.startsWith("dxos:") || props.node.type === LOCAL_FUSION_NODE_TYPE) ? getNodeDefinition(props.node.type) : undefined;
+    const workflowDefinition = (props.node.type.startsWith("dxos:") || props.node.type === LOCAL_FUSION_NODE_TYPE || props.node.type === CHARACTER_RECIPE_NODE_TYPE) ? getNodeDefinition(props.node.type) : undefined;
     if (workflowDefinition?.Content && props.pluginContext) { const Content = workflowDefinition.Content; return <Content ctx={props.pluginContext} />; }
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;

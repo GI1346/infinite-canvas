@@ -43,6 +43,8 @@ import { CanvasNodeAngleDialog, type CanvasImageAngleParams } from "@/components
 import { CanvasExtractSelectionDialog } from "@/components/canvas/canvas-extract-selection-dialog";
 import { extractImageSelection, imageOutputCropContext } from "@/lib/canvas/canvas-local-fusion";
 import { fusionConnectionPort } from "@/lib/canvas/canvas-fusion-ports";
+import { recipeConnectionPort, recipeLinkedNodes } from "@/lib/canvas/canvas-character-recipe";
+import { recipeSlots } from "@/services/api/pose-gallery";
 import { isLocalFusionRunning } from "@/lib/canvas/canvas-local-fusion-run";
 import { CanvasNodePaintDialog } from "@/components/canvas/canvas-node-paint-dialog";
 import { CanvasImagePreviewDialog } from "@/components/canvas/canvas-image-preview-dialog";
@@ -106,6 +108,7 @@ import { runningTableBatches } from "@/lib/canvas/dxos-table";
 import { ConnectionCreateMenu, NodeCreateMenu, type PendingConnectionCreate } from "@/components/canvas/canvas-create-menus";
 import {
     CanvasNodeType,
+    CHARACTER_RECIPE_NODE_TYPE,
     type CanvasAssistantImage,
     type CanvasAssistantSession,
     type CanvasConnection,
@@ -781,18 +784,27 @@ function InfiniteCanvasPage() {
             if (sourceIds.includes(targetNodeId)) return;
             const world = screenToCanvas(clientX, clientY);
             const pointedElement = document.elementFromPoint(clientX, clientY);
+            const recipeTarget = nodesRef.current.find((node) => node.type === CHARACTER_RECIPE_NODE_TYPE && node.id === (current.handleType === "target" ? current.nodeId : targetNodeId));
+            const firstSlot = recipeTarget && recipeConnectionPort(recipeTarget, current, world, pointedElement);
+            const linked = recipeTarget && recipeLinkedNodes(recipeTarget.id, nodesRef.current, connectionsRef.current);
+            const recipePorts = firstSlot ? [firstSlot, ...recipeSlots.filter((slot) => firstSlot !== slot && !linked?.[slot])] : [];
             const additions = sourceIds.flatMap((nodeId): CanvasConnection[] => {
                 const connection = normalizeConnection(nodeId, targetNodeId, nodesRef.current, current.handleType);
                 if (!connection) return [];
                 const target = nodesRef.current.find((node) => node.id === connection.toNodeId);
-                const toPort = target ? tableConnectionPort(target, current, world, pointedElement) || fusionConnectionPort(target, current, world, pointedElement) : undefined;
+                const toPort = recipeTarget ? recipePorts.shift() : target ? tableConnectionPort(target, current, world, pointedElement) || fusionConnectionPort(target, current, world, pointedElement) : undefined;
+                if (recipeTarget && !toPort) return [];
                 return [{ id: nanoid(), ...connection, ...(toPort ? { toPort } : {}) }];
             });
             if (!additions.length) {
                 message.warning(t("canvas.projectPage.configConnection"));
                 return;
             }
-            setConnections((prev) => [...prev, ...additions.filter((next) => !prev.some((conn) => conn.fromNodeId === next.fromNodeId && conn.toNodeId === next.toNodeId && conn.toPort === next.toPort))]);
+            setConnections((prev) => {
+                const added = additions.filter((next) => !prev.some((conn) => conn.fromNodeId === next.fromNodeId && conn.toNodeId === next.toNodeId && conn.toPort === next.toPort));
+                const retained = recipeTarget ? prev.filter((edge) => !added.some((next) => edge.toNodeId === recipeTarget.id && edge.toPort === next.toPort)) : prev;
+                return [...retained, ...added];
+            });
             setContextMenu(null);
         },
         [message, screenToCanvas, t],
@@ -804,10 +816,12 @@ function InfiniteCanvasPage() {
             const newNode = createCanvasNode(type, pending.position, metadata);
             newNode.position.x = pending.position.x - (pending.connection.handleType === "target" ? newNode.width : 0);
             const graph = [...nodesRef.current, newNode];
+            const availableRecipePorts = [...recipeSlots];
             const additions = connectionDragNodeIds(pending.connection).flatMap((nodeId): CanvasConnection[] => {
                 const connection = normalizeConnection(nodeId, newNode.id, graph, pending.connection.handleType);
                 if (!connection) return [];
-                const toPort = connection.toNodeId === newNode.id && newNode.type === "dxos:table" ? "input-1" : pending.connection.handleType === "target" ? pending.connection.portId : undefined;
+                const toPort = newNode.type === CHARACTER_RECIPE_NODE_TYPE ? availableRecipePorts.shift() : connection.toNodeId === newNode.id && newNode.type === "dxos:table" ? "input-1" : pending.connection.handleType === "target" ? pending.connection.portId : undefined;
+                if (newNode.type === CHARACTER_RECIPE_NODE_TYPE && !toPort) return [];
                 return [{ id: nanoid(), ...connection, ...(pending.connection.handleType === "target" ? { fromNodeId: newNode.id, toNodeId: nodeId } : {}), ...(toPort ? { toPort } : {}) }];
             });
             if (!additions.length) {
@@ -815,7 +829,8 @@ function InfiniteCanvasPage() {
                 return;
             }
             setNodes((prev) => [...prev, newNode]);
-            setConnections((prev) => [...prev, ...additions]);
+            const targetRecipe = pending.connection.handleType === "target" && graph.find((item) => item.id === pending.connection.nodeId)?.type === CHARACTER_RECIPE_NODE_TYPE;
+            setConnections((prev) => [...(targetRecipe ? prev.filter((edge) => !additions.some((next) => edge.toNodeId === next.toNodeId && edge.toPort === next.toPort)) : prev), ...additions]);
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
             if (getNodeDefinition(type)?.Panel || type === CanvasNodeType.Image) setDialogNodeId(newNode.id);
@@ -885,7 +900,7 @@ function InfiniteCanvasPage() {
     }, [size.height, size.width, viewport.k, cullLeft, cullTop]);
 
     const visibleNodes = useMemo(
-        () => nodes.filter((node) => (isNodeDragging && dragRef.current.movedIds.has(node.id)) || isCanvasNodeVisible(node, viewBounds)),
+        () => nodes.filter((node) => (isNodeDragging && dragRef.current.movedIds.has(node.id)) || (node.type === CHARACTER_RECIPE_NODE_TYPE && node.metadata?.status === "loading") || isCanvasNodeVisible(node, viewBounds)),
         [nodes, viewBounds, isNodeDragging],
     );
 
@@ -3956,7 +3971,7 @@ function InfiniteCanvasPage() {
                             <rect width="100%" height="100%" fill={theme.canvas.selectionFill} stroke={theme.canvas.selectionStroke} strokeOpacity={0.55} strokeWidth={1 / viewport.k} strokeDasharray={`${6 / viewport.k} ${4 / viewport.k}`} />
                         </svg>
                     ) : null}
-                    {pendingConnectionCreate ? <ConnectionCreateMenu pending={pendingConnectionCreate} scale={viewport.k} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
+                    {pendingConnectionCreate ? <ConnectionCreateMenu pending={pendingConnectionCreate} scale={viewport.k} showCharacterRecipe={pendingConnectionCreate.connection.handleType === "source" && connectionDragNodeIds(pendingConnectionCreate.connection).some((id) => nodeById.get(id)?.type === CanvasNodeType.Image)} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
                     {nodeCreatePosition ? (
                         <NodeCreateMenu
                             position={nodeCreatePosition}
@@ -4098,6 +4113,10 @@ function InfiniteCanvasPage() {
                     <CanvasNodeContextMenu
                         menu={contextMenu}
                         canCaptureVideoFrame={contextMenuNode?.type === CanvasNodeType.Video && Boolean(contextMenuNode.metadata?.content)}
+                        onCreateCharacterRecipe={contextMenuNode?.type === CanvasNodeType.Image && contextMenu.type === "node" ? () => {
+                            createConnectedNode(CHARACTER_RECIPE_NODE_TYPE, { connection: { nodeId: contextMenuNode.id, handleType: "source" }, position: { x: contextMenuNode.position.x + contextMenuNode.width + 80, y: contextMenuNode.position.y + contextMenuNode.height / 2 } });
+                            setContextMenu(null);
+                        } : undefined}
                         canGroup={contextMenu.type === "node" && canGroupSelection}
                         canUngroup={contextMenu.type === "node" && canUngroupSelection}
                         onClose={() => setContextMenu(null)}

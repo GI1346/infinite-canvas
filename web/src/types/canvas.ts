@@ -1,3 +1,7 @@
+import type { CharacterRecipe } from "@/services/api/pose-gallery";
+
+export const CHARACTER_RECIPE_NODE_TYPE = "character-recipe";
+
 export type Position = {
     x: number;
     y: number;
@@ -57,6 +61,7 @@ export type CanvasCropContext = { full: true } | { conflict: true } | {
 };
 
 export type CanvasNodeMetadata = {
+    characterRecipe?: CharacterRecipe;
     workflowDisplayVersion?: number;
     cropContext?: CanvasCropContext;
     fusionColorMatch?: boolean;

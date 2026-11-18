@@ -230,7 +230,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
         const target = event.target instanceof Element ? event.target : null;
         const input = target?.closest("input");
 
-        if (target?.closest("[data-canvas-overlay],.ant-modal,.ant-popover,.ant-dropdown") || (target?.closest("[data-canvas-no-zoom]") && !target.closest("[data-node-id]"))) return;
+        if (target?.closest("[data-canvas-overlay],.ant-modal,.ant-modal-wrap,.ant-popover,.ant-dropdown") || (target?.closest("[data-canvas-no-zoom]") && !target.closest("[data-node-id]"))) return;
         if (target?.closest("[data-connection-create-menu]")) return;
         const isBackgroundClick = !target?.closest("[data-node-id],[data-connection-id]");
         const shouldPan = event.button === 1 || (event.button === 0 && (spaceRef.current || typingSpaceRef.current || (tool === "pan" && isBackgroundClick)));

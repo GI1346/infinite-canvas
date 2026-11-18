@@ -1,5 +1,8 @@
 import type { CanvasNodeData } from "@/types/canvas";
 
+// 生成节点配置面板的实际宽度与内容的自然布局宽度。
+export const NODE_PANEL_WIDTH = 700;
+export const NODE_PANEL_CONTENT_WIDTH = 680;
 export const IMAGE_NODE_MAX_EDGE = 640;
 /** 画布节点统一基准宽度：拖入图片、生成结果、新建节点都按这个宽度对齐。 */
 export const UNIFIED_NODE_WIDTH = 240;
