@@ -41,8 +41,8 @@ function versionNumber(value) {
 }
 
 // 下载到本地文件并持续上报进度；GitHub Release 的附件会 302 到 S3，net.fetch 自动跟随。
-async function downloadFile(url, target, onProgress) {
-  const response = await net.fetch(url, { redirect: 'follow' });
+async function downloadFile(url, target, onProgress, headers) {
+  const response = await net.fetch(url, { redirect: 'follow', headers });
   if (!response.ok || !response.body) throw new Error(`下载失败（HTTP ${response.status}）`);
   const total = Number(response.headers.get('content-length') || 0);
   const file = fs.createWriteStream(target);
@@ -55,6 +55,25 @@ async function downloadFile(url, target, onProgress) {
   }
   await new Promise((resolve, reject) => { file.on('error', reject); file.end(resolve); });
   return { received, total };
+}
+
+// 部分网络会拦掉 github.com 的 CONNECT（502），但 api.github.com 与 objects.githubusercontent.com 可用，
+// 所以先走常规下载地址，失败再通过 Release API 查附件 id 走 octet-stream 通道。
+async function downloadAsset(clean, name, target, onProgress) {
+  const candidates = [{ url: `https://github.com/GI1346/infinite-canvas/releases/download/v${clean}/${name}`, headers: undefined }];
+  try {
+    const meta = await net.fetch(`https://api.github.com/repos/GI1346/infinite-canvas/releases/tags/v${clean}`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'blinkflow' } });
+    if (meta.ok) {
+      const asset = (await meta.json()).assets?.find((item) => item.name === name);
+      if (asset?.url) candidates.push({ url: asset.url, headers: { Accept: 'application/octet-stream', 'User-Agent': 'blinkflow' } });
+    }
+  } catch { /* 拿不到附件列表就直接用常规地址的结果 */ }
+  let lastError;
+  for (const candidate of candidates) {
+    try { return await downloadFile(candidate.url, target, onProgress, candidate.headers); }
+    catch (error) { lastError = error; }
+  }
+  throw lastError;
 }
 let server, harness, harnessWindow, harnessOpening, harnessBridge, harnessProjectId, quitting = false, allowClose = false;
 const harnessRequests = new Map();
@@ -310,7 +329,7 @@ else {
       const name = `BlinkFlow-Web-${clean}.zip`;
       const target = path.join(app.getPath('temp'), name);
       const report = (progress) => { if (!event.sender.isDestroyed()) event.sender.send('update:progress', progress); };
-      await downloadFile(`https://github.com/GI1346/infinite-canvas/releases/download/v${clean}/${name}`, target, report);
+      await downloadAsset(clean, name, target, report);
       const size = fs.statSync(target).size;
       if (size < 1024 * 1024) throw new Error('热更新包下载不完整，请重试');
       report({ percent: 100, received: size, total: size });
@@ -333,7 +352,7 @@ else {
       const name = `BlinkFlow-Setup-${clean}-x64.exe`;
       const target = path.join(app.getPath('temp'), name);
       const report = (progress) => { if (!event.sender.isDestroyed()) event.sender.send('update:progress', progress); };
-      await downloadFile(`https://github.com/GI1346/infinite-canvas/releases/download/v${clean}/${name}`, target, report);
+      await downloadAsset(clean, name, target, report);
       const size = fs.statSync(target).size;
       if (size < 50 * 1024 * 1024) throw new Error('安装包下载不完整，请重试');
       report({ percent: 100, received: size, total: size });

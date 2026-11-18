@@ -74,7 +74,7 @@ export function ConfigLocalStorage({ active }: { active: boolean }) {
                         <Button onClick={() => { void window.blinkflowStorage?.open().catch((reason) => setStorageError(String(reason))); }}>打开数据目录</Button>
                         <Button danger loading={clearing} onClick={() => void clearStorage()}>清除其他数据，保留 API 配置</Button>
                     </div>
-                    <p className="mt-2 text-xs text-stone-500">清理将删除全部画布、图片、历史、日志、缓存和数据目录内下载等，直接清除、不做备份，并重启。渠道、独立密钥、模型绑定、自定义协议及 Agent 连接凭据保留。</p>
+                    <p className="mt-2 text-xs text-stone-500">清理将删除全部画布、图片、历史、日志、缓存和数据目录内下载等，直接清除、不做备份，并重启。渠道、独立密钥、模型绑定、自定义协议及 Harness 连接凭据保留。</p>
                 </> : <p className="mt-3 text-xs text-stone-500">{window.blinkflowStorage ? "正在读取桌面存储路径…" : "当前是浏览器版，数据由浏览器管理；安装后的桌面版会将数据放在所选安装目录内，并提供保留 API 配置的清理工具。"}</p>}
                 {storageError ? <Alert className="mt-3" type="error" showIcon title="存储操作失败" description={storageError} /> : null}
             </section>

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.20.73
+
+- [修复] Windows 安装版下载热更新包或安装包时，常规下载地址不可用会尝试通过 GitHub Release 附件接口下载。
+- [修复] DeepSeek Harness 在网页预览里报「dsh web authentication required」：根因是预览页在 `localhost`、Harness 监听 `127.0.0.1`，属于跨站，鉴权 Cookie（HttpOnly; SameSite=Strict）被浏览器丢弃；现在把 iframe 主机名对齐父页面（并保留 `?token=`、合并 hash 里的 blinkflowHost），同时在面板底部新增连接栏，可粘贴 dsh web 打印的带 token 地址重连或直接用系统浏览器打开。
+- [修复] 修正文本节点和生成节点的中文引号配对：输入法提交 `“` 或 `”` 后只保留一对 `“”`，光标停在中间，英文引号原样输出。
+
+- [调整] 移除界面上的全部 Agent 入口：右上角只保留实心翡翠绿的 Harness 主按钮，节点悬停栏 / 多选栏 / 右键菜单只留「添加到 Harness」，右侧悬浮面板变成 DeepSeek Harness 专属面板（不再有 Agent/Harness 双模式切换）。
+- [调整] 删除 Agent 专属代码与孤立文件：Agent 对话、技能、历史/日志视图、本地 Codex 面板等 20 个组件/Store/服务文件，以及悬浮面板里的 Agent 会话引擎与相关 Props、回调；Harness 复用的画布上下文、@ 引用、图片压缩与画布 ops 通道保持原样。
+
 ## v0.20.72
 
 - [新增] 版本更新支持前端热更新：检测到新版本后点「立即更新」，应用内只下载约 30MB 的前端包并解压到 BlinkFlowData/webcache 直接生效（显示下载进度、完成后自动重载），不用重装、画布数据不动；热更新包不可用时保留「下载完整安装包」兜底，浏览器端降级为「前往下载」。

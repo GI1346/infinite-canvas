@@ -10,4 +10,4 @@ export const useHarnessSidebarStore = create<{
     loading: boolean;
     error: string;
     references: HarnessReferenceBatch[];
-}>(() => ({ tab: "agent", url: "", projectId: "", loading: false, error: "", references: [] }));
+}>(() => ({ tab: "harness", url: "", projectId: "", loading: false, error: "", references: [] }));

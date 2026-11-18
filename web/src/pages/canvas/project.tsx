@@ -63,7 +63,6 @@ import { cloneWorkflow, type SavedWorkflow } from "@/components/library/library-
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { CanvasSidePanel } from "@/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
-import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
@@ -3981,7 +3980,6 @@ function InfiniteCanvasPage() {
                     extraTools={toolbarNode ? buildNodeToolbarItems(toolbarNode) : undefined}
                     onKeep={keepNodeToolbar}
                     onLeave={hideNodeToolbar}
-                    onAddToAgent={(node) => useCanvasAssistantStore.getState().addReferences([node.id])}
                     onInfo={(node) => setInfoNodeId(node.id)}
                     onDecreaseFont={(node) => handleFontSizeChange(node.id, Math.max(10, (node.metadata?.fontSize || 20) - 2))}
                     onIncreaseFont={(node) => handleFontSizeChange(node.id, Math.min(32, (node.metadata?.fontSize || 20) + 2))}
@@ -4013,7 +4011,6 @@ function InfiniteCanvasPage() {
 
                 {hasMultipleSelectedNodes && !selectionBox ? (
                     <CanvasSelectionToolbar
-                        onAddToAgent={() => useCanvasAssistantStore.getState().addReferences([...selectedNodeIdsRef.current])}
                         nodes={selectedNodes}
                         viewport={viewport}
                         showToolbar={!isNodeDragging && !isNodeResizing}
@@ -4099,7 +4096,6 @@ function InfiniteCanvasPage() {
 
                 {contextMenu ? (
                     <CanvasNodeContextMenu
-                        onAddToAgent={() => { if (contextMenu.type === "node") useCanvasAssistantStore.getState().addReferences(selectedNodeIdsRef.current.has(contextMenu.nodeId) ? [...selectedNodeIdsRef.current] : [contextMenu.nodeId]); setContextMenu(null); }}
                         menu={contextMenu}
                         canCaptureVideoFrame={contextMenuNode?.type === CanvasNodeType.Video && Boolean(contextMenuNode.metadata?.content)}
                         canGroup={contextMenu.type === "node" && canGroupSelection}
@@ -4133,8 +4129,7 @@ function InfiniteCanvasPage() {
                 <CanvasPluginManagerModal open={pluginManagerOpen} onClose={() => setPluginManagerOpen(false)} />
                 <CanvasCleanupModal open={cleanupOpen} projectId={projectId} onClose={() => setCleanupOpen(false)} beforeOperation={() => {
                     const busy = nodesRef.current.some((n) => n.metadata?.status === "loading") || runningTableBatches.size > 0 || isLocalFusionRunning();
-                    const agent = useCanvasAssistantStore.getState();
-                    if (busy || generationRequestsRef.current.size || agent.sessions.some((session) => session.running || Boolean(session.pending))) throw new Error("请先停止正在运行的生成或 Agent 任务，再清理 / 恢复，避免结果重新写入");
+                    if (busy || generationRequestsRef.current.size) throw new Error("请先停止正在运行的生成任务，再清理 / 恢复，避免结果重新写入");
                     updateProject(projectId, { nodes: nodesRef.current, connections: connectionsRef.current, chatSessions, activeChatId, backgroundMode, showImageInfo, viewport: viewportRef.current });
                     historyPausedRef.current = true;
                     if (historyCommitTimerRef.current) { clearTimeout(historyCommitTimerRef.current); historyCommitTimerRef.current = null; }

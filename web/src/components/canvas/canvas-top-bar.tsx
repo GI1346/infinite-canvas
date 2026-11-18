@@ -1,7 +1,7 @@
 import { CanvasLogsModal } from "./canvas-logs-modal";
 import { CanvasWheelSensitivity } from "./canvas-wheel-sensitivity";
 import { useEffect, useRef, useState } from "react";
-import { Bot, BookOpen, Download, Eraser, FileText, Home, Images, Keyboard, Menu, Moon, Plus, Redo2, Settings2, Sun, Trash2, Undo2, Upload } from "lucide-react";
+import { BookOpen, Download, Eraser, FileText, Home, Images, Keyboard, Menu, Moon, Plus, Redo2, Settings2, Sun, Trash2, Undo2, Upload } from "lucide-react";
 import { App, Button, Dropdown, Modal, Popover, Slider, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
@@ -12,10 +12,8 @@ import { useCanvasNavigationStore } from "@/stores/use-canvas-navigation-store";
 import { canvasGlass, canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { DOCS_URL } from "@/constant/env";
-import { useHarnessSidebarStore } from "@/stores/use-harness-sidebar-store";
 import { openDeepSeekHarness } from "@/services/api/deepseek-harness";
 import { recordDiagnostic } from "@/services/diagnostics";
-import { useCanvasAssistantStore } from "@/stores/use-canvas-assistant-store";
 
 export function CanvasTopBar({
     title,
@@ -68,7 +66,6 @@ export function CanvasTopBar({
     const [logsOpen, setLogsOpen] = useState(false);
     const [harnessOpening, setHarnessOpening] = useState(false);
     const { message } = App.useApp();
-    const agentOpen = useCanvasAssistantStore((state) => state.open);
 
     useEffect(() => {
         if (!isTitleEditing) return;
@@ -153,10 +150,9 @@ export function CanvasTopBar({
                     </div>
                 </div>
 
-                {/* 右上角悬浮岛：实心翡翠绿 Agent + Harness + 主题 + 更多收纳 */}
+                {/* 右上角悬浮岛：实心翡翠绿 Harness（唯一 AI 协同入口）+ 主题 + 更多收纳 */}
                 <div className="bf-canvas-glass pointer-events-auto flex h-11 items-center gap-1.5 justify-self-end rounded-2xl px-2" style={{ ...canvasGlass(theme), color: theme.node.text }}>
-                    <BarAction variant="solid" icon={<Bot className="size-4" />} label="Agent" onClick={() => { const wasAgent = useHarnessSidebarStore.getState().tab === "agent"; useHarnessSidebarStore.setState({ tab: "agent" }); useCanvasAssistantStore.getState().setOpen(!agentOpen || !wasAgent); }} />
-                    <BarAction variant="soft" icon={<img src="/icons/deepseek.svg" alt="" className="size-4" />} label="Harness" disabled={harnessOpening} onClick={async () => {
+                    <BarAction variant="solid" icon={<img src="/icons/deepseek.svg" alt="" className="size-4" />} label="Harness" disabled={harnessOpening} onClick={async () => {
                         if (harnessOpening) return;
                         setHarnessOpening(true);
                         try { await openDeepSeekHarness(); }
@@ -254,7 +250,7 @@ const barActionClass = "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg
 const barChipClass = "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-medium transition hover:brightness-[1.06] disabled:opacity-40";
 /** 「更多」弹出面板里的网格按钮。 */
 const moreItemClass = "flex h-9 items-center gap-2 rounded-xl px-2.5 text-xs font-medium transition hover:bg-black/5 dark:hover:bg-white/10";
-/** 右上角「更多」触发器：浅底胶囊，和实心绿 Agent 拉开层级。 */
+/** 右上角「更多」触发器：浅底胶囊，和实心绿 Harness 拉开层级。 */
 const moreTriggerClass = "flex h-8 shrink-0 items-center gap-1.5 rounded-xl bg-black/[0.045] px-2.5 text-xs font-medium transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.12]";
 
 /** 顶栏按钮统一「图标 + 文字」。 */

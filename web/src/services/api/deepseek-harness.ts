@@ -85,7 +85,7 @@ export async function executeHarnessCanvasTool(request: HarnessCanvasRequest, si
     assertCurrent();
     if (!context) throw new Error("画布尚未就绪");
     const mutate = !readTools.has(request.tool);
-    if (mutate && (busyProjects.has(request.projectId) || useCanvasAssistantStore.getState().sessions.some((session) => session.running || Boolean(session.pending)))) throw new Error("画布助手正在执行任务，请等待完成后再修改同一画布");
+    if (mutate && busyProjects.has(request.projectId)) throw new Error("画布助手正在执行任务，请等待完成后再修改同一画布");
     if (mutate) busyProjects.add(request.projectId);
     try {
         const config = useConfigStore.getState().config;

@@ -26,7 +26,7 @@ export function CanvasCleanupModal({ open, projectId, onClose, beforeOperation }
     };
     return <Modal title="画布清理工具" open={open} onCancel={close} closable={!busy} maskClosable={false} keyboard={!busy} footer={null} centered>
         <div className="space-y-4">
-            <Alert type="info" showIcon title="保留 API 中转站、密钥、自定义协议和模型配置" description="不会重置软件。保留节点、连线、表格数据、提示词和生成参数。只处理本机画布数据，不删除电脑原图或中转站、WebDAV、外部 Agent 服务上的记录。" />
+            <Alert type="info" showIcon title="保留 API 中转站、密钥、自定义协议和模型配置" description="不会重置软件。保留节点、连线、表格数据、提示词和生成参数。只处理本机画布数据，不删除电脑原图或中转站、WebDAV、外部 Harness 服务上的记录。" />
             <>
                 <Radio.Group value={options.allProjects} disabled={busy} onChange={(event) => patch({ allProjects: event.target.value })} options={[{ label: "当前画布", value: false }, { label: "全部画布", value: true }]} />
                 <div className="flex flex-col gap-3">

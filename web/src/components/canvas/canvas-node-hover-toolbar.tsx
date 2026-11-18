@@ -1,7 +1,7 @@
 import { useAddImagesToHarness } from "@/services/api/deepseek-harness";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { App, Modal, Popover, Segmented, Tooltip } from "antd";
-import { Check, Palette, Bot, Scan, Download, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video, Sparkles, ChevronDown } from "lucide-react";
+import { Check, Palette, Scan, Download, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video, Sparkles, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -30,7 +30,6 @@ type CanvasNodeHoverToolbarProps = {
     onMaskEdit: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
     onExtractSelection: (node: CanvasNodeData) => void;
-    onAddToAgent: (node: CanvasNodeData) => void;
     onSplit: (node: CanvasNodeData) => void;
     onUpscale: (node: CanvasNodeData) => void;
     onSuperResolve: (node: CanvasNodeData) => void;
@@ -77,7 +76,6 @@ export function CanvasNodeHoverToolbar({
     onMaskEdit,
     onCrop,
     onExtractSelection,
-    onAddToAgent,
     onSplit,
     onUpscale,
     onSuperResolve,
@@ -126,7 +124,6 @@ export function CanvasNodeHoverToolbar({
     const imageTools = buildImageToolbarTools(node, { onUpload, onToggleFreeResize, onPaint, onMaskEdit, onCrop, onSplit, onUpscale, onSuperResolve, onAngle, onColor, onPortrait, onExpression, onViewImage, onCopyPrompt: copyImagePrompt, onReversePrompt });
 
     const baseToolbarTools: ToolbarTool[] = [
-        { id: "addToAgent", title: "添加到 Agent", label: "添加到 Agent", icon: <Bot className="size-4" />, onClick: () => onAddToAgent(node) },
         ...(isImage || isText || node.type === CanvasNodeType.Group ? [{ id: "addToHarness", title: "添加到 Harness", label: "添加到 Harness", icon: <img src="/icons/deepseek.svg" alt="" className="size-4" />, onClick: () => addToHarness([node.id]) }] : []),
         { id: "info", title: t("canvas.nodeToolbar.infoTitle"), label: t("canvas.nodeToolbar.info"), icon: <Info className="size-4" />, onClick: () => onInfo(node) },
         ...(node.type === CanvasNodeType.Group && onUngroup ? [{ id: "ungroup", title: t("canvas.nodeToolbar.ungroupTitle"), label: t("canvas.nodeToolbar.ungroup"), icon: <Ungroup className="size-4" />, onClick: () => onUngroup(node) }] : []),
@@ -153,14 +150,14 @@ export function CanvasNodeHoverToolbar({
     const toolbarTools = hasImage ? [
         ...pinnedTools,
         { id: "extract", title: "提取选区", label: "提取选区", icon: <Scan className="size-4" />, onClick: () => onExtractSelection(node) },
-        ...baseToolbarTools.filter((tool) => ["addToAgent", "addToHarness"].includes(tool.id)),
+        ...baseToolbarTools.filter((tool) => tool.id === "addToHarness"),
         ...extraTools,
         ...[...baseToolbarTools, ...nodeToolbarTools].filter((tool) => ["delete", "saveAsset", "download"].includes(tool.id)),
     ] : [...baseToolbarTools, ...nodeToolbarTools, ...extraTools];
     // 单行三段：图片编辑 / AI 协同 / 资产操作；调色、人像质感、表情调节三个低频滤镜收进「调色与人像」子菜单。
     const imageEditIds = ["paint", "crop", "split", "extract"];
     const refineIds = ["color", "portrait", "expression"];
-    const aiIds = ["addToAgent", "addToHarness"];
+    const aiIds = ["addToHarness"];
     const imageEditTools = toolbarTools.filter((tool) => imageEditIds.includes(tool.id));
     const refineTools = toolbarTools.filter((tool) => refineIds.includes(tool.id));
     const aiTools = toolbarTools.filter((tool) => aiIds.includes(tool.id));

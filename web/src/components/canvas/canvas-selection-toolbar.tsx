@@ -1,6 +1,6 @@
 import { useAddImagesToHarness } from "@/services/api/deepseek-harness";
 import type { ReactNode } from "react";
-import { Bot, Columns3, Download, FolderPlus, Grid2X2, Group, Rows3, Ungroup, Workflow } from "lucide-react";
+import { Columns3, Download, FolderPlus, Grid2X2, Group, Rows3, Ungroup, Workflow } from "lucide-react";
 import { Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -11,12 +11,12 @@ import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "@/t
 
 const SELECTION_PAD = 14;
 export function CanvasSelectionToolbar({
-    nodes, viewport, showToolbar, canGroup, canUngroup, onGroup, onUngroup, onArrange, onSaveAssets, onSaveToResources, onDownload, onAddToAgent, downloading = false,
+    nodes, viewport, showToolbar, canGroup, canUngroup, onGroup, onUngroup, onArrange, onSaveAssets, onSaveToResources, onDownload, downloading = false,
 }: {
     nodes: CanvasNodeData[]; viewport: ViewportTransform; showToolbar: boolean;
     canGroup: boolean; canUngroup: boolean; onGroup: () => void; onUngroup: () => void;
     onArrange: (mode: SelectionLayout) => void; onSaveAssets: () => void; onSaveToResources: () => void;
-    onDownload?: () => void; onAddToAgent: () => void; downloading?: boolean;
+    onDownload?: () => void; downloading?: boolean;
 }) {
     const { t } = useTranslation();
     const addToHarness = useAddImagesToHarness();
@@ -36,7 +36,6 @@ export function CanvasSelectionToolbar({
             <SelectionAction title="垂直排列" icon={<Rows3 className="size-4" />} onClick={() => onArrange("column")} />
             <SelectionAction title="流程整理" icon={<Workflow className="size-4" />} disabled={!nodes.some(node => node.type === CanvasNodeType.Config)} onClick={() => onArrange("flow")} />
             <span className="mx-1 h-5 shrink-0 border-l" style={{ borderColor: theme.toolbar.border }} />
-            <SelectionAction title="添加到 Agent" icon={<Bot className="size-4" />} onClick={onAddToAgent} />
             <SelectionAction title="添加到 Harness" icon={<img src="/icons/deepseek.svg" alt="" className="size-4" />} onClick={() => addToHarness(nodes.map(node => node.id))} />
             {onDownload && nodes.some(node => node.type === "image" || node.type === "group") && <SelectionAction title={downloading ? "打包中…" : "导出图片"} icon={<Download className="size-4" />} onClick={onDownload} disabled={downloading} />}
             {canGroup && <SelectionAction title={t("canvas.nodeToolbar.groupTitle")} label={t("canvas.nodeToolbar.group")} icon={<Group className="size-4" />} onClick={onGroup} />}
