@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Dice5, Grid2X2, ImagePlus, Link2, Play, Plus, Shirt, Square, Upload, UserRound, PersonStanding, X, Drama } from "lucide-react";
+import { ArrowLeftRight, Sparkles, Dice5, Grid2X2, ImagePlus, Link2, Play, Plus, Shirt, Square, Upload, UserRound, PersonStanding, X, Drama } from "lucide-react";
 import { nanoid } from "nanoid";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -24,7 +24,6 @@ const styles = ["跟随参考图", "写实人像写真", "日系二次元插画"
 const outputRatios = mediaRatioOptions.filter(({ value }) => value !== "auto");
 const outputResolutions = mediaScaleOptions.filter((value) => value !== "auto");
 const icons = { portrait: UserRound, costume: Shirt, pose: PersonStanding };
-const action = "inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-1.5 py-1 text-[11px] transition hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40";
 const stop = (event: { stopPropagation: () => void }) => event.stopPropagation();
 const problem = (error: unknown) => error instanceof Error ? error.message : "操作失败，请重试。";
 type Preview = { title: string; image?: string; error?: string; collage?: boolean };
@@ -38,7 +37,7 @@ function RecipeThumbnail({ reference }: { reference: RecipeReference }) {
         return () => { active = false; };
     }, [reference.storageKey, reference.url]);
     const src = reference.thumbnail || (reference.storageKey ? resolved : reference.url);
-    return src ? <img className="h-full w-full object-cover" alt="" src={src} draggable={false} referrerPolicy="no-referrer" /> : <ImagePlus size={16} />;
+    return src ? <img className="h-full w-full object-cover transition-transform duration-300 motion-safe:group-hover:scale-105" alt="" src={src} draggable={false} referrerPolicy="no-referrer" /> : <ImagePlus size={16} />;
 }
 
 export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
@@ -176,40 +175,77 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
     };
 
     const busy = preparing || running;
-    const control = { borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.text };
-    return <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[14px] p-3.5 text-xs" style={{ color: theme.node.text, background: theme.node.panel }}>
-        <header className="mb-3 flex shrink-0 items-center gap-2"><span className="font-semibold">1. 参考图组合</span><span className="rounded-full px-2 py-0.5 text-[10px] tabular-nums" style={{ color: theme.toolbar.activeText, background: theme.toolbar.activeBg }}>{references.length} / 3</span><div className="ml-auto flex items-center gap-1" data-node-no-drag onMouseDown={stop}><button type="button" className={action} disabled={busy || recipeSlots.every((slot) => linked[slot])} onClick={() => randomize()}><Dice5 size={14} />随机</button><button type="button" className={action} aria-pressed={Boolean(recipe.useCollage)} disabled={busy || !references.length} onClick={() => showPreview()}><Grid2X2 size={14} />参考拼图</button></div></header>
+    const compact = node.height < 420;
+    const inset = { background: theme.glass.inset, borderColor: theme.node.stroke, color: theme.node.text };
+    const accent = { background: theme.accent.soft, color: theme.toolbar.activeText };
+    const chip = "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-medium transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 disabled:opacity-40";
+    const hud = "pointer-events-auto rounded-full bg-black/55 text-white ring-1 ring-inset ring-white/20 backdrop-blur-md";
+    const styleLabels = ["跟随参考", "写实写真", "二次元", "3D 渲染"];
+    return <div data-node-scroll className={`thin-scrollbar flex h-full min-h-0 flex-col overflow-y-auto rounded-[14px] text-xs ${compact ? "p-3" : "p-3.5"}`} style={{ color: theme.node.text, background: theme.node.panel }}>
+        <header className={`flex shrink-0 items-center justify-between gap-1.5 ${compact ? "mb-1.5" : "mb-2.5"}`}>
+            <div className="flex min-w-0 items-center gap-1.5">
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold" style={accent}><Sparkles size={12} />角色合成台</span>
+                <span className="whitespace-nowrap text-[10px] tabular-nums" style={{ color: theme.node.muted }}>已配 <span className="font-semibold" style={{ color: theme.accent.base }}>{references.length}</span>/3</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5 rounded-xl p-0.5" data-node-no-drag onMouseDown={stop} style={inset}>
+                <button type="button" aria-label="参考拼图" aria-pressed={Boolean(recipe.useCollage)} disabled={busy || !references.length} className={chip} style={recipe.useCollage ? accent : undefined} onClick={() => recipe.useCollage ? patchRecipe({ useCollage: false }) : showPreview()}><Grid2X2 size={12} />参考拼图</button>
+                <button type="button" aria-label="随机" disabled={busy || recipeSlots.every((slot) => linked[slot])} className={chip} onClick={() => randomize()}><Dice5 size={12} />全套随机</button>
+            </div>
+        </header>
         <fieldset disabled={busy} className="grid shrink-0 grid-cols-3 gap-2.5" data-node-no-drag onMouseDown={stop}>
             {recipeSlots.map((slot) => {
                 const Icon = icons[slot], ref = references.find((item) => item.slot === slot), label = recipeSlotLabels[slot];
-                return <div key={slot} className="flex min-w-0 flex-col justify-between gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
-                    <div className="flex h-6 items-center justify-between gap-0.5"><span className="inline-flex shrink-0 items-center gap-0.5 font-medium" title={`${label}输入`}><Icon size={12} />{label}</span>{slot === "pose" && <RecipeDepthToggle value={Boolean(recipe.useDepth)} onChange={(useDepth) => patchRecipe({ useDepth })} />}</div>
-                    {ref ? <div className="flex min-w-0 items-center gap-1.5"><button type="button" className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg disabled:opacity-50" style={{ background: theme.node.panel }} disabled={!ref.url && !ref.storageKey} title={`预览 ${ref.name}`} onClick={() => showPreview(ref)}><RecipeThumbnail reference={ref} /></button><div className="min-w-0 flex-1"><div title={ref.name} className="truncate font-medium">{ref.name}</div>{ref.linked ? <span className="mt-1 flex items-center gap-0.5 whitespace-nowrap text-[9px]" style={{ color: theme.toolbar.activeText }}><Link2 size={10} />上游连线</span> : <button type="button" className="mt-1 inline-flex items-center gap-0.5 text-[10px] opacity-70 hover:opacity-100" aria-label={`清除${label}`} onClick={() => choose(slot)}><X size={10} />清除</button>}</div></div> : <div className="flex h-12 items-center justify-between gap-0.5"><button type="button" className={`${action} flex-1 px-0`} onClick={() => setPicker(slot)}><Plus size={12} />选{label}</button><label className={`${action} cursor-pointer px-0`} title={`上传${label}`}><Upload size={11} /><span>上传</span><input type="file" accept="image/*" aria-label={`上传${label}`} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) upload(slot, file); }} /></label></div>}
-                    <div className="flex items-center justify-between gap-0.5"><select aria-label={`${label}随机范围`} value={recipe.scopes?.[slot] || "similar"} disabled={Boolean(ref?.linked)} className="min-w-0 rounded-md border py-0.5 pl-0.5 text-[10px] disabled:opacity-40" style={control} onChange={(event) => patchRecipe({ scopes: { ...currentRecipe().scopes, [slot]: event.target.value === "all" ? "all" : "similar" } })}><option value="similar">同类</option><option value="all">全部</option></select><button type="button" className={`${action} px-0 text-[10px]`} disabled={Boolean(ref?.linked)} aria-label={`换一个${label}`} onClick={() => randomize(slot)}><Dice5 size={12} />换一个</button></div>
+                const scope = recipe.scopes?.[slot] || "similar";
+                const galleryPose = slot === "pose" && !ref?.linked && recipe.slots?.pose?.kind === "gallery";
+                return <div key={slot} className={`group relative flex h-[148px] min-w-0 flex-col overflow-hidden rounded-xl border transition ${ref ? "" : "border-dashed hover:brightness-105"}`} style={ref ? { borderColor: theme.node.stroke, background: theme.node.fill } : { borderColor: `color-mix(in srgb, ${theme.accent.base} 40%, transparent)`, background: `radial-gradient(ellipse at center, ${theme.accent.soft}, transparent 80%)` }}>
+                    {ref ? <button type="button" aria-label={`预览 ${ref.name}`} className="absolute inset-0 grid place-items-center overflow-hidden focus-visible:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" style={{ color: theme.node.muted }} disabled={!ref.url && !ref.storageKey} onClick={() => showPreview(ref)}><RecipeThumbnail reference={ref} /></button> : <button type="button" aria-label={`选${label}`} className="absolute inset-x-0 inset-y-6 flex flex-col items-center justify-center gap-1.5 rounded-lg text-[11px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" style={{ color: theme.toolbar.activeText }} onClick={() => setPicker(slot)}><span className="grid size-9 place-items-center rounded-xl" style={accent}><Icon size={17} strokeWidth={1.6} /></span><span className="flex items-center gap-0.5"><Plus size={11} />挑选{label}</span></button>}
+                    <div className={`pointer-events-none relative z-10 flex items-center justify-between gap-0.5 p-1.5 ${ref ? "bg-gradient-to-b from-black/70 via-black/25 to-transparent" : ""}`}>
+                        <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-medium ${ref ? "bg-black/55 text-white ring-1 ring-inset ring-white/20 backdrop-blur-md" : ""}`} title={`${label}输入`} style={ref ? undefined : accent}>{ref?.linked ? <><Link2 size={10} className="text-emerald-300" />上游连线</> : <>{!galleryPose && <Icon size={10} />}{label}</>}</span>
+                        <div className="pointer-events-auto flex min-w-0 items-center gap-0.5">
+                            {galleryPose && <RecipeDepthToggle value={Boolean(recipe.useDepth)} onChange={(useDepth) => patchRecipe({ useDepth })} />}
+                            {ref ? !ref.linked && <button type="button" className={`grid size-5 shrink-0 place-items-center focus-visible:outline ${hud}`} aria-label={`清除${label}`} title={`清除${label}`} onClick={() => choose(slot)}><X size={11} /></button> : <label className="grid size-6 cursor-pointer place-items-center rounded-full transition hover:brightness-110 focus-within:outline" style={accent} title={`上传${label}`}><Upload size={11} /><input type="file" accept="image/*" aria-label={`上传${label}`} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) upload(slot, file); }} /></label>}
+                        </div>
+                    </div>
+                    <div className={`pointer-events-none relative z-10 mt-auto flex flex-col gap-0.5 px-1.5 pb-1.5 ${ref ? "bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-4 text-white" : ""}`}>
+                        {ref && <div title={ref.name} className="w-full truncate px-0.5 text-[10px] font-medium text-white/95">{ref.name}</div>}
+                        <div className="flex items-center justify-between gap-0.5">
+                            <button type="button" aria-label={`${label}随机范围`} aria-pressed={scope === "all"} title={`当前：${scope === "all" ? "全库" : "同类"}，点击切换`} className={`${chip} pointer-events-auto gap-0.5 px-1.5 py-0.5 ${ref ? hud : ""}`} style={ref ? undefined : inset} disabled={Boolean(ref?.linked)} onClick={() => patchRecipe({ scopes: { ...currentRecipe().scopes, [slot]: scope === "all" ? "similar" : "all" } })}>{scope === "all" ? "全库" : "同类"}<ArrowLeftRight size={9} /></button>
+                            <button type="button" aria-label={`换一个${label}`} className={`${chip} pointer-events-auto gap-0.5 px-1.5 py-0.5 ${ref ? hud : ""}`} style={ref ? undefined : accent} disabled={Boolean(ref?.linked)} onClick={() => randomize(slot)}><Dice5 size={11} className={ref ? "text-emerald-300" : undefined} />换一张</button>
+                        </div>
+                    </div>
                 </div>;
             })}
         </fieldset>
-        <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1.5" data-node-no-drag onMouseDown={stop}>
-            <div className="flex shrink-0 flex-wrap items-center gap-2"><span className="font-semibold">2. 合成提示词</span><select aria-label="画风" className="ml-auto rounded-md border px-1.5 py-1 text-[11px]" style={control} disabled={running} value={recipe.style || styles[0]} onChange={(event) => patchRecipe({ style: event.target.value })}>{styles.map((style) => <option key={style}>{style}</option>)}</select></div>
-            <textarea aria-label="合成提示词" data-node-scroll className="min-h-0 w-full flex-1 resize-none select-text overscroll-contain rounded-xl border p-2 text-[11px] leading-relaxed outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text, background: theme.node.fill }} disabled={running} value={recipe.prompt ?? automaticPrompt(references, recipe)} onChange={(event) => patchRecipe({ prompt: event.target.value })} />
-            <div className="flex shrink-0 items-center justify-between text-[10px]" style={{ color: theme.node.muted }}><span>{recipe.useCollage ? "已使用参考拼图" : "参考图按人像、服装、姿势顺序提交"}</span>{(recipe.prompt !== undefined || recipe.useCollage) && <div className="flex gap-2">{recipe.useCollage && <button type="button" disabled={running} onClick={() => patchRecipe({ useCollage: false })}>改用单图</button>}{recipe.prompt !== undefined && <button type="button" disabled={running} onClick={() => patchRecipe({ prompt: undefined })}>恢复自动</button>}</div>}</div>
+        <div className={`flex flex-1 flex-col gap-1.5 ${compact ? "mt-2 min-h-[88px]" : "mt-3 min-h-[94px]"}`} data-node-no-drag onMouseDown={stop}>
+            <div role="group" aria-label="画风" className="flex shrink-0 flex-wrap items-center gap-1.5">
+                <span className="mr-0.5 font-semibold">画风</span>
+                {styles.map((style, index) => {
+                    const selected = style === (recipe.style || styles[0]);
+                    return <button key={style} type="button" aria-label={style} aria-pressed={selected} disabled={running} className={`${chip} border`} style={selected ? { ...accent, borderColor: `color-mix(in srgb, ${theme.accent.base} 44%, transparent)` } : { ...inset, borderColor: "transparent", color: theme.node.muted }} onClick={() => patchRecipe({ style })}>{styleLabels[index]}</button>;
+                })}
+            </div>
+            <textarea aria-label="合成提示词" data-node-scroll className="min-h-[44px] w-full flex-1 resize-none select-text overscroll-contain rounded-xl border p-2 text-[11px] leading-relaxed outline-none focus:ring-1" style={{ ...inset, outlineColor: theme.accent.base, ["--tw-ring-color" as string]: theme.accent.base }} disabled={running} value={recipe.prompt ?? automaticPrompt(references, recipe)} onChange={(event) => patchRecipe({ prompt: event.target.value })} />
+            <div className="flex shrink-0 items-center justify-between gap-1 text-[10px]" style={{ color: theme.node.muted }}><span className="truncate">{recipe.useCollage ? "已使用参考拼图" : "按人像、服装、姿势顺序提交"}</span>{(recipe.prompt !== undefined || recipe.useCollage) && <div className="flex shrink-0 gap-2">{recipe.useCollage && <button type="button" disabled={running} onClick={() => patchRecipe({ useCollage: false })}>改用单图</button>}{recipe.prompt !== undefined && <button type="button" disabled={running} onClick={() => patchRecipe({ prompt: undefined })}>恢复自动</button>}</div>}</div>
         </div>
         <div className="mt-2 shrink-0 border-t pt-2" data-node-no-drag onMouseDown={stop} style={{ borderColor: theme.node.stroke }}>
-            <div className="flex min-w-0 items-center gap-2"><div className="min-w-0 flex-1"><ModelPicker config={config} value={model} capability="image" groupByChannel="list" menuZoom={NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH} fullWidth disabled={running} ariaLabel="角色合成模型" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} onChange={(value) => ctx.updateMetadata({ model: value })} /></div><button type="button" disabled={!running && (preparing || !references.length)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition hover:brightness-110 disabled:opacity-40" style={{ background: theme.accent.base, color: theme.node.panel }} onClick={() => running ? generation.current?.abort() : void run()}>{running ? <Square size={13} /> : <Play size={13} />}{running ? "停止合成" : "立即合成"}</button></div>
-            <div className="mt-1.5 flex items-center gap-2 text-[10px]" style={{ color: theme.node.muted }}>
-                <label className="inline-flex items-center gap-1.5">画面比例<select aria-label="角色合成画面比例" className="rounded-md border px-1.5 py-0.5" style={control} value={ratio} disabled={running} onChange={(event) => setOutputSize(event.target.value, resolution)}>{outputRatios.map(({ value }) => <option key={value}>{value}</option>)}</select></label>
-                <label className="inline-flex items-center gap-1.5">分辨率<select aria-label="角色合成分辨率" className="rounded-md border px-1.5 py-0.5" style={control} value={resolution} disabled={running} onChange={(event) => setOutputSize(ratio, event.target.value)}>{outputResolutions.map((value) => <option key={value} value={value}>{value.toUpperCase()}</option>)}</select></label>
-                <span className="ml-auto truncate tabular-nums" title="请求尺寸，实际出图取决于所选模型">{outputSize.replace("x", " × ")}</span>
+            <div className="flex min-w-0 items-center gap-2">
+                <div className="min-w-0 flex-1"><ModelPicker className="!h-9 !gap-2 !rounded-xl !px-2.5 !text-xs" config={config} value={model} capability="image" groupByChannel="list" menuZoom={NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH} fullWidth disabled={running} ariaLabel="角色合成模型" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} onChange={(value) => ctx.updateMetadata({ model: value })} /></div>
+                <button type="button" disabled={!running && (preparing || !references.length)} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold shadow-sm transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 disabled:opacity-40" style={{ backgroundImage: `linear-gradient(135deg, ${theme.accent.base}, color-mix(in srgb, ${theme.accent.base} 78%, ${theme.node.text}))`, color: theme.node.panel }} onClick={() => running ? generation.current?.abort() : void run()}>{running ? <Square size={13} /> : <Play size={13} />}{running ? "停止合成" : "立即合成"}</button>
+            </div>
+            <div className="mt-1.5 flex items-center gap-1.5 text-[10px]" style={{ color: theme.node.muted }}>
+                <label className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1" style={inset}>画面比例<select aria-label="角色合成画面比例" className="bg-transparent font-medium outline-none focus-visible:outline" style={{ color: theme.node.text }} value={ratio} disabled={running} onChange={(event) => setOutputSize(event.target.value, resolution)}>{outputRatios.map(({ value }) => <option style={{ background: theme.node.panel }} key={value}>{value}</option>)}</select></label>
+                <label className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1" style={inset}>分辨率<select aria-label="角色合成分辨率" className="bg-transparent font-medium outline-none focus-visible:outline" style={{ color: theme.node.text }} value={resolution} disabled={running} onChange={(event) => setOutputSize(ratio, event.target.value)}>{outputResolutions.map((value) => <option style={{ background: theme.node.panel }} key={value} value={value}>{value.toUpperCase()}</option>)}</select></label>
+                <span className="ml-auto truncate rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums" style={accent} title="请求尺寸，实际出图取决于所选模型">{outputSize.replace("x", " × ")}</span>
             </div>
             {(error || running || preparing || node.metadata?.errorDetails) && <p className="mt-1 truncate text-[10px]" role={error ? "alert" : "status"} title={error || node.metadata?.errorDetails}>{error || (running ? "正在合成…" : preparing ? "正在准备参考图…" : node.metadata?.errorDetails)}</p>}
         </div>
-        {picker && <CharacterRecipePickerModal initialSlot={picker} safe={safe} useDepth={Boolean(recipe.useDepth)} linked={recipeSlots.filter((slot) => !!linked[slot])} onSafeChange={setSafe} onDepthChange={(useDepth) => patchRecipe({ useDepth })} onPick={(slot, item) => { choose(slot, { kind: "gallery", item }); setPicker(undefined); }} onClose={() => setPicker(undefined)} />}
+        {picker && <CharacterRecipePickerModal initialSlot={picker} safe={safe} useDepth={Boolean(recipe.useDepth)} selection={recipe.slots} linked={recipeSlots.filter((slot) => !!linked[slot])} onSafeChange={setSafe} onDepthChange={(useDepth) => patchRecipe({ useDepth })} onPick={(slot, item) => { choose(slot, { kind: "gallery", item }); setPicker(undefined); }} onClose={() => setPicker(undefined)} />}
         {preview && <CharacterRecipePreviewModal {...preview} onClose={closePreview} onUse={preview.collage ? () => { patchRecipe({ useCollage: true }); closePreview(); } : undefined} />}
     </div>;
 }
 
 export const characterRecipeNodeDefinition: CanvasNodeDefinition = {
     type: CHARACTER_RECIPE_NODE_TYPE, title: characterRecipeTitle, description: characterRecipeDescription,
-    icon: <Drama className="size-4" />, defaultSize: { width: 460, height: 390 }, defaultMetadata: { characterRecipe: {} },
+    icon: <Drama className="size-4" />, defaultSize: { width: 440, height: 460 }, defaultMetadata: { characterRecipe: {} },
     Content: CharacterRecipeNode, hidePanel: true,
 };
