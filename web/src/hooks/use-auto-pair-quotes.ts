@@ -5,7 +5,8 @@ type Edit = { text: string; start: number; end: number };
 
 const pair = "“”";
 const isTextControl = (target: HTMLElement): target is TextControl =>
-  target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+  target instanceof HTMLTextAreaElement ||
+  (target instanceof HTMLInputElement && ["text", "search", "url", "tel", ""].includes(target.type));
 
 function readEdit(target: HTMLElement): Edit | undefined {
   if (isTextControl(target)) {
@@ -28,6 +29,7 @@ function readEdit(target: HTMLElement): Edit | undefined {
 }
 
 function pairCommittedQuotes(target: HTMLElement, edit: Edit) {
+  if (!isTextControl(target) && !target.isContentEditable) return false;
   const text = isTextControl(target) ? target.value : target.textContent ?? "";
   const before = edit.text.slice(0, edit.start), after = edit.text.slice(edit.end);
   const end = text.length - after.length;
@@ -45,7 +47,8 @@ function pairCommittedQuotes(target: HTMLElement, edit: Edit) {
       const prototype = target instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(target, before + replacement + after);
     }
-    target.setSelectionRange(edit.start + caretOffset, edit.start + caretOffset);
+    try { target.setSelectionRange(edit.start + caretOffset, edit.start + caretOffset); }
+    catch { /* 输入类型可能在组字期间改变。 */ }
     return changed;
   }
 

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, dialog, shell, ipcMain, session, net, clipboard, nativeImage, nativeTheme } = require('electron');
 const http = require('node:http');
+const { pipeline } = require('node:stream/promises');
 const { createNetworkProxy } = require('./network.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -14,15 +15,16 @@ const legacy = path.join(app.getPath('appData'), 'Infinite Canvas DXOS');
 const installDirectory = app.isPackaged ? path.dirname(app.getPath('exe')) : __dirname;
 const dataDirectory = path.join(installDirectory, 'BlinkFlowData');
 const origin = 'http://127.0.0.1:17456';
-let restoredApi;
+let restoredApi, storageReady = false;
 try {
   const instance = path.join(dataDirectory, 'Instance');
   if (fs.existsSync(dataDirectory) && fs.lstatSync(dataDirectory).isSymbolicLink()) throw new Error('BlinkFlowData 必须是普通目录');
   fs.mkdirSync(instance, { recursive: true });
+  fs.rmdirSync(fs.mkdtempSync(path.join(instance, '.write-test-')));
   app.setPath('userData', instance);
+  storageReady = true;
 } catch (error) {
   dialog.showErrorBox('数据目录不可写', `请将 BlinkFlow 安装在有写入权限的目录。不会改用其他存储位置。\n${error.message}`);
-  app.exit(1);
 }
 // 前端热更新的缓存目录：BlinkFlowData/webcache/web-x.y.z。数据目录不会被覆盖安装清掉，
 // 所以热更新过的前端在重装之后仍然优先于安装包里自带的那份。
@@ -47,13 +49,21 @@ async function downloadFile(url, target, onProgress, headers) {
   const total = Number(response.headers.get('content-length') || 0);
   const file = fs.createWriteStream(target);
   let received = 0, sent = -1;
-  for await (const chunk of response.body) {
-    received += chunk.length;
-    if (!file.write(chunk)) await new Promise((resolve) => file.once('drain', resolve));
-    const percent = total ? Math.min(99, Math.floor((received / total) * 100)) : 0;
-    if (percent !== sent) { sent = percent; onProgress?.({ percent, received, total }); }
+  try {
+    await pipeline(response.body, async function* (source) {
+      for await (const chunk of source) {
+        received += chunk.byteLength;
+        const percent = total ? Math.min(99, Math.floor((received / total) * 100)) : 0;
+        if (percent !== sent) { sent = percent; onProgress?.({ percent, received, total }); }
+        yield chunk;
+      }
+    }, file);
+  } catch (error) {
+    // pipeline 已等待文件流关闭；Windows 此时才能删除半成品。
+    file.destroy();
+    fs.rmSync(target, { force: true });
+    throw error;
   }
-  await new Promise((resolve, reject) => { file.on('error', reject); file.end(resolve); });
   return { received, total };
 }
 
@@ -76,6 +86,7 @@ async function downloadAsset(clean, name, target, onProgress) {
   throw lastError;
 }
 let server, harness, harnessWindow, harnessOpening, harnessBridge, harnessProjectId, quitting = false, allowClose = false;
+let harnessBridgePromise = null;
 const harnessRequests = new Map();
 let harnessModels = null;
 // The bridge receives labels and IDs only; credentials stay in the main canvas renderer.
@@ -89,7 +100,8 @@ function cleanHarnessModels(state) {
     }) };
   }) };
 }
-if (!app.requestSingleInstanceLock()) app.quit();
+if (!storageReady) app.exit(1);
+else if (!app.requestSingleInstanceLock()) app.quit();
 else {
   try {
     restoredApi = prepareStorage(dataDirectory, legacy);
@@ -102,9 +114,14 @@ else {
     app.setPath('crashDumps', path.join(dataDirectory, 'CrashDumps'));
     app.setPath('downloads', path.join(dataDirectory, 'Downloads'));
     app.commandLine.appendSwitch('disk-cache-dir', path.join(profile, 'Cache'));
-  } catch (error) { dialog.showErrorBox('存储初始化失败', String(error.message || error)); app.exit(1); }
+  } catch (error) {
+    storageReady = false;
+    dialog.showErrorBox('存储初始化失败', String(error.message || error));
+    app.exit(1);
+  }
   app.on('second-instance', () => { const win = BrowserWindow.getAllWindows()[0]; if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(async () => {
+    if (!storageReady) return;
     const network = createNetworkProxy({ origin, token: crypto.randomBytes(24).toString('hex'), fetch: (url, options) => net.fetch(url, options), version: app.getVersion() });
     // Stable loopback origin preserves IndexedDB/localforage across restarts and upgrades.
     server = http.createServer((req, res) => {
@@ -122,7 +139,13 @@ else {
         fs.createReadStream(file).on('error', () => { res.statusCode = 500; res.end(); }).pipe(res);
       } catch { res.writeHead(400); res.end(); }
     });
-    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(17456, '127.0.0.1', resolve); });
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(17456, '127.0.0.1', () => { server.removeListener('error', reject); resolve(); });
+    }).catch((error) => {
+      if (error.code === 'EADDRINUSE') throw new Error('本机端口 17456 已被占用。请关闭占用该端口的程序后重试，以便继续读取原有画布和配置。', { cause: error });
+      throw error;
+    });
     const win = new BrowserWindow({ width: 1440, height: 960, minWidth: 900, minHeight: 650, show: false, title: 'BlinkFlow', icon: path.join(__dirname, 'assets', 'blinkflow.ico'), webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });
     let clearing = false;
     const trusted = (event) => {
@@ -225,8 +248,7 @@ else {
         pending.finish({ error: message });
       }
     };
-    const ensureHarnessBridge = async () => {
-      if (harnessBridge) return harnessBridge;
+    const startHarnessBridge = async () => {
       const token = crypto.randomBytes(32).toString('hex');
       const bridge = http.createServer((req, res) => {
         if (req.method !== 'POST' || req.url !== '/tool' || req.headers.authorization !== 'Bearer ' + token || req.headers.origin) { res.writeHead(403); return res.end(); }
@@ -255,6 +277,7 @@ else {
       harnessBridge = { server: bridge, token, url: 'http://127.0.0.1:' + bridge.address().port };
       return harnessBridge;
     };
+    const ensureHarnessBridge = () => harnessBridge || (harnessBridgePromise ??= startHarnessBridge().finally(() => { harnessBridgePromise = null; }));
     const openHarnessExternal = async (url) => {
       const parsed = new URL(url);
       if (parsed.protocol !== 'https:' || parsed.username || parsed.password || !(parsed.hostname === 'deepseek.com' || parsed.hostname.endsWith('.deepseek.com') || parsed.hostname === 'github.com' || parsed.hostname === 'deepseek-harness.github.io')) throw new Error('未打开非官方 Harness 外部地址');
@@ -393,7 +416,7 @@ else {
       item.setSavePath(destination);
     });
     win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
-    win.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== 'http://127.0.0.1:17456') { event.preventDefault(); if (/^https?:\/\//i.test(url)) shell.openExternal(url); } });
+    win.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== origin) { event.preventDefault(); if (/^https?:\/\//i.test(url)) shell.openExternal(url); } });
     if (restoredApi) {
       await win.loadURL(origin + '/__storage');
       await win.webContents.executeJavaScript(`(${restoreApi.toString()})(${JSON.stringify(restoredApi)})`);

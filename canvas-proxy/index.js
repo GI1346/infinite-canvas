@@ -1,12 +1,48 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
+import { lookup } from "node:dns";
+import { BlockList, isIP } from "node:net";
 import { createRequire } from "node:module";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
 
-const pkg = createRequire(import.meta.url)("./package.json");
+const require = createRequire(import.meta.url);
+const { Agent, buildConnector } = require("undici");
+const pkg = require("./package.json");
+const metadata = new BlockList();
+metadata.addAddress("169.254.169.254");
+
+function isMetadataAddress(address) {
+    const family = isIP(address);
+    return family !== 0 && metadata.check(address, family === 6 ? "ipv6" : "ipv4");
+}
+
+function blockedTarget() {
+    return Object.assign(new Error("代理禁止访问云元数据地址"), { code: "BLOCKED_TARGET" });
+}
+
+function targetDispatcher() {
+    const connect = buildConnector({
+        timeout: 0,
+        lookup(hostname, options, callback) {
+            lookup(hostname, { ...options, all: true }, (error, addresses) => {
+                if (error) return callback(error);
+                if (addresses.some(({ address }) => isMetadataAddress(address))) return callback(blockedTarget());
+                // The socket uses these checked results directly, including on redirects.
+                if (options.all) callback(null, addresses);
+                else callback(null, addresses[0].address, addresses[0].family);
+            });
+        },
+    });
+    return new Agent({ headersTimeout: 0, bodyTimeout: 0, connect(options, callback) {
+        // IP literals bypass DNS lookup.
+        const hostname = options.hostname.replace(/^\[|\]$/g, "");
+        if (isMetadataAddress(hostname)) return callback(blockedTarget());
+        connect(options, callback);
+    } });
+}
 
 const CORS_HEADERS = {
     "access-control-allow-origin": "*",
@@ -74,24 +110,25 @@ function logForward(method, target, outcome, startedAt) {
     console.log(`${new Date().toLocaleTimeString()} ${method} ${target} -> ${outcome} ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
 }
 
-async function forward(req, res, target, onResponse) {
+async function forward(req, res, target, dispatcher, onResponse) {
     const controller = new AbortController();
     const onClose = () => { if (!res.writableEnded) controller.abort(); };
     res.on("close", onClose);
     try {
         const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readBody(req);
-        const upstream = await fetch(target, { method: req.method, headers: requestHeaders(req), body, redirect: "follow", signal: controller.signal });
+        const upstream = await fetch(target, { method: req.method, headers: requestHeaders(req), body, redirect: "follow", signal: controller.signal, dispatcher });
         res.writeHead(upstream.status, responseHeaders(upstream));
-        onResponse(upstream.status);
         if (upstream.body) await pipeline(Readable.fromWeb(upstream.body), res);
         else res.end();
+        onResponse(upstream.status);
     } finally {
         res.removeListener("close", onClose);
     }
 }
 
 export function createProxyServer() {
-    return createServer((req, res) => {
+    const dispatcher = targetDispatcher();
+    const server = createServer((req, res) => {
         if (req.method === "OPTIONS") {
             res.writeHead(204, CORS_HEADERS);
             res.end();
@@ -104,18 +141,21 @@ export function createProxyServer() {
         }
         const startedAt = Date.now();
         const method = req.method || "GET";
-        forward(req, res, target, (status) => logForward(method, target, status, startedAt))
+        forward(req, res, target, dispatcher, (status) => logForward(method, target, status, startedAt))
             .catch((error) => {
-                const reason = error instanceof Error ? error.message : String(error);
+                const blocked = error.cause?.code === "BLOCKED_TARGET";
+                const reason = blocked ? error.cause.message : error instanceof Error ? error.message : String(error);
                 logForward(method, target, `failed (${reason})`, startedAt);
                 if (res.destroyed) return;
                 if (res.headersSent) {
                     res.destroy();
                     return;
                 }
-                sendJson(res, 502, { error: reason });
+                sendJson(res, blocked ? 403 : 502, { error: reason });
             });
     });
+    server.once("close", () => { void dispatcher.destroy(); });
+    return server;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

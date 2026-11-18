@@ -223,7 +223,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
 
         event.preventDefault();
         event.stopPropagation();
-        commit({ ...current, y: current.y - event.deltaY });
+        commit({ ...current, x: current.x - event.deltaX, y: current.y - event.deltaY });
     };
 
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -326,7 +326,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
             window.removeEventListener("pointermove", handlePointerMove);
             window.removeEventListener("pointerup", handlePointerUp);
             window.removeEventListener("pointercancel", handlePointerUp);
-            document.body.style.cursor = "";
+            if (document.body.style.cursor === "grabbing") document.body.style.cursor = "";
         };
     }, []);
 

@@ -16,9 +16,12 @@
     "start": "node index.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18.17"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "undici": "^6.29.1"
   }
 }

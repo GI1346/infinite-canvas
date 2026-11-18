@@ -49,12 +49,35 @@ type PersistedCanvasState = Pick<CanvasStore, "projects" | "deletedProjects">;
 let canvasStorageReady = false;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
+let pendingSave: { name: string; value: StorageValue<CanvasStore> } | null = null;
+
+function clearPendingSave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = null;
+    const pending = pendingSave;
+    pendingSave = null;
+    return pending;
+}
+
+function flushPendingSave() {
+    const pending = clearPendingSave();
+    if (pending && canvasStorageReady) {
+        void Promise.resolve(localForageStorage.setItem(pending.name, JSON.stringify(pending.value))).catch(console.error);
+    }
+}
+
+if (typeof window !== "undefined") {
+    window.addEventListener("beforeunload", flushPendingSave);
+    window.addEventListener("pagehide", flushPendingSave);
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") flushPendingSave();
+    });
+}
 
 const canvasStorage: PersistStorage<CanvasStore> = {
     getItem: async (name) => {
         canvasStorageReady = false;
-        if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = null;
+        clearPendingSave();
         const value = await localForageStorage.getItem(name);
         if (!value) {
             queuedPersistState = null;
@@ -76,10 +99,8 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         if (queuedPersistState && queuedPersistState.projects === nextState.projects && queuedPersistState.deletedProjects === nextState.deletedProjects) return;
         queuedPersistState = nextState;
         if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => {
-            saveTimer = null;
-            void localForageStorage.setItem(name, JSON.stringify(value));
-        }, 400);
+        pendingSave = { name, value };
+        saveTimer = setTimeout(flushPendingSave, 400);
     },
     removeItem: (name) => localForageStorage.removeItem(name),
 };
@@ -145,16 +166,16 @@ export const useCanvasStore = create<CanvasStore>()(
                     return { projects, deletedProjects };
                 }),
             replaceProjects: (projects, deletedProjects = []) => set({ projects, deletedProjects }),
-            updateProject: (id, patch) => {
-                const current = get().projects.find((project) => project.id === id);
-                if (!current) return;
+            updateProject: (id, patch) => set((state) => {
+                const current = state.projects.find((project) => project.id === id);
+                if (!current) return state;
                 const project = { ...current, ...(typeof patch === "function" ? patch(current) : patch), updatedAt: new Date().toISOString() };
                 if (project.nodes !== current.nodes) {
                     void recordCanvasImageHistory(current).catch(() => undefined);
                     void recordCanvasImageHistory(project).catch(() => undefined);
                 }
-                set((state) => ({ projects: state.projects.map((item) => item.id === id ? project : item) }));
-            },
+                return { projects: state.projects.map((item) => item.id === id ? project : item) };
+            }),
         }),
         {
             name: CANVAS_STORE_KEY,
@@ -174,8 +195,7 @@ export const useCanvasStore = create<CanvasStore>()(
 // Cleanup must finish the debounce before its atomic storage transaction and reload.
 export async function flushCanvasStorage() {
     if (!canvasStorageReady) throw new Error("画布数据尚未成功读取，不能覆盖原数据");
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = null;
+    clearPendingSave();
     const { projects, deletedProjects } = useCanvasStore.getState();
     queuedPersistState = { projects, deletedProjects };
     await localForageStorage.setItem(CANVAS_STORE_KEY, JSON.stringify({ state: queuedPersistState, version: 0 }));
