@@ -38,18 +38,18 @@ export function canWriteClipboardImage() {
 }
 
 /** 写入剪贴板；图片与文本可同时写入。返回是否成功，失败时抛出的错误带可读原因。 */
-export async function writeClipboard(payload: { text?: string; png?: Blob }): Promise<void> {
+export async function writeClipboard(payload: { text?: string; png?: Blob | Promise<Blob> }): Promise<void> {
     const bridge = native();
     if (bridge) {
-        const png = payload.png ? await payload.png.arrayBuffer() : undefined;
+        const png = payload.png ? await (await payload.png).arrayBuffer() : undefined;
         const ok = await bridge.write({ ...(payload.text ? { text: payload.text } : {}), ...(png ? { png } : {}) });
         if (!ok) throw new Error("剪贴板写入失败");
         return;
     }
     const { text, png } = payload;
     if (png && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-        // 先解析成真实 Blob 再写入：把 Promise 交给 ClipboardItem 时，转换一失败整次写入都会作废。
-        const item: Record<string, Blob> = { "image/png": png };
+        // 先发起写入以保留点击授权，图片可以随后读取或转码。
+        const item: Record<string, Blob | Promise<Blob>> = { "image/png": png };
         if (text) item["text/plain"] = new Blob([text], { type: "text/plain" });
         await navigator.clipboard.write([new ClipboardItem(item)]);
         return;
@@ -101,17 +101,41 @@ function copyTextWithExecCommand(text: string) {
     return copied;
 }
 
+/** 右键粘贴直接读取剪贴板，不依赖浏览器产生 paste 事件。 */
+export async function readCanvasClipboard() {
+    const bridge = native();
+    if (bridge) {
+        const { text, png } = await bridge.read();
+        return { text, images: nativeClipboardImages(png), html: "" };
+    }
+    if (!navigator.clipboard?.read) {
+        if (!navigator.clipboard?.readText) throw new Error("浏览器不允许读取剪贴板，请按 Ctrl+V");
+        return { text: await navigator.clipboard.readText(), images: [], html: "" };
+    }
+    const items = await navigator.clipboard.read();
+    const readText = async (type: string) => {
+        const item = items.find((current) => current.types.includes(type));
+        return item ? (await item.getType(type)).text() : "";
+    };
+    const [text, images, html] = await Promise.all([
+        readText("text/plain"),
+        Promise.all(items.flatMap((item) => item.types.filter((type) => type.startsWith("image/")).slice(0, 1).map((type) => item.getType(type)))),
+        readText("text/html"),
+    ]);
+    return { text, images, html };
+}
+
+function nativeClipboardImages(png: NativeClipboardRead["png"] | undefined): Blob[] {
+    if (!png?.byteLength) return [];
+    const bytes = png instanceof Uint8Array ? png : new Uint8Array(png);
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    return [new Blob([buffer], { type: "image/png" })];
+}
+
 /** 读取剪贴板中的图片；桌面版走原生通道，网页版走标准 API。 */
 export async function readClipboardImages(): Promise<Blob[]> {
     const bridge = native();
-    if (bridge) {
-        const result = await bridge.read();
-        if (!result?.png) return [];
-        const bytes = result.png instanceof Uint8Array ? result.png : new Uint8Array(result.png);
-        if (!bytes.byteLength) return [];
-        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-        return [new Blob([buffer], { type: "image/png" })];
-    }
+    if (bridge) return nativeClipboardImages((await bridge.read())?.png);
     if (!navigator.clipboard?.read) return [];
     const items = await navigator.clipboard.read();
     return Promise.all(items.flatMap((item) => item.types.filter((type) => type.startsWith("image/")).map((type) => item.getType(type))));

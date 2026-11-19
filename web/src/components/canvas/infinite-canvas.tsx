@@ -78,9 +78,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
     const [isSpacePressed, setIsSpacePressed] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
     // 切断连线改成 Ctrl+Alt 一起按：单独按 Ctrl 太容易在缩放、框选时误触。
-    const [isCtrlPressed, setIsCtrlPressed] = useState(false);
-    const [isAltPressed, setIsAltPressed] = useState(false);
-    const cutReady = (isCtrlPressed && isAltPressed) || isCuttingConnections;
+    const [cutReady, setCutReady] = useState(false);
 
     useLayoutEffect(() => {
         if (panState.current.isPanning) return;
@@ -121,8 +119,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
             event.stopImmediatePropagation(); // Stop native button activation and other global shortcut listeners, including repeats/keyup.
         };
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Control") setIsCtrlPressed(true);
-            if (event.key === "Alt") setIsAltPressed(true);
+            setCutReady(event.ctrlKey && event.altKey);
             if (event.code !== "Space" || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (!spaceRef.current && !isCanvasKeyTarget(event.target))) return;
             if (isTextEditing(event.target) || isTextEditing(document.activeElement)) {
                 spaceRef.current = false; typingSpaceRef.current = false; setIsSpacePressed(false);
@@ -136,8 +133,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
         };
 
         const handleKeyUp = (event: KeyboardEvent) => {
-            if (event.key === "Control") setIsCtrlPressed(false);
-            if (event.key === "Alt") setIsAltPressed(false);
+            setCutReady(event.ctrlKey && event.altKey);
             if (event.code !== "Space") return;
             if (spaceRef.current) captureSpace(event);
             typingSpaceRef.current = false;
@@ -146,8 +142,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
         };
 
         const handleBlur = () => {
-            setIsCtrlPressed(false);
-            setIsAltPressed(false);
+            setCutReady(false);
             const wasPanning = panState.current.isPanning;
             const hadWheelFrame = wheelCommitRef.current;
             spaceRef.current = false;
@@ -353,6 +348,11 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
             data-cut-cursor={cutReady ? "" : undefined}
             style={{ background, cursor }}
             onPointerDownCapture={handlePointerDown}
+            onPointerMoveCapture={(event) => {
+                // 浏览器可能漏发松键事件，移动指针时按当前修饰键状态校准光标。
+                const ready = event.ctrlKey && event.altKey;
+                if (ready !== cutReady) setCutReady(ready);
+            }}
             onMouseDownCapture={(event) => { if (panState.current.isPanning || cuttingRef.current) { event.preventDefault(); event.stopPropagation(); } }}
             onClickCapture={(event) => { if (suppressClickRef.current) { event.preventDefault(); event.stopPropagation(); suppressClickRef.current = false; } }}
             onContextMenu={handleContextMenu}

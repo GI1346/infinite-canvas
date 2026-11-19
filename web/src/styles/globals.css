@@ -612,16 +612,6 @@ html.dark {
     font-size: 0.75rem;
 }
 
-/* 选中节点时，与它相连的连线做流光效果：虚线偏移持续滚动（周期 = 虚线 2 + 间隔 12）。 */
-@keyframes canvas-connection-flow {
-    from {
-        stroke-dashoffset: var(--flow-cycle, 14px);
-    }
-    to {
-        stroke-dashoffset: 0;
-    }
-}
-
 /* 图片调色滑杆：对齐即梦——细轨道 + 窄条手柄，无圆形滑块。 */
 .jm-range {
     -webkit-appearance: none;

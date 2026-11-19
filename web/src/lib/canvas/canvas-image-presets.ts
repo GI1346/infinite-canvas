@@ -88,16 +88,16 @@ export const colorPresets: ColorPreset[] = [
 /** 风格：每项给 3 个代表色，用渐变色块当预览底。 */
 // 风格预览直接用即梦同款短片（10 段 mp4，命名与即梦一致）。
 export const stylePresets: ColorPreset[] = [
-    { value: "复古对称美学", photo: "/presets/styles/01-复古对称美学.mp4", prompt: "复古胶片质感，严格对称构图，暖褐色调，轻微颗粒", colors: ["#8a4a3a", "#2f5a5e", "#e0d6c0"] },
-    { value: "3D动画风", photo: "/presets/styles/02-3D动画风.mp4", prompt: "3D 动画风格，圆润造型，柔和全局光，卡通材质", colors: ["#f0c9a0", "#c98a5a", "#f7ecd9"] },
-    { value: "治愈日漫风", photo: "/presets/styles/03-治愈日漫风.mp4", prompt: "日系治愈动画风，柔和逆光，粉彩色调，细腻线稿", colors: ["#a8d9c0", "#f0d9a8", "#dff0e8"] },
-    { value: "港夜迷离风", photo: "/presets/styles/04-港夜迷离风.mp4", prompt: "港风夜景，霓虹灯光，湿润街面反光，胶片颗粒", colors: ["#1a3a4a", "#e0435a", "#2f6f8a"] },
-    { value: "哥特式恐怖", photo: "/presets/styles/05-哥特式恐怖.mp4", prompt: "哥特恐怖风格，高对比冷色，阴森雾气，暗部厚重", colors: ["#1a1a24", "#4a3a5a", "#c9a25e"] },
-    { value: "邵氏武侠风", photo: "/presets/styles/06-邵氏武侠风.mp4", prompt: "邵氏武侠电影风，浓郁暖色，硬朗布光，胶片颗粒", colors: ["#8a3a2a", "#c9a25e", "#2a1a14"] },
-    { value: "丧尸列车", photo: "/presets/styles/07-丧尸列车.mp4", prompt: "末日丧尸题材，逼仄车厢空间，冷绿光，脏乱质感", colors: ["#3a4a3a", "#7a8a70", "#1a1a1a"] },
-    { value: "美式迷幻青春", photo: "/presets/styles/08-美式迷幻青春.mp4", prompt: "美式青春迷幻风，霓虹烟雾，粉紫高饱和，胶片颗粒", colors: ["#c04fa0", "#4a2fa0", "#f0a8d9"] },
-    { value: "台湾偶像剧", photo: "/presets/styles/09-台湾偶像剧.mp4", prompt: "台湾偶像剧风，清新暖调，柔光滤镜，明亮通透", colors: ["#f7e9d9", "#c9e0d9", "#a8c9b8"] },
-    { value: "异常阈限空间", photo: "/presets/styles/10-异常阈限空间.mp4", prompt: "阈限空间风格，空旷室内，惨白荧光灯，诡异安静", colors: ["#c9c9b0", "#7a8a5a", "#2a2a24"] },
+    { value: "复古对称美学", photo: "/presets/styles/01-retro-symmetry.mp4", prompt: "复古胶片质感，严格对称构图，暖褐色调，轻微颗粒", colors: ["#8a4a3a", "#2f5a5e", "#e0d6c0"] },
+    { value: "3D动画风", photo: "/presets/styles/02-3d-animation.mp4", prompt: "3D 动画风格，圆润造型，柔和全局光，卡通材质", colors: ["#f0c9a0", "#c98a5a", "#f7ecd9"] },
+    { value: "治愈日漫风", photo: "/presets/styles/03-healing-anime.mp4", prompt: "日系治愈动画风，柔和逆光，粉彩色调，细腻线稿", colors: ["#a8d9c0", "#f0d9a8", "#dff0e8"] },
+    { value: "港夜迷离风", photo: "/presets/styles/04-hong-kong-night.mp4", prompt: "港风夜景，霓虹灯光，湿润街面反光，胶片颗粒", colors: ["#1a3a4a", "#e0435a", "#2f6f8a"] },
+    { value: "哥特式恐怖", photo: "/presets/styles/05-gothic-horror.mp4", prompt: "哥特恐怖风格，高对比冷色，阴森雾气，暗部厚重", colors: ["#1a1a24", "#4a3a5a", "#c9a25e"] },
+    { value: "邵氏武侠风", photo: "/presets/styles/06-shaw-brothers-wuxia.mp4", prompt: "邵氏武侠电影风，浓郁暖色，硬朗布光，胶片颗粒", colors: ["#8a3a2a", "#c9a25e", "#2a1a14"] },
+    { value: "丧尸列车", photo: "/presets/styles/07-zombie-train.mp4", prompt: "末日丧尸题材，逼仄车厢空间，冷绿光，脏乱质感", colors: ["#3a4a3a", "#7a8a70", "#1a1a1a"] },
+    { value: "美式迷幻青春", photo: "/presets/styles/08-psychedelic-youth.mp4", prompt: "美式青春迷幻风，霓虹烟雾，粉紫高饱和，胶片颗粒", colors: ["#c04fa0", "#4a2fa0", "#f0a8d9"] },
+    { value: "台湾偶像剧", photo: "/presets/styles/09-taiwan-idol-drama.mp4", prompt: "台湾偶像剧风，清新暖调，柔光滤镜，明亮通透", colors: ["#f7e9d9", "#c9e0d9", "#a8c9b8"] },
+    { value: "异常阈限空间", photo: "/presets/styles/10-liminal-space.mp4", prompt: "阈限空间风格，空旷室内，惨白荧光灯，诡异安静", colors: ["#c9c9b0", "#7a8a5a", "#2a2a24"] },
 ];
 
 /** 把选中的预设拼进提示词；同一段再点一次即移除。 */

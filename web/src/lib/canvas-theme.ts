@@ -26,6 +26,7 @@ export const canvasThemes = {
             panel: "#ffffff",
             stroke: "#e5e5e5",
             activeStroke: "#0ea977",
+            connectionHighlight: "#0ea977",
             placeholder: "#a3a3a3",
             text: "#1a1a1a",
             muted: "#737373",
@@ -56,7 +57,7 @@ export const canvasThemes = {
     dark: {
         // 深色调色板对齐即梦画布：纯黑底 + 低对比中性灰，点阵靠 10% 白点撑出层次。
         canvas: { background: "#0d0d0d", dot: "rgba(255,255,255,.07)", line: "rgba(255,255,255,.05)", selectionStroke: "#37d39b", selectionFill: "rgba(55, 211, 155, 0.10)" },
-        node: { label: "#9a9a9a", fill: "#17191e", panel: "#1d1d1d", stroke: "#2c3038", activeStroke: "#37d39b", placeholder: "#6f6f6f", text: "#e8e8e8", muted: "#9a9a9a", faint: "#6f6f6f" },
+        node: { label: "#9a9a9a", fill: "#17191e", panel: "#1d1d1d", stroke: "#2c3038", activeStroke: "#37d39b", connectionHighlight: "#e5e7eb", placeholder: "#6f6f6f", text: "#e8e8e8", muted: "#9a9a9a", faint: "#6f6f6f" },
         toolbar: { panel: "rgba(24,24,24,.98)", border: "#2e2e2e", item: "#9a9a9a", itemHover: "#242424", shadow: "0 8px 28px rgba(0,0,0,.5)", activeBg: "#2f2f2f", activeText: "#f0f0f0" },
         accent: { base: "#37d39b", soft: "rgba(55,211,155,.16)" },
         glass: {

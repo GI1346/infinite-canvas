@@ -15,12 +15,12 @@ import { requestEdit, requestGeneration, requestImageQuestion } from "@/services
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { ensureImagePreview, getImageBlob, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { ensureImagePreview, fetchImageBlob, getImageBlob, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
-import { canWriteClipboardImage, hasNativeClipboard, normalizeClipboardText, peekNativeClipboard, readClipboardImages, writeClipboard, writeClipboardText } from "@/lib/clipboard";
+import { canWriteClipboardImage, hasNativeClipboard, normalizeClipboardText, peekNativeClipboard, readCanvasClipboard, readClipboardImages, writeClipboard, writeClipboardText } from "@/lib/clipboard";
 import { canvasGlass, canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -148,6 +148,25 @@ function clipboardImageSource(html: string) {
     const match = /<img[^>]+src\s*=\s*["']([^"']+)["']/i.exec(html);
     const source = match?.[1]?.trim() || "";
     return /^(?:data:image\/|https?:\/\/|blob:)/i.test(source) ? source : "";
+}
+
+async function readNodeClipboardPng(node: CanvasNodeData) {
+    const { storageKey, content } = node.metadata || {};
+    const blob = (storageKey ? await getImageBlob(storageKey) : null) || (content ? await fetchImageBlob(content) : null);
+    if (!blob) throw new Error("没有可复制的图片");
+    if (blob.type === "image/png") return blob;
+    const bitmap = await createImageBitmap(blob);
+    try {
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("图片读取失败");
+        context.drawImage(bitmap, 0, 0);
+        return await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("图片转换失败")), "image/png"));
+    } finally {
+        bitmap.close();
+    }
 }
 
 type CanvasClipboard = {
@@ -1245,17 +1264,24 @@ function InfiniteCanvasPage() {
             title: `${source.title} Copy`,
             position: { x: source.position.x + 36, y: source.position.y + 36 },
         };
-        const referenceConnections = connectionsRef.current.filter((connection) => connection.toNodeId === nodeId).map((connection) => ({ ...connection, id: nanoid(), toNodeId: id }));
+        const copiedConnections = connectionsRef.current
+            .filter((connection) => connection.fromNodeId === nodeId || connection.toNodeId === nodeId)
+            .map((connection) => ({
+                ...connection,
+                id: nanoid(),
+                fromNodeId: connection.fromNodeId === nodeId ? id : connection.fromNodeId,
+                toNodeId: connection.toNodeId === nodeId ? id : connection.toNodeId,
+            }));
 
         setNodes((prev) => [...prev, next]);
-        setConnections((prev) => [...prev, ...referenceConnections]);
+        setConnections((prev) => [...prev, ...copiedConnections]);
         setSelectedNodeIds(new Set([id]));
         setSelectedConnectionId(null);
         if (next.type !== CanvasNodeType.Group) setDialogNodeId(id);
     }, []);
 
-    const copySelectedNodes = useCallback((data?: DataTransfer | null) => {
-        const selectedIds = selectedNodeIdsRef.current;
+    const copySelectedNodes = useCallback((data?: DataTransfer | null, nodeId?: string) => {
+        const selectedIds = nodeId ? new Set([nodeId]) : selectedNodeIdsRef.current;
         if (!selectedIds.size) return;
 
         const copiedNodes = nodesRef.current
@@ -1281,7 +1307,7 @@ function InfiniteCanvasPage() {
             token,
             text,
             nodes: copiedNodes,
-            pending: hasNativeClipboard(),
+            pending: Boolean(nodeId) || hasNativeClipboard(),
         };
         if (data) {
             data.setData(CANVAS_IMAGE_CLIPBOARD_TYPE, token);
@@ -1289,9 +1315,9 @@ function InfiniteCanvasPage() {
         }
         // 桌面版必须自己写系统剪贴板：copy 事件里的 clipboardData 只在页面内可见，
         // 而 Ctrl+V 的判定读的是系统剪贴板，不写就会把刚复制的节点当成外部内容。
-        if (hasNativeClipboard()) {
-            void writeClipboardText(plain)
-                .catch(() => { })
+        if (nodeId || hasNativeClipboard()) {
+            return writeClipboardText(plain)
+                .catch((error) => { if (nodeId) throw error; })
                 .finally(() => {
                     if (clipboardRef.current?.token === token) clipboardRef.current.pending = false;
                 });
@@ -1912,6 +1938,46 @@ function InfiniteCanvasPage() {
         [getCanvasCenter, t],
     );
 
+    const copyNodeContent = async (node: CanvasNodeData) => {
+        try {
+            if (node.type === CanvasNodeType.Image) {
+                if (!canWriteClipboardImage()) throw new Error("当前浏览器不允许复制图片");
+                await writeClipboard({ png: readNodeClipboardPng(node) });
+                message.success("图片已复制到剪贴板");
+            } else {
+                const text = node.metadata?.content;
+                if (!text?.trim()) { message.info("文本节点没有内容"); return; }
+                await writeClipboardText(text);
+                message.success("文本已复制到剪贴板");
+            }
+            clipboardRef.current = null;
+        } catch (error) { message.error(error instanceof Error ? error.message : "复制失败，请检查剪贴板权限"); }
+    };
+
+    const pasteFromNodeMenu = async () => {
+        const project = generationProjectRef.current;
+        try {
+            if (clipboardRef.current?.pending && pasteCopiedNodes()) return;
+            const { text, images, html } = await readCanvasClipboard();
+            if (!project.alive || generationProjectRef.current !== project) return;
+            const copied = clipboardRef.current;
+            if (copied && matchesCopiedNodes(copied, text) && pasteCopiedNodes()) return;
+            if (images.length) {
+                const files = images.map((blob, index) => new File([blob], `clipboard-${Date.now()}-${index + 1}.${blob.type.split("/")[1]?.split("+")[0] || "png"}`, { type: blob.type }));
+                if (files.length > 1) await createDroppedImageGrid(files, getCanvasCenter());
+                else {
+                    await createImageFileNode(files[0], getCanvasCenter());
+                    message.success(t("canvas.projectPage.clipboardImageAdded"));
+                }
+            } else {
+                const source = clipboardImageSource(html);
+                if (source) await createImageFromClipboardSource(source, getCanvasCenter());
+                else if (createTextNodeFromClipboard(text)) message.success(t("canvas.projectPage.clipboardTextAdded"));
+                else message.info("剪贴板没有可粘贴的内容");
+            }
+        } catch { message.error("无法粘贴剪贴板内容。请检查剪贴板权限，或尝试 Ctrl+V"); }
+    };
+
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
@@ -1944,27 +2010,7 @@ function InfiniteCanvasPage() {
                     if (node?.metadata?.content) {
                         const clipboard = clipboardRef.current!;
                         const text = clipboard.text || `blinkflow-canvas:${clipboard.token}`;
-                        void (async () => {
-                            const stored = node.metadata?.storageKey ? await getImageBlob(node.metadata.storageKey) : null;
-                            const blob: Blob | null = stored || await fetch(node.metadata!.content!).then((response) => {
-                                if (!response.ok) throw new Error("图片读取失败");
-                                return response.blob();
-                            });
-                            if (!blob) throw new Error("图片读取失败");
-                            if (blob.type === "image/png") return blob;
-                            const bitmap = await createImageBitmap(blob);
-                            try {
-                                const canvas = document.createElement("canvas");
-                                canvas.width = bitmap.width;
-                                canvas.height = bitmap.height;
-                                const context = canvas.getContext("2d");
-                                if (!context) throw new Error("图片读取失败");
-                                context.drawImage(bitmap, 0, 0);
-                                return await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("图片转换失败")), "image/png"));
-                            } finally {
-                                bitmap.close();
-                            }
-                        })().then(
+                        void readNodeClipboardPng(node).then(
                             (png) => writeClipboard({ png, text }),
                             // 图片转 PNG 失败（SVG、已失效的 blob 等）时至少把文本写进去，
                             // 这样程序内复制粘贴仍然可用，而不是留一份旧剪贴板。
@@ -2013,6 +2059,16 @@ function InfiniteCanvasPage() {
                     if (createTextNodeFromClipboard(plain)) message.success(t("canvas.projectPage.clipboardTextAdded"));
                     return;
                 }
+            }
+
+            if (isModifierShortcut && !event.altKey && !event.shiftKey && key === "d") {
+                const selected = selectedNodeIdsRef.current;
+                if (selected.size !== 1) return;
+                const node = nodesRef.current.find((item) => selected.has(item.id));
+                if (!node || (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Text)) return;
+                event.preventDefault();
+                duplicateNode(node.id);
+                return;
             }
 
             if (isModifierShortcut && !event.altKey && key === "z") {
@@ -2150,7 +2206,7 @@ function InfiniteCanvasPage() {
             window.removeEventListener("copy", handleCopy);
             window.removeEventListener("paste", handlePaste);
         };
-    }, [copySelectedNodes, deleteConnection, deleteNodes, groupSelection, pasteCopiedNodes, createImageFileNode, createImageFromClipboardSource, createDroppedImageGrid, createTextNodeFromClipboard, getCanvasCenter, message, t, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
+    }, [copySelectedNodes, deleteConnection, deleteNodes, duplicateNode, groupSelection, pasteCopiedNodes, createImageFileNode, createImageFromClipboardSource, createDroppedImageGrid, createTextNodeFromClipboard, getCanvasCenter, message, t, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
 
     const handleConnectStart = useCallback(
         (event: ReactMouseEvent, nodeId: string, handleType: "source" | "target", portId?: string) => {
@@ -2940,6 +2996,7 @@ function InfiniteCanvasPage() {
             const updateExpandedBatchNodeIds = guardGenerationSetter(setExpandedBatchNodeIds, active);
             assertActive();
             let sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            const composerContent = prompt;
             // 「相机 / 配色 / 风格」的参数在这里注入真正的提示词，不污染输入框
             const presetText = presetFragments(sourceNode?.metadata).join("，");
             if (presetText) prompt = [presetText, prompt].filter(Boolean).join("，");
@@ -2950,7 +3007,7 @@ function InfiniteCanvasPage() {
             }
 
             const originalSourceNode = sourceNode;
-            const branch = createGenerationBranch(sourceNode, nodesRef.current, connectionsRef.current, generationConfig, mode, prompt, { ...viewportRef.current, width: containerRef.current?.clientWidth || size.width, height: containerRef.current?.clientHeight || size.height });
+            const branch = createGenerationBranch(sourceNode, nodesRef.current, connectionsRef.current, generationConfig, mode, mode === "image" ? composerContent : prompt, { ...viewportRef.current, width: containerRef.current?.clientWidth || size.width, height: containerRef.current?.clientHeight || size.height });
             if (branch) {
                 // Publish refs synchronously before resolving context; React may defer its state update.
                 nodesRef.current = [...nodesRef.current, branch.node];
@@ -3083,6 +3140,7 @@ function InfiniteCanvasPage() {
                         height: reuseImageNode && (sourceNode?.metadata?.imageSizeManual || sourceNode?.metadata?.freeResize) ? sourceNode.height : placeholderSize.height,
                         metadata: {
                             prompt: effectivePrompt,
+                            composerContent,
                             status: NODE_STATUS_LOADING,
                             images: imageIds.map((id) => ({ id, status: NODE_STATUS_LOADING, content: "", naturalWidth: 0, naturalHeight: 0, bytes: 0, mimeType: "" })),
                             primaryImageId: undefined,
@@ -3105,7 +3163,7 @@ function InfiniteCanvasPage() {
                                             width: rootNode.width,
                                             height: rootNode.height,
                                             title: rootNode.title,
-                                            metadata: { ...node.metadata, ...rootNode.metadata, content: undefined, storageKey: undefined, naturalWidth: undefined, naturalHeight: undefined, bytes: undefined, mimeType: undefined, errorDetails: undefined },
+                                            metadata: { ...node.metadata, ...rootNode.metadata, composerContent: node.metadata?.composerContent ?? composerContent, content: undefined, storageKey: undefined, naturalWidth: undefined, naturalHeight: undefined, bytes: undefined, mimeType: undefined, errorDetails: undefined },
                                         }
                                       : isImageNode
                                         ? {
@@ -3907,8 +3965,7 @@ function InfiniteCanvasPage() {
                                 from={from}
                                 to={to}
                                 active={selectedConnectionId === connection.id}
-                                flowing={!selectedConnectionId && (selectedNodeIds.has(connection.fromNodeId) || selectedNodeIds.has(connection.toNodeId))}
-                                scale={viewport.k}
+                                highlighted={!selectedConnectionId && (selectedNodeIds.has(connection.fromNodeId) || selectedNodeIds.has(connection.toNodeId))}
                                 onSelect={handleConnectionSelect}
                                 onContextMenu={handleConnectionContextMenu}
                             />
@@ -4116,6 +4173,16 @@ function InfiniteCanvasPage() {
                         onCreateCharacterRecipe={contextMenuNode?.type === CanvasNodeType.Image && contextMenu.type === "node" ? () => {
                             createConnectedNode(CHARACTER_RECIPE_NODE_TYPE, { connection: { nodeId: contextMenuNode.id, handleType: "source" }, position: { x: contextMenuNode.position.x + contextMenuNode.width + 80, y: contextMenuNode.position.y + contextMenuNode.height / 2 } });
                             setContextMenu(null);
+                        } : undefined}
+                        actions={contextMenuNode && (contextMenuNode.type === CanvasNodeType.Image || contextMenuNode.type === CanvasNodeType.Text) ? {
+                            download: contextMenuNode.type === CanvasNodeType.Image && (contextMenuNode.metadata?.content || contextMenuNode.metadata?.storageKey) ? () => { setContextMenu(null); void downloadImage(contextMenuNode); } : undefined,
+                            copyNode: () => {
+                                setContextMenu(null);
+                                void copySelectedNodes(null, contextMenuNode.id)?.then(() => message.success("已复制节点"), () => message.error("复制节点失败，请检查剪贴板权限"));
+                            },
+                            copyImage: contextMenuNode.type === CanvasNodeType.Image && (contextMenuNode.metadata?.content || contextMenuNode.metadata?.storageKey) ? () => { setContextMenu(null); void copyNodeContent(contextMenuNode); } : undefined,
+                            paste: () => { setContextMenu(null); void pasteFromNodeMenu(); },
+                            copyContent: () => { setContextMenu(null); void copyNodeContent(contextMenuNode); },
                         } : undefined}
                         canGroup={contextMenu.type === "node" && canGroupSelection}
                         canUngroup={contextMenu.type === "node" && canUngroupSelection}
