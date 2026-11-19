@@ -71,6 +71,7 @@ export function usePluginHost(params: PluginHostParams) {
                 const references = toReferences(options?.references);
                 const requestOptions = { signal: options?.signal, waitForCompletion: options?.waitForCompletion };
                 const items = references.length ? await requestEdit(config, prompt, references, requestOptions) : await requestGeneration(config, prompt, requestOptions);
+                if (items.length && !options?.signal?.aborted) options?.onModelResult?.();
                 const images = await Promise.all(items.map(async (item) => {
                     try {
                         return await imageToDataUrl({ dataUrl: item.dataUrl }, { signal: options?.signal });

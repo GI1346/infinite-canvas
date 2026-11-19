@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Modal, Pagination } from "antd";
+import { useReducedMotion } from "motion/react";
 import { Check, ImageOff, Images, Search } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -58,10 +59,11 @@ export function CharacterRecipePickerModal({ initialSlot, safe, useDepth, onSafe
         title={<div className="flex items-center gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-xl" style={{ background: theme.accent.soft, color: theme.toolbar.activeText }}><Images size={17} /></div><div><div className="text-base font-semibold">角色参考图库</div><div className="text-xs font-normal" style={{ color: theme.node.muted }}>挑出这一幕的角色、服装与姿势</div></div></div>}
         styles={{ container: { background: theme.node.panel, color: theme.node.text, borderRadius: 24 }, header: { background: "transparent", color: theme.node.text } }}>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-y py-2.5" style={{ borderColor: theme.node.stroke }}>
-            <div className="inline-flex max-w-full flex-wrap gap-1 rounded-2xl p-1" role="group" aria-label="图库分类" style={inset}>
+            <div className="relative inline-grid max-w-full grid-cols-3 rounded-2xl p-1" role="group" aria-label="图库分类" style={inset}>
+                <div aria-hidden="true" className="pointer-events-none absolute inset-1"><span data-recipe-library-pill className="block h-full w-1/3 rounded-xl shadow-xs motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out" style={{ background: theme.accent.base, transform: `translateX(${recipeSlots.indexOf(tab) * 100}%)` }} /></div>
                 {recipeSlots.map((slot) => {
                     const active = slot === tab, count = data[slot]?.length;
-                    return <button key={slot} type="button" aria-pressed={active} onClick={() => { setTab(slot); setFilters(["", "", ""]); setQuery(""); setPage(1); }} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition hover:brightness-110 focus-visible:outline" style={active ? { background: theme.accent.base, color: theme.node.panel, boxShadow: "0 1px 3px rgb(0 0 0 / 15%)" } : { color: theme.node.muted }}>
+                    return <button key={slot} type="button" aria-pressed={active} onClick={() => { setTab(slot); setFilters(["", "", ""]); setQuery(""); setPage(1); }} className="relative inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-xl px-2 py-1.5 text-xs font-medium transition-colors focus-visible:outline sm:px-3" style={{ color: active ? theme.node.panel : theme.node.muted }}>
                         {recipeSlotLabels[slot]}库{count !== undefined && <span className="rounded-full bg-current/10 px-1.5 py-0.5 text-[10px] tabular-nums">{count.toLocaleString()}</span>}
                     </button>;
                 })}
@@ -103,9 +105,10 @@ export function CharacterRecipePickerModal({ initialSlot, safe, useDepth, onSafe
     </Modal>;
 }
 
-export function CharacterRecipePreviewModal({ title, image, error, onClose, onUse }: { title: string; image?: string; error?: string; onClose: () => void; onUse?: () => void }) {
+export function CharacterRecipePreviewModal({ title, open, mousePosition, image, error, onClose, afterClose, onUse }: { title: string; open: boolean; mousePosition?: { x: number; y: number }; image?: string; error?: string; onClose: () => void; afterClose: () => void; onUse?: () => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    return <Modal open centered title={title} onCancel={onClose} width="min(900px, 94vw)" footer={null} zIndex={1400} modalRender={renderOverlay} styles={{ container: { background: theme.node.panel, color: theme.node.text }, header: { background: "transparent" } }}>
+    const reduceMotion = useReducedMotion();
+    return <Modal open={open} centered title={title} mousePosition={mousePosition} transitionName={reduceMotion ? "" : undefined} maskTransitionName={reduceMotion ? "" : undefined} onCancel={onClose} afterClose={afterClose} width="min(900px, 94vw)" footer={null} zIndex={1400} modalRender={renderOverlay} styles={{ container: { background: theme.node.panel, color: theme.node.text }, header: { background: "transparent" } }}>
         {image ? <img src={image} alt={title} className="mx-auto max-h-[65vh] max-w-full rounded-xl object-contain" /> : <p className="py-16 text-center" role={error ? "alert" : "status"}>{error || "正在读取参考图…"}</p>}
         {onUse && image && <div className="mt-3 flex justify-end"><button type="button" onClick={onUse} className="rounded-lg px-3 py-1.5 text-sm font-semibold" style={{ color: theme.toolbar.activeText, background: theme.toolbar.activeBg }}>使用拼图作为参考</button></div>}
     </Modal>;

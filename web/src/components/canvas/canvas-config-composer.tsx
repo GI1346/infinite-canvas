@@ -250,6 +250,8 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
 
 }
 
+const mentionKinds = { image: "图片", text: "文本", video: "视频", audio: "音频", group: "组" };
+
 function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect, onActiveIndex, onUpload, onOpenPicker }: { anchor: HTMLElement | null; inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void; onActiveIndex: (index: number) => void; onUpload?: () => void; onOpenPicker?: (tab: "all" | "history" | "gallery") => void }) {
     const selectedRef = useRef(false);
     const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
@@ -280,7 +282,7 @@ function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect, 
     };
 
     return (
-        createPortal(<div data-config-mention-menu data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="fixed z-[1300] flex flex-col overflow-hidden rounded-xl border p-1 shadow-2xl" style={{ ...position, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text, fontSize: 12, lineHeight: "18px" }} onPointerDown={(event) => { event.stopPropagation(); if (!(event.target instanceof HTMLElement && event.target.closest("[data-mention-scroll]"))) event.preventDefault(); }} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+        createPortal(<div data-config-mention-menu data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="fixed z-[1300] flex origin-top-left flex-col overflow-hidden rounded-xl border p-1 shadow-2xl motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-98 motion-safe:duration-100" style={{ ...position, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text, fontSize: 12, lineHeight: "18px" }} onPointerDown={(event) => { event.stopPropagation(); if (!(event.target instanceof HTMLElement && event.target.closest("[data-mention-scroll]"))) event.preventDefault(); }} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
             {onUpload && <button type="button" className="flex w-full shrink-0 items-center gap-2 rounded-lg px-2 py-2 text-left hover:opacity-70" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onUpload(); }} onClick={(event) => { if (event.detail === 0) onUpload(); }}><Upload size={14} />上传图片</button>}
             <div data-mention-scroll role="listbox" aria-label="引用上游内容" className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" style={{ maxHeight: 204 }}>
             {inputs.map((input, index) => (
@@ -290,7 +292,7 @@ function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect, 
                     type="button"
                     role="option"
                     aria-selected={index === activeIndex}
-                    className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition"
+                    className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs motion-safe:transition-colors motion-safe:duration-100"
                     style={{ background: index === activeIndex ? theme.toolbar.activeBg : "transparent", color: index === activeIndex ? theme.toolbar.activeText : theme.node.text, fontSize: 12, lineHeight: "18px" }}
                     onPointerEnter={() => onActiveIndex(index)}
                     onPointerDown={(event) => {
@@ -305,6 +307,7 @@ function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect, 
                         <span className="block truncate font-medium">{resourceLabel(input, allInputs)}</span>
                         <span className="block truncate opacity-65">{input.type === "group" ? i18n.t("canvas.node.nodeCount", { count: input.children.length }) : input.text || input.title}</span>
                     </span>
+                    <span className="shrink-0 rounded px-1 text-[10px]" style={{ color: theme.node.muted, background: theme.glass.inset }}>{mentionKinds[input.type]}</span>
                 </button>
             ))}
             {!inputs.length && <p className="px-2 py-4 text-center opacity-60">没有匹配的上游内容</p>}

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeftRight, Sparkles, Dice5, Grid2X2, ImagePlus, Link2, Play, Plus, Shirt, Square, Upload, UserRound, PersonStanding, X, Drama } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
+import { ArrowLeftRight, Check, Sparkles, Dice5, Grid2X2, ImagePlus, Link2, Play, Plus, Shirt, Square, Upload, UserRound, PersonStanding, X, Drama } from "lucide-react";
 import { nanoid } from "nanoid";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -26,7 +26,8 @@ const outputResolutions = mediaScaleOptions.filter((value) => value !== "auto");
 const icons = { portrait: UserRound, costume: Shirt, pose: PersonStanding };
 const stop = (event: { stopPropagation: () => void }) => event.stopPropagation();
 const problem = (error: unknown) => error instanceof Error ? error.message : "操作失败，请重试。";
-type Preview = { title: string; image?: string; error?: string; collage?: boolean };
+type Preview = { title: string; open: boolean; mousePosition?: { x: number; y: number }; image?: string; error?: string; collage?: boolean };
+const runStages = ["读取参考图", "等待模型", "保存结果"] as const;
 
 function RecipeThumbnail({ reference }: { reference: RecipeReference }) {
     const [resolved, setResolved] = useState("");
@@ -56,7 +57,9 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
     const [safe, setSafe] = useState(true);
     const [picker, setPicker] = useState<RecipeSlot>();
     const [preview, setPreview] = useState<Preview>();
-    const [running, setRunning] = useState(false);
+    const [stage, setStage] = useState<0 | 1 | 2 | null>(null);
+    const running = stage !== null;
+    const [dragSlot, setDragSlot] = useState<RecipeSlot>();
     const [preparing, setPreparing] = useState(false);
     const [error, setError] = useState("");
     const previewTask = useRef<AbortController | undefined>(undefined);
@@ -112,20 +115,44 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
         if (isCurrent() && image.storageKey) choose(slot, { kind: "upload", name: file.name, storageKey: image.storageKey });
     });
 
-    const closePreview = () => { previewTask.current?.abort(); setPreview(undefined); };
-    const showPreview = (ref?: RecipeReference) => {
+    const handleSlotDrag = (event: DragEvent<HTMLDivElement>, slot: RecipeSlot) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const locked = Boolean(readLinked()[slot]);
+        const blocked = busy || Boolean(generation.current) || locked;
+        if (event.type !== "drop") {
+            const items = Array.from(event.dataTransfer.items);
+            const acceptsImage = !items.length || items.some((item) => item.kind === "file" && (!item.type || item.type.startsWith("image/")));
+            event.dataTransfer.dropEffect = !blocked && acceptsImage ? "copy" : "none";
+            setDragSlot(!busy && (acceptsImage || locked) ? slot : undefined);
+            return;
+        }
+        setDragSlot(undefined);
+        if (blocked) return;
+        const file = Array.from(event.dataTransfer.files).find((item) => !item.type || item.type.startsWith("image/"));
+        if (file) upload(slot, file);
+    };
+
+    const closePreview = () => {
+        previewTask.current?.abort();
+        setPreview((current) => current && { ...current, open: false });
+    };
+    const showPreview = (ref?: RecipeReference, trigger?: HTMLElement) => {
         previewTask.current?.abort();
         const controller = new AbortController();
         previewTask.current = controller;
         const title = ref?.name || "三合一参考拼图";
-        setPreview({ title, collage: !ref });
+        const rect = trigger?.getBoundingClientRect();
+        const initial: Preview = { title, collage: !ref, open: true, mousePosition: rect ? { x: rect.left + rect.width / 2 + window.scrollX, y: rect.top + rect.height / 2 + window.scrollY } : undefined };
+        setPreview(initial);
         void (async () => {
             try {
-                if (ref && !ref.storageKey && ref.url) { setPreview({ title, image: ref.url }); return; }
+                if (ref && !ref.storageKey && ref.url) { setPreview({ ...initial, image: ref.url }); return; }
                 const images = await Promise.all((ref ? [ref] : references).map((input) => readRecipeImage(input, controller.signal)));
                 const image = ref ? await readFileAsDataUrl(new File([images[0]], "reference", { type: images[0].type })) : await makeRecipeCollage(images, controller.signal);
-                if (!controller.signal.aborted) setPreview({ title, image, collage: !ref });
-            } catch (e) { if (!controller.signal.aborted) setPreview({ title, error: problem(e) }); }
+                if (!controller.signal.aborted) setPreview({ ...initial, image });
+            } catch (e) { if (!controller.signal.aborted) setPreview({ ...initial, error: problem(e) }); }
         })();
     };
 
@@ -139,14 +166,15 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
         const projectId = ctx.getProjectId?.();
         const isCurrent = () => mounted.current && live.current.getProjectId?.() === projectId && !!live.current.getNode(node.id);
         generation.current = controller;
-        setRunning(true); setError("");
+        setDragSlot(undefined); setStage(0); setError("");
         ctx.updateMetadata({ status: "loading", errorDetails: undefined });
         try {
             const images = await Promise.all(selected.map((input) => readRecipeImage(input, signal)));
             const inputImages = state.useCollage ? [await makeRecipeCollage(images, signal)] : await Promise.all(images.map((image) => readFileAsDataUrl(new File([image], "reference", { type: image.type }))));
             signal.throwIfAborted();
             if (!isCurrent()) return;
-            const result = await ctx.ai.generateImage(prompt, { model, references: inputImages, size: outputSize, resolution, count: getGenerationCount(config.canvasImageCount || config.count), waitForCompletion: true, signal });
+            setStage(1);
+            const result = await ctx.ai.generateImage(prompt, { model, references: inputImages, size: outputSize, resolution, count: getGenerationCount(config.canvasImageCount || config.count), waitForCompletion: true, signal, onModelResult: () => { if (isCurrent() && !signal.aborted) setStage(2); } });
             if (!result.images.length) throw new Error("模型没有返回图片。");
             const stored = await Promise.all(result.images.map((url) => uploadImage(url, { signal })));
             signal.throwIfAborted();
@@ -170,7 +198,7 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
             }
         } finally {
             generation.current = undefined;
-            if (isCurrent()) setRunning(false);
+            if (isCurrent()) setStage(null);
         }
     };
 
@@ -181,6 +209,7 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
     const chip = "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-medium transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 disabled:opacity-40";
     const hud = "pointer-events-auto rounded-full bg-black/55 text-white ring-1 ring-inset ring-white/20 backdrop-blur-md";
     const styleLabels = ["跟随参考", "写实写真", "二次元", "3D 渲染"];
+    const activeStyle = Math.max(0, styles.indexOf(recipe.style || styles[0]));
     return <div data-node-scroll className={`thin-scrollbar flex h-full min-h-0 flex-col overflow-y-auto rounded-[14px] text-xs ${compact ? "p-3" : "p-3.5"}`} style={{ color: theme.node.text, background: theme.node.panel }}>
         <header className={`flex shrink-0 items-center justify-between gap-1.5 ${compact ? "mb-1.5" : "mb-2.5"}`}>
             <div className="flex min-w-0 items-center gap-1.5">
@@ -188,7 +217,7 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
                 <span className="whitespace-nowrap text-[10px] tabular-nums" style={{ color: theme.node.muted }}>已配 <span className="font-semibold" style={{ color: theme.accent.base }}>{references.length}</span>/3</span>
             </div>
             <div className="flex shrink-0 items-center gap-0.5 rounded-xl p-0.5" data-node-no-drag onMouseDown={stop} style={inset}>
-                <button type="button" aria-label="参考拼图" aria-pressed={Boolean(recipe.useCollage)} disabled={busy || !references.length} className={chip} style={recipe.useCollage ? accent : undefined} onClick={() => recipe.useCollage ? patchRecipe({ useCollage: false }) : showPreview()}><Grid2X2 size={12} />参考拼图</button>
+                <button type="button" aria-label="参考拼图" aria-pressed={Boolean(recipe.useCollage)} disabled={busy || !references.length} className={chip} style={recipe.useCollage ? accent : undefined} onClick={(event) => recipe.useCollage ? patchRecipe({ useCollage: false }) : showPreview(undefined, event.currentTarget)}><Grid2X2 size={12} />参考拼图</button>
                 <button type="button" aria-label="随机" disabled={busy || recipeSlots.every((slot) => linked[slot])} className={chip} onClick={() => randomize()}><Dice5 size={12} />全套随机</button>
             </div>
         </header>
@@ -196,9 +225,12 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
             {recipeSlots.map((slot) => {
                 const Icon = icons[slot], ref = references.find((item) => item.slot === slot), label = recipeSlotLabels[slot];
                 const scope = recipe.scopes?.[slot] || "similar";
+                const isDropTarget = dragSlot === slot && !busy;
                 const galleryPose = slot === "pose" && !ref?.linked && recipe.slots?.pose?.kind === "gallery";
-                return <div key={slot} className={`group relative flex h-[148px] min-w-0 flex-col overflow-hidden rounded-xl border transition ${ref ? "" : "border-dashed hover:brightness-105"}`} style={ref ? { borderColor: theme.node.stroke, background: theme.node.fill } : { borderColor: `color-mix(in srgb, ${theme.accent.base} 40%, transparent)`, background: `radial-gradient(ellipse at center, ${theme.accent.soft}, transparent 80%)` }}>
-                    {ref ? <button type="button" aria-label={`预览 ${ref.name}`} className="absolute inset-0 grid place-items-center overflow-hidden focus-visible:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" style={{ color: theme.node.muted }} disabled={!ref.url && !ref.storageKey} onClick={() => showPreview(ref)}><RecipeThumbnail reference={ref} /></button> : <button type="button" aria-label={`选${label}`} className="absolute inset-x-0 inset-y-6 flex flex-col items-center justify-center gap-1.5 rounded-lg text-[11px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" style={{ color: theme.toolbar.activeText }} onClick={() => setPicker(slot)}><span className="grid size-9 place-items-center rounded-xl" style={accent}><Icon size={17} strokeWidth={1.6} /></span><span className="flex items-center gap-0.5"><Plus size={11} />挑选{label}</span></button>}
+                return <div key={slot} data-recipe-drop-slot={slot} onDragOver={(event) => handleSlotDrag(event, slot)} onDrop={(event) => handleSlotDrag(event, slot)} onDragLeave={(event) => {
+                    if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDragSlot((current) => current === slot ? undefined : current);
+                }} className={`group relative flex h-[148px] min-w-0 flex-col overflow-hidden rounded-xl border transition ${ref ? "" : "border-dashed hover:brightness-105"}`} style={ref ? { borderColor: theme.node.stroke, background: theme.node.fill } : { borderColor: `color-mix(in srgb, ${theme.accent.base} 40%, transparent)`, background: `radial-gradient(ellipse at center, ${theme.accent.soft}, transparent 80%)` }}>
+                    {ref ? <button type="button" aria-label={`预览 ${ref.name}`} className="absolute inset-0 grid place-items-center overflow-hidden focus-visible:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" style={{ color: theme.node.muted }} disabled={!ref.url && !ref.storageKey} onClick={(event) => showPreview(ref, event.currentTarget)}><RecipeThumbnail reference={ref} /></button> : <button type="button" aria-label={`选${label}`} className="absolute inset-x-0 inset-y-6 flex flex-col items-center justify-center gap-1.5 rounded-lg text-[11px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" style={{ color: theme.toolbar.activeText }} onClick={() => setPicker(slot)}><span className="grid size-9 place-items-center rounded-xl" style={accent}><Icon size={17} strokeWidth={1.6} /></span><span className="flex items-center gap-0.5"><Plus size={11} />挑选{label}</span></button>}
                     <div className={`pointer-events-none relative z-10 flex items-center justify-between gap-0.5 p-1.5 ${ref ? "bg-gradient-to-b from-black/70 via-black/25 to-transparent" : ""}`}>
                         <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-medium ${ref ? "bg-black/55 text-white ring-1 ring-inset ring-white/20 backdrop-blur-md" : ""}`} title={`${label}输入`} style={ref ? undefined : accent}>{ref?.linked ? <><Link2 size={10} className="text-emerald-300" />上游连线</> : <>{!galleryPose && <Icon size={10} />}{label}</>}</span>
                         <div className="pointer-events-auto flex min-w-0 items-center gap-0.5">
@@ -213,19 +245,25 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
                             <button type="button" aria-label={`换一个${label}`} className={`${chip} pointer-events-auto gap-0.5 px-1.5 py-0.5 ${ref ? hud : ""}`} style={ref ? undefined : accent} disabled={Boolean(ref?.linked)} onClick={() => randomize(slot)}><Dice5 size={11} className={ref ? "text-emerald-300" : undefined} />换一张</button>
                         </div>
                     </div>
+                    {isDropTarget && <div role="status" className="pointer-events-none absolute inset-0 z-30 grid place-items-center gap-1 rounded-lg text-[11px] font-semibold motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-100" style={{ background: `color-mix(in srgb, ${theme.node.panel} 90%, transparent)`, color: ref?.linked ? theme.node.text : theme.toolbar.activeText, boxShadow: ref?.linked ? undefined : `inset 0 0 0 2px ${theme.accent.base}` }}><span className="inline-flex items-center gap-1">{ref?.linked ? <Link2 size={12} /> : <Upload size={12} />}{ref?.linked ? "由上游提供" : `松开以放入${label}`}</span></div>}
                 </div>;
             })}
         </fieldset>
         <div className={`flex flex-1 flex-col gap-1.5 ${compact ? "mt-2 min-h-[88px]" : "mt-3 min-h-[94px]"}`} data-node-no-drag onMouseDown={stop}>
-            <div role="group" aria-label="画风" className="flex shrink-0 flex-wrap items-center gap-1.5">
-                <span className="mr-0.5 font-semibold">画风</span>
-                {styles.map((style, index) => {
-                    const selected = style === (recipe.style || styles[0]);
-                    return <button key={style} type="button" aria-label={style} aria-pressed={selected} disabled={running} className={`${chip} border`} style={selected ? { ...accent, borderColor: `color-mix(in srgb, ${theme.accent.base} 44%, transparent)` } : { ...inset, borderColor: "transparent", color: theme.node.muted }} onClick={() => patchRecipe({ style })}>{styleLabels[index]}</button>;
-                })}
+            <div className="flex shrink-0 items-center gap-1.5">
+                <span className="shrink-0 font-semibold">画风</span>
+                <div role="group" aria-label="画风" className="relative grid min-w-0 grid-cols-4 rounded-full p-0.5" style={inset}>
+                    <div aria-hidden="true" className="pointer-events-none absolute inset-0.5"><span data-recipe-style-pill className="block h-full w-1/4 rounded-full motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out" style={{ background: theme.accent.soft, boxShadow: `inset 0 0 0 1px ${theme.accent.soft}`, transform: `translateX(${activeStyle * 100}%)` }} /></div>
+                    {styles.map((style, index) => <button key={style} type="button" aria-label={style} aria-pressed={index === activeStyle} disabled={running} className={`${chip} relative justify-center`} style={{ color: index === activeStyle ? theme.toolbar.activeText : theme.node.muted }} onClick={() => patchRecipe({ style })}>{styleLabels[index]}</button>)}
+                </div>
             </div>
             <textarea aria-label="合成提示词" data-node-scroll className="min-h-[44px] w-full flex-1 resize-none select-text overscroll-contain rounded-xl border p-2 text-[11px] leading-relaxed outline-none focus:ring-1" style={{ ...inset, outlineColor: theme.accent.base, ["--tw-ring-color" as string]: theme.accent.base }} disabled={running} value={recipe.prompt ?? automaticPrompt(references, recipe)} onChange={(event) => patchRecipe({ prompt: event.target.value })} />
-            <div className="flex shrink-0 items-center justify-between gap-1 text-[10px]" style={{ color: theme.node.muted }}><span className="truncate">{recipe.useCollage ? "已使用参考拼图" : "按人像、服装、姿势顺序提交"}</span>{(recipe.prompt !== undefined || recipe.useCollage) && <div className="flex shrink-0 gap-2">{recipe.useCollage && <button type="button" disabled={running} onClick={() => patchRecipe({ useCollage: false })}>改用单图</button>}{recipe.prompt !== undefined && <button type="button" disabled={running} onClick={() => patchRecipe({ prompt: undefined })}>恢复自动</button>}</div>}</div>
+            {stage !== null ? <div className="grid shrink-0 grid-cols-3 gap-1.5" role="status" aria-label={`合成进度：${runStages[stage]}`}>
+                {runStages.map((label, index) => <span key={label} className="flex min-w-0 items-center justify-center gap-0.5 whitespace-nowrap rounded-md px-0.5 text-[10px] motion-safe:transition-colors motion-safe:duration-150" data-recipe-stage={index} aria-current={index === stage ? "step" : undefined} style={index === stage ? accent : { color: theme.node.muted }}>
+                    {index < stage ? <Check size={10} /> : <span className="size-1.5 shrink-0 rounded-full" style={{ background: index === stage ? theme.accent.base : theme.node.stroke }} />}{label}
+                </span>)}
+            </div> :
+            <div className="flex shrink-0 items-center justify-between gap-1 text-[10px]" style={{ color: theme.node.muted }}><span className="truncate">{recipe.useCollage ? "已使用参考拼图" : "按人像、服装、姿势顺序提交"}</span>{(recipe.prompt !== undefined || recipe.useCollage) && <div className="flex shrink-0 gap-2">{recipe.useCollage && <button type="button" disabled={running} onClick={() => patchRecipe({ useCollage: false })}>改用单图</button>}{recipe.prompt !== undefined && <button type="button" disabled={running} onClick={() => patchRecipe({ prompt: undefined })}>恢复自动</button>}</div>}</div>}
         </div>
         <div className="mt-2 shrink-0 border-t pt-2" data-node-no-drag onMouseDown={stop} style={{ borderColor: theme.node.stroke }}>
             <div className="flex min-w-0 items-center gap-2">
@@ -237,10 +275,10 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
                 <label className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1" style={inset}>分辨率<select aria-label="角色合成分辨率" className="bg-transparent font-medium outline-none focus-visible:outline" style={{ color: theme.node.text }} value={resolution} disabled={running} onChange={(event) => setOutputSize(ratio, event.target.value)}>{outputResolutions.map((value) => <option style={{ background: theme.node.panel }} key={value} value={value}>{value.toUpperCase()}</option>)}</select></label>
                 <span className="ml-auto truncate rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums" style={accent} title="请求尺寸，实际出图取决于所选模型">{outputSize.replace("x", " × ")}</span>
             </div>
-            {(error || running || preparing || node.metadata?.errorDetails) && <p className="mt-1 truncate text-[10px]" role={error ? "alert" : "status"} title={error || node.metadata?.errorDetails}>{error || (running ? "正在合成…" : preparing ? "正在准备参考图…" : node.metadata?.errorDetails)}</p>}
+            {(error || preparing || node.metadata?.errorDetails) && <p className="mt-1 truncate text-[10px]" role={error ? "alert" : "status"} title={error || node.metadata?.errorDetails}>{error || (preparing ? "正在准备参考图…" : node.metadata?.errorDetails)}</p>}
         </div>
         {picker && <CharacterRecipePickerModal initialSlot={picker} safe={safe} useDepth={Boolean(recipe.useDepth)} selection={recipe.slots} linked={recipeSlots.filter((slot) => !!linked[slot])} onSafeChange={setSafe} onDepthChange={(useDepth) => patchRecipe({ useDepth })} onPick={(slot, item) => { choose(slot, { kind: "gallery", item }); setPicker(undefined); }} onClose={() => setPicker(undefined)} />}
-        {preview && <CharacterRecipePreviewModal {...preview} onClose={closePreview} onUse={preview.collage ? () => { patchRecipe({ useCollage: true }); closePreview(); } : undefined} />}
+        {preview && <CharacterRecipePreviewModal {...preview} onClose={closePreview} afterClose={() => setPreview((current) => current?.open === false ? undefined : current)} onUse={preview.collage ? () => { patchRecipe({ useCollage: true }); closePreview(); } : undefined} />}
     </div>;
 }
 
