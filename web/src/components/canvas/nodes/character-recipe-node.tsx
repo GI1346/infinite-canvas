@@ -3,6 +3,8 @@ import { ArrowLeftRight, Check, Sparkles, Dice5, Grid2X2, ImagePlus, Link2, Play
 import { nanoid } from "nanoid";
 
 import { ModelPicker } from "@/components/model-picker";
+import { LiveGenerationTimer } from "@/components/image-generation-pending";
+import { finishImageGenerationTiming, startImageGenerationTiming } from "@/lib/generation-timer";
 import { getGenerationCount } from "@/lib/canvas/canvas-generation-helpers";
 import { arrangeGrid } from "@/lib/canvas/canvas-grid-layout";
 import { imageMetadata } from "@/lib/canvas/canvas-node-factory";
@@ -13,6 +15,8 @@ import { readFileAsDataUrl } from "@/lib/image-utils";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions } from "@/lib/media-size";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { buildCharacterRecipePrompt, loadPoseGalleryData, loadPoseGallerySlot, randomizeSlotItem, recipeSlotLabels, recipeSlots, type CharacterRecipe, type RecipeSelection, type RecipeSlot } from "@/services/api/pose-gallery";
+import { stopCanvasImageTask, useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { generationTaskKey, ownsCanvasImageTask, startCanvasImageTask, useGenerationRunnerStore } from "@/stores/canvas/use-generation-runner-store";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, CHARACTER_RECIPE_NODE_TYPE, type CanvasNodeData } from "@/types/canvas";
 import type { CanvasNodeContext, CanvasNodeDefinition } from "@/types/canvas-plugin";
@@ -57,13 +61,15 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
     const [safe, setSafe] = useState(true);
     const [picker, setPicker] = useState<RecipeSlot>();
     const [preview, setPreview] = useState<Preview>();
-    const [stage, setStage] = useState<0 | 1 | 2 | null>(null);
-    const running = stage !== null;
+    const projectId = ctx.getProjectId?.();
+    const taskKey = projectId && generationTaskKey(projectId, node.id);
+    const runningTask = useGenerationRunnerStore((state) => taskKey ? state.tasks[taskKey] : undefined);
+    const stage = runningTask ? runningTask.stage ?? 0 : null;
+    const running = Boolean(runningTask);
     const [dragSlot, setDragSlot] = useState<RecipeSlot>();
     const [preparing, setPreparing] = useState(false);
     const [error, setError] = useState("");
     const previewTask = useRef<AbortController | undefined>(undefined);
-    const generation = useRef<AbortController | undefined>(undefined);
     const mounted = useRef(true);
     const readLinked = () => recipeLinkedNodes(node.id, live.current.getNodes(), live.current.getConnections());
     const references = recipeReferences(recipe, linked);
@@ -77,7 +83,7 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
     }, [node.id]);
     useEffect(() => {
         mounted.current = true;
-        return () => { mounted.current = false; previewTask.current?.abort(); generation.current?.abort(); };
+        return () => { mounted.current = false; previewTask.current?.abort(); };
     }, []);
 
     const choose = (slot: RecipeSlot, selection?: RecipeSelection) => {
@@ -120,7 +126,7 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
         event.preventDefault();
         event.stopPropagation();
         const locked = Boolean(readLinked()[slot]);
-        const blocked = busy || Boolean(generation.current) || locked;
+        const blocked = busy || Boolean(taskKey && useGenerationRunnerStore.getState().tasks[taskKey]) || locked;
         if (event.type !== "drop") {
             const items = Array.from(event.dataTransfer.items);
             const acceptsImage = !items.length || items.some((item) => item.kind === "file" && (!item.type || item.type.startsWith("image/")));
@@ -157,48 +163,62 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
     };
 
     const run = async () => {
-        if (generation.current) return;
+        if (!projectId || useGenerationRunnerStore.getState().isNodeRunning(projectId, node.id)) return;
+        const project = useCanvasStore.getState().openProject(projectId);
+        if (!project?.nodes.some((item) => item.id === node.id)) return;
         const selected = recipeReferences(currentRecipe(), readLinked());
         if (!selected.length) return;
         const state = currentRecipe();
         const prompt = state.prompt?.trim() || automaticPrompt(selected, state);
-        const controller = new AbortController(), signal = controller.signal;
-        const projectId = ctx.getProjectId?.();
-        const isCurrent = () => mounted.current && live.current.getProjectId?.() === projectId && !!live.current.getNode(node.id);
-        generation.current = controller;
-        setDragSlot(undefined); setStage(0); setError("");
-        ctx.updateMetadata({ status: "loading", errorDetails: undefined });
+        const startedAt = Date.now();
+        const task = startCanvasImageTask(projectId, node.id, startedAt);
+        const { signal } = task.controller;
+        const runner = useGenerationRunnerStore.getState();
+        const setStage = (stage: 0 | 1 | 2) => { if (!signal.aborted) runner.updateTask(task, { stage }); };
+        const updateSource = (metadata: CanvasNodeData["metadata"]) => {
+            if (!ownsCanvasImageTask(task)) return;
+            useCanvasStore.getState().updateProject(projectId, (project) => ({ nodes: project.nodes.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, ...metadata } } : item) }));
+        };
+        const pageActive = () => mounted.current && live.current.getProjectId?.() === projectId;
+        setDragSlot(undefined); setError("");
+        updateSource({ status: "loading", ...startImageGenerationTiming(startedAt), errorDetails: undefined });
         try {
             const images = await Promise.all(selected.map((input) => readRecipeImage(input, signal)));
             const inputImages = state.useCollage ? [await makeRecipeCollage(images, signal)] : await Promise.all(images.map((image) => readFileAsDataUrl(new File([image], "reference", { type: image.type }))));
             signal.throwIfAborted();
-            if (!isCurrent()) return;
+            if (!ownsCanvasImageTask(task)) return;
             setStage(1);
-            const result = await ctx.ai.generateImage(prompt, { model, references: inputImages, size: outputSize, resolution, count: getGenerationCount(config.canvasImageCount || config.count), waitForCompletion: true, signal, onModelResult: () => { if (isCurrent() && !signal.aborted) setStage(2); } });
+            const result = await ctx.ai.generateImage(prompt, { model, references: inputImages, size: outputSize, resolution, count: getGenerationCount(config.canvasImageCount || config.count), waitForCompletion: true, signal, onModelResult: () => setStage(2) });
             if (!result.images.length) throw new Error("模型没有返回图片。");
-            const stored = await Promise.all(result.images.map((url) => uploadImage(url, { signal })));
+            const stored = await Promise.all(result.images.map(async (url) => {
+                const image = await uploadImage(url, { signal });
+                return { image, timing: finishImageGenerationTiming(startedAt) };
+            }));
             signal.throwIfAborted();
-            if (!isCurrent()) return;
-            const source = live.current.getNode(node.id)!;
-            const floor = Math.max(source.position.y, ...live.current.getDownstream().filter((item) => item.type === CanvasNodeType.Image).map((item) => item.position.y + item.height + 24));
-            const output: CanvasNodeData[] = stored.map((image, index) => ({ id: nanoid(), type: CanvasNodeType.Image, title: stored.length > 1 ? `角色合成 ${index + 1}` : "角色合成", position: { x: source.position.x + source.width + 80, y: floor }, ...fitNodeSize(image.width, image.height), metadata: { ...imageMetadata(image), prompt, model, imageAspectRatio: ratio, imageResolution: resolution, size: outputSize } }));
-            const ids = new Set(output.map((item) => item.id));
-            const arranged = arrangeGrid(output, ids, 4, 24);
-            for (const item of arranged) markNodeCreated(item.id);
-            live.current.applyOps([
-                ...arranged.flatMap(({ type: nodeType, ...item }) => ([{ ...item, type: "add_node", nodeType }, { type: "connect_nodes", fromNodeId: node.id, toNodeId: item.id }] as const)),
-                { type: "update_node", id: node.id, metadata: { status: "success", errorDetails: undefined } },
-                { type: "select_nodes", ids: [...ids] },
-            ]);
+            if (!ownsCanvasImageTask(task)) return;
+            let resultIds: string[] = [];
+            useCanvasStore.getState().updateProject(projectId, (project) => {
+                const source = project.nodes.find((item) => item.id === node.id);
+                if (!source) return {};
+                const downstream = new Set(project.connections.filter((edge) => edge.fromNodeId === node.id).map((edge) => edge.toNodeId));
+                const floor = Math.max(source.position.y, ...project.nodes.filter((item) => item.type === CanvasNodeType.Image && downstream.has(item.id)).map((item) => item.position.y + item.height + 24));
+                const output: CanvasNodeData[] = stored.map(({ image, timing }, index) => ({ id: nanoid(), type: CanvasNodeType.Image, title: stored.length > 1 ? `角色合成 ${index + 1}` : "角色合成", position: { x: source.position.x + source.width + 80, y: floor }, ...fitNodeSize(image.width, image.height), metadata: { ...imageMetadata(image), ...timing, generationType: "generation", prompt, model, imageAspectRatio: ratio, imageResolution: resolution, size: outputSize } }));
+                resultIds = output.map((item) => item.id);
+                const arranged = arrangeGrid(output, new Set(resultIds), 4, 24);
+                if (pageActive()) resultIds.forEach(markNodeCreated);
+                return {
+                    nodes: [...project.nodes.map((item) => item.id === source.id ? { ...item, metadata: { ...item.metadata, status: "success" as const, generationStartedAt: undefined, errorDetails: undefined } } : item), ...arranged],
+                    connections: [...project.connections, ...resultIds.map((id) => ({ id: nanoid(), fromNodeId: source.id, toNodeId: id }))],
+                };
+            });
+            if (resultIds.length && pageActive()) live.current.selectNodes?.(resultIds);
         } catch (e) {
-            if (isCurrent()) {
-                const details = signal.aborted ? undefined : problem(e);
-                live.current.updateMetadata({ status: signal.aborted ? "idle" : "error", errorDetails: details });
-                setError(details || "已停止合成。");
-            }
+            if (!ownsCanvasImageTask(task)) return;
+            const details = signal.aborted ? undefined : problem(e);
+            updateSource({ status: signal.aborted ? "idle" : "error", generationStartedAt: undefined, errorDetails: details });
+            if (pageActive()) setError(details || "已停止合成。");
         } finally {
-            generation.current = undefined;
-            if (isCurrent()) setStage(null);
+            runner.finishTask(task);
         }
     };
 
@@ -226,15 +246,14 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
                 const Icon = icons[slot], ref = references.find((item) => item.slot === slot), label = recipeSlotLabels[slot];
                 const scope = recipe.scopes?.[slot] || "similar";
                 const isDropTarget = dragSlot === slot && !busy;
-                const galleryPose = slot === "pose" && !ref?.linked && recipe.slots?.pose?.kind === "gallery";
+                const galleryPose = slot === "pose" && ref && !ref.linked && recipe.slots?.pose?.kind === "gallery";
                 return <div key={slot} data-recipe-drop-slot={slot} onDragOver={(event) => handleSlotDrag(event, slot)} onDrop={(event) => handleSlotDrag(event, slot)} onDragLeave={(event) => {
                     if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDragSlot((current) => current === slot ? undefined : current);
-                }} className={`group relative flex h-[148px] min-w-0 flex-col overflow-hidden rounded-xl border transition ${ref ? "" : "border-dashed hover:brightness-105"}`} style={ref ? { borderColor: theme.node.stroke, background: theme.node.fill } : { borderColor: `color-mix(in srgb, ${theme.accent.base} 40%, transparent)`, background: `radial-gradient(ellipse at center, ${theme.accent.soft}, transparent 80%)` }}>
+                }} className={`group relative flex h-[148px] min-w-0 flex-col overflow-hidden rounded-xl border transition ${galleryPose ? "@container" : ""} ${ref ? "" : "border-dashed hover:brightness-105"}`} style={ref ? { borderColor: theme.node.stroke, background: theme.node.fill } : { borderColor: `color-mix(in srgb, ${theme.accent.base} 40%, transparent)`, background: `radial-gradient(ellipse at center, ${theme.accent.soft}, transparent 80%)` }}>
                     {ref ? <button type="button" aria-label={`预览 ${ref.name}`} className="absolute inset-0 grid place-items-center overflow-hidden focus-visible:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" style={{ color: theme.node.muted }} disabled={!ref.url && !ref.storageKey} onClick={(event) => showPreview(ref, event.currentTarget)}><RecipeThumbnail reference={ref} /></button> : <button type="button" aria-label={`选${label}`} className="absolute inset-x-0 inset-y-6 flex flex-col items-center justify-center gap-1.5 rounded-lg text-[11px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" style={{ color: theme.toolbar.activeText }} onClick={() => setPicker(slot)}><span className="grid size-9 place-items-center rounded-xl" style={accent}><Icon size={17} strokeWidth={1.6} /></span><span className="flex items-center gap-0.5"><Plus size={11} />挑选{label}</span></button>}
-                    <div className={`pointer-events-none relative z-10 flex items-center justify-between gap-0.5 p-1.5 ${ref ? "bg-gradient-to-b from-black/70 via-black/25 to-transparent" : ""}`}>
-                        <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-medium ${ref ? "bg-black/55 text-white ring-1 ring-inset ring-white/20 backdrop-blur-md" : ""}`} title={`${label}输入`} style={ref ? undefined : accent}>{ref?.linked ? <><Link2 size={10} className="text-emerald-300" />上游连线</> : <>{!galleryPose && <Icon size={10} />}{label}</>}</span>
-                        <div className="pointer-events-auto flex min-w-0 items-center gap-0.5">
-                            {galleryPose && <RecipeDepthToggle value={Boolean(recipe.useDepth)} onChange={(useDepth) => patchRecipe({ useDepth })} />}
+                    <div className={`pointer-events-none relative z-10 flex min-w-0 items-center justify-between p-1.5 ${galleryPose ? "flex-wrap-reverse gap-1 @max-[76px]:px-1" : "gap-0.5"} ${ref ? "bg-gradient-to-b from-black/70 via-black/25 to-transparent" : ""}`}>
+                        {galleryPose ? <RecipeDepthToggle compact value={Boolean(recipe.useDepth)} onChange={(useDepth) => patchRecipe({ useDepth })} /> : <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-medium ${ref ? "bg-black/55 text-white ring-1 ring-inset ring-white/20 backdrop-blur-md" : ""}`} title={`${label}输入`} style={ref ? undefined : accent}>{ref?.linked ? <><Link2 size={10} className="text-emerald-300" />上游连线</> : <><Icon size={10} />{label}</>}</span>}
+                        <div className="pointer-events-auto ml-auto flex shrink-0 items-center">
                             {ref ? !ref.linked && <button type="button" className={`grid size-5 shrink-0 place-items-center focus-visible:outline ${hud}`} aria-label={`清除${label}`} title={`清除${label}`} onClick={() => choose(slot)}><X size={11} /></button> : <label className="grid size-6 cursor-pointer place-items-center rounded-full transition hover:brightness-110 focus-within:outline" style={accent} title={`上传${label}`}><Upload size={11} /><input type="file" accept="image/*" aria-label={`上传${label}`} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) upload(slot, file); }} /></label>}
                         </div>
                     </div>
@@ -258,17 +277,18 @@ export function CharacterRecipeNode({ ctx }: { ctx: CanvasNodeContext }) {
                 </div>
             </div>
             <textarea aria-label="合成提示词" data-node-scroll className="min-h-[44px] w-full flex-1 resize-none select-text overscroll-contain rounded-xl border p-2 text-[11px] leading-relaxed outline-none focus:ring-1" style={{ ...inset, outlineColor: theme.accent.base, ["--tw-ring-color" as string]: theme.accent.base }} disabled={running} value={recipe.prompt ?? automaticPrompt(references, recipe)} onChange={(event) => patchRecipe({ prompt: event.target.value })} />
-            {stage !== null ? <div className="grid shrink-0 grid-cols-3 gap-1.5" role="status" aria-label={`合成进度：${runStages[stage]}`}>
+            {stage !== null ? <div className="grid shrink-0 grid-cols-[repeat(3,minmax(0,1fr))_auto] items-center gap-1.5" role="status" aria-label={`合成进度：${runStages[stage]}`}>
                 {runStages.map((label, index) => <span key={label} className="flex min-w-0 items-center justify-center gap-0.5 whitespace-nowrap rounded-md px-0.5 text-[10px] motion-safe:transition-colors motion-safe:duration-150" data-recipe-stage={index} aria-current={index === stage ? "step" : undefined} style={index === stage ? accent : { color: theme.node.muted }}>
                     {index < stage ? <Check size={10} /> : <span className="size-1.5 shrink-0 rounded-full" style={{ background: index === stage ? theme.accent.base : theme.node.stroke }} />}{label}
                 </span>)}
+                <LiveGenerationTimer startedAt={node.metadata?.generationStartedAt} />
             </div> :
             <div className="flex shrink-0 items-center justify-between gap-1 text-[10px]" style={{ color: theme.node.muted }}><span className="truncate">{recipe.useCollage ? "已使用参考拼图" : "按人像、服装、姿势顺序提交"}</span>{(recipe.prompt !== undefined || recipe.useCollage) && <div className="flex shrink-0 gap-2">{recipe.useCollage && <button type="button" disabled={running} onClick={() => patchRecipe({ useCollage: false })}>改用单图</button>}{recipe.prompt !== undefined && <button type="button" disabled={running} onClick={() => patchRecipe({ prompt: undefined })}>恢复自动</button>}</div>}</div>}
         </div>
         <div className="mt-2 shrink-0 border-t pt-2" data-node-no-drag onMouseDown={stop} style={{ borderColor: theme.node.stroke }}>
             <div className="flex min-w-0 items-center gap-2">
                 <div className="min-w-0 flex-1"><ModelPicker className="!h-9 !gap-2 !rounded-xl !px-2.5 !text-xs" config={config} value={model} capability="image" groupByChannel="list" menuZoom={NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH} fullWidth disabled={running} ariaLabel="角色合成模型" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} onChange={(value) => ctx.updateMetadata({ model: value })} /></div>
-                <button type="button" disabled={!running && (preparing || !references.length)} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold shadow-sm transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 disabled:opacity-40" style={{ backgroundImage: `linear-gradient(135deg, ${theme.accent.base}, color-mix(in srgb, ${theme.accent.base} 78%, ${theme.node.text}))`, color: theme.node.panel }} onClick={() => running ? generation.current?.abort() : void run()}>{running ? <Square size={13} /> : <Play size={13} />}{running ? "停止合成" : "立即合成"}</button>
+                <button type="button" disabled={!running && (preparing || !references.length)} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold shadow-sm transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 disabled:opacity-40" style={{ backgroundImage: `linear-gradient(135deg, ${theme.accent.base}, color-mix(in srgb, ${theme.accent.base} 78%, ${theme.node.text}))`, color: theme.node.panel }} onClick={() => runningTask ? stopCanvasImageTask(runningTask) : void run()}>{running ? <Square size={13} /> : <Play size={13} />}{running ? "停止合成" : "立即合成"}</button>
             </div>
             <div className="mt-1.5 flex items-center gap-1.5 text-[10px]" style={{ color: theme.node.muted }}>
                 <label className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1" style={inset}>画面比例<select aria-label="角色合成画面比例" className="bg-transparent font-medium outline-none focus-visible:outline" style={{ color: theme.node.text }} value={ratio} disabled={running} onChange={(event) => setOutputSize(event.target.value, resolution)}>{outputRatios.map(({ value }) => <option style={{ background: theme.node.panel }} key={value}>{value}</option>)}</select></label>

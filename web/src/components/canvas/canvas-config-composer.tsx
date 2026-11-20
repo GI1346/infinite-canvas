@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { App, Button, Image } from "antd";
@@ -22,10 +22,12 @@ type CanvasConfigComposerProps = {
     value: string;
     inputs: NodeGenerationInput[];
     connectedNodes?: CanvasNodeData[];
+    imageNumbers?: ReadonlyMap<string, number>;
     onChange: (value: string) => void;
     onClose: () => void;
     embedded?: boolean;
     expanded?: boolean;
+    compact?: boolean;
     fontSize?: number;
     onReorderReferences?: (nodeIds: string[]) => void;
     onDisconnectReference?: (fromNodeId: string, toNodeId: string) => void;
@@ -45,7 +47,7 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], embedded = false, expanded = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences, onAddImageReference, onRun }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], imageNumbers, embedded = false, expanded = false, compact = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences, onAddImageReference, onRun }: CanvasConfigComposerProps) {
     const { t } = useTranslation();
     const { message } = App.useApp();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -61,12 +63,16 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
     const inputs = useMemo(() => orderReferenceNodes(sourceInputs.map((input) => ({ ...input, id: input.nodeId })), referenceOrder), [sourceInputs, referenceOrder]);
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
+    const getResourceLabel = useCallback((input: NodeGenerationInput) => {
+        const imageNumber = input.type === "image" ? imageNumbers?.get(input.nodeId) : undefined;
+        return imageNumber === undefined ? resourceLabel(input, inputs) : t("canvas.composer.resources.image", { index: imageNumber });
+    }, [imageNumbers, inputs, t]);
     const candidates = useMemo(() => {
         if (!mention) return [];
         const query = (mention.query || "").trim().toLowerCase();
         if (!query) return inputs;
-        return inputs.filter((input) => `${resourceLabel(input, inputs)} ${input.title} ${input.type === "group" ? "" : input.text || ""}`.toLowerCase().includes(query));
-    }, [inputs, mention]);
+        return inputs.filter((input) => `${getResourceLabel(input)} ${input.title} ${input.type === "group" ? "" : input.text || ""}`.toLowerCase().includes(query));
+    }, [getResourceLabel, inputs, mention]);
 
     useEffect(() => {
         if (document.activeElement === editorRef.current) return;
@@ -155,7 +161,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
     return (
         <div
             data-canvas-no-zoom
-            className={embedded ? "flex h-full min-h-0 flex-col" : "rounded-xl border p-2 shadow-2xl backdrop-blur"}
+            className={embedded ? (compact ? "flex min-h-0 flex-col gap-1.5" : "flex h-full min-h-0 flex-col") : "rounded-xl border p-2 shadow-2xl backdrop-blur"}
             style={{ background: embedded ? "transparent" : theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text, fontSize }}
             onMouseDown={stopWorkflowControlDrag}
             onPointerDown={stopCanvasInteraction}
@@ -167,9 +173,11 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                 </div>
                 <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
             </div>}
-            <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onReorder={onReorderReferences} fontSize={fontSize} />
-            {embedded && <div data-config-text-inputs className="mb-1.5 flex shrink-0 flex-wrap gap-1.5">{inputs.flatMap((input) => input.type === "group" ? input.children : [input]).filter((input) => input.type === "text").map((input) => <span key={input.nodeId} title={input.text || input.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}><FileText size={fontSize || 12} /><span className="truncate">{input.title || "文本提示词"}</span></span>)}</div>}
-            <div data-config-composer className={embedded ? "relative min-h-0 flex-1 shrink-0 rounded-xl border border-black/[0.06] bg-black/[0.025] transition-colors focus-within:border-[#0ea977] dark:border-white/[0.08] dark:bg-white/[0.04]" : "relative rounded-lg"}>
+            {!compact && <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onReorder={onReorderReferences} fontSize={fontSize} />}
+            {embedded && <div data-config-text-inputs className={compact ? "flex max-h-8 shrink-0 flex-wrap gap-1 overflow-y-auto empty:hidden" : "mb-1.5 flex shrink-0 flex-wrap gap-1.5"}>{inputs.flatMap((input) => (input.type === "group" ? input.children : [input]).flatMap((child) => child.type === "text" ? [{ child, sourceId: input.nodeId }] : [])).map(({ child, sourceId }) =>
+                <span key={sourceId + ":" + child.nodeId} title={child.text || child.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}><FileText size={fontSize || 12} /><span className="truncate">{child.title || "文本提示词"}</span>{compact && onDisconnectReference && <button type="button" aria-label={`移除引用 ${child.title || "文本"}`} className="shrink-0 opacity-70 hover:opacity-100" onClick={() => onDisconnectReference(sourceId, nodeId)}><X size={12} /></button>}</span>
+            )}</div>}
+            <div data-config-composer className={compact ? "relative z-10 min-h-[72px] max-h-[120px] shrink-0 overflow-hidden rounded-2xl border bg-black/[0.025] focus-within:!border-[#0ea977]/60 focus-within:ring-2 focus-within:ring-[#0ea977]/15 dark:bg-white/[0.04]" : embedded ? "relative min-h-0 flex-1 shrink-0 rounded-xl border border-black/[0.06] bg-black/[0.025] transition-colors focus-within:border-[#0ea977] dark:border-white/[0.08] dark:bg-white/[0.04]" : "relative rounded-lg"}>
                 {!value.trim() ? <div className="pointer-events-none absolute left-2.5 top-1.5 z-10 text-xs leading-5" style={{ color: theme.node.placeholder, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.composer.placeholder")}</div> : null}
                 <div
                     ref={editorRef}
@@ -178,7 +186,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                     aria-multiline="true"
                     contentEditable
                     suppressContentEditableWarning
-                    className={embedded ? `thin-scrollbar relative z-10 w-full overflow-y-auto overflow-x-hidden overscroll-contain whitespace-pre-wrap break-words px-2.5 py-2 outline-none ${expanded ? "h-full min-h-[240px] text-base leading-7" : "max-h-[132px] min-h-[76px] text-sm leading-6"}` : "thin-scrollbar min-h-16 max-h-48 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-2 py-1.5 text-xs leading-5 outline-none"}
+                    className={embedded ? `thin-scrollbar relative z-10 w-full overflow-y-auto overflow-x-hidden overscroll-contain whitespace-pre-wrap break-words px-2.5 py-2 outline-none ${expanded ? "h-full min-h-[240px] text-base leading-7" : compact ? "min-h-[72px] max-h-[118px] text-sm leading-5" : "max-h-[132px] min-h-[76px] text-sm leading-6"}` : "thin-scrollbar min-h-16 max-h-48 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-2 py-1.5 text-xs leading-5 outline-none"}
                     style={{ color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}
                     onInput={() => {
                         if (!composingRef.current) syncFromEditor();
@@ -232,7 +240,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                     }}
                     onBlur={() => { rememberCaret(); window.setTimeout(closeMention, 120); }}
                 />
-                {mention ? <MentionMenu anchor={editorRef.current} inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} onActiveIndex={setActiveIndex} onUpload={onAddImageReference ? () => { rememberCaret(); closeMention(); uploadRef.current?.click(); } : undefined} onOpenPicker={onAddImageReference ? openPicker : undefined} /> : null}
+                {mention ? <MentionMenu anchor={editorRef.current} inputs={candidates} getResourceLabel={getResourceLabel} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} onActiveIndex={setActiveIndex} onUpload={onAddImageReference ? () => { rememberCaret(); closeMention(); uploadRef.current?.click(); } : undefined} onOpenPicker={onAddImageReference ? openPicker : undefined} /> : null}
             </div>
             <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={async (event) => {
                 const file = event.target.files?.[0]; event.target.value = "";
@@ -252,7 +260,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
 
 const mentionKinds = { image: "图片", text: "文本", video: "视频", audio: "音频", group: "组" };
 
-function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect, onActiveIndex, onUpload, onOpenPicker }: { anchor: HTMLElement | null; inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void; onActiveIndex: (index: number) => void; onUpload?: () => void; onOpenPicker?: (tab: "all" | "history" | "gallery") => void }) {
+function MentionMenu({ anchor, inputs, getResourceLabel, activeIndex, theme, onSelect, onActiveIndex, onUpload, onOpenPicker }: { anchor: HTMLElement | null; inputs: NodeGenerationInput[]; getResourceLabel: (input: NodeGenerationInput) => string; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void; onActiveIndex: (index: number) => void; onUpload?: () => void; onOpenPicker?: (tab: "all" | "history" | "gallery") => void }) {
     const selectedRef = useRef(false);
     const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
     useLayoutEffect(() => {
@@ -282,7 +290,7 @@ function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect, 
     };
 
     return (
-        createPortal(<div data-config-mention-menu data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="fixed z-[1300] flex origin-top-left flex-col overflow-hidden rounded-xl border p-1 shadow-2xl motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-98 motion-safe:duration-100" style={{ ...position, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text, fontSize: 12, lineHeight: "18px" }} onPointerDown={(event) => { event.stopPropagation(); if (!(event.target instanceof HTMLElement && event.target.closest("[data-mention-scroll]"))) event.preventDefault(); }} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+        createPortal(<div data-config-mention-menu data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore className="fixed z-[1300] flex origin-top-left flex-col overflow-hidden rounded-xl border p-1 shadow-2xl bf-spring-pop" style={{ ...position, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text, fontSize: 12, lineHeight: "18px" }} onPointerDown={(event) => { event.stopPropagation(); if (!(event.target instanceof HTMLElement && event.target.closest("[data-mention-scroll]"))) event.preventDefault(); }} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
             {onUpload && <button type="button" className="flex w-full shrink-0 items-center gap-2 rounded-lg px-2 py-2 text-left hover:opacity-70" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onUpload(); }} onClick={(event) => { if (event.detail === 0) onUpload(); }}><Upload size={14} />上传图片</button>}
             <div data-mention-scroll role="listbox" aria-label="引用上游内容" className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" style={{ maxHeight: 204 }}>
             {inputs.map((input, index) => (
@@ -304,7 +312,7 @@ function MentionMenu({ anchor, inputs, allInputs, activeIndex, theme, onSelect, 
                 >
                     <ResourcePreview input={input} />
                     <span className="min-w-0 flex-1 overflow-hidden">
-                        <span className="block truncate font-medium">{resourceLabel(input, allInputs)}</span>
+                        <span className="block truncate font-medium">{getResourceLabel(input)}</span>
                         <span className="block truncate opacity-65">{input.type === "group" ? i18n.t("canvas.node.nodeCount", { count: input.children.length }) : input.text || input.title}</span>
                     </span>
                     <span className="shrink-0 rounded px-1 text-[10px]" style={{ color: theme.node.muted, background: theme.glass.inset }}>{mentionKinds[input.type]}</span>

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useConfigStore } from "@/stores/use-config-store";
 
 type TextControl = HTMLInputElement | HTMLTextAreaElement;
 type Edit = { text: string; start: number; end: number };
@@ -74,7 +75,9 @@ function pairCommittedQuotes(target: HTMLElement, edit: Edit) {
 }
 
 export function useAutoPairQuotes() {
+  const enabled = useConfigStore((state) => state.config.autoPairQuotesEnabled !== false);
   useEffect(() => {
+    if (!enabled) return;
     const edits = new WeakMap<HTMLElement, Edit>();
     const compositions = new WeakMap<HTMLElement, Edit>();
 
@@ -117,5 +120,5 @@ export function useAutoPairQuotes() {
       window.removeEventListener("compositionstart", compositionStart, true);
       window.removeEventListener("compositionend", compositionEnd, true);
     };
-  }, []);
+  }, [enabled]);
 }

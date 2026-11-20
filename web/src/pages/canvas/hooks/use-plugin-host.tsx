@@ -30,6 +30,7 @@ type PluginHostParams = {
     connectionsRef: MutableRefObject<CanvasConnection[]>;
     viewportRef: MutableRefObject<ViewportTransform>;
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
+    setSelectedNodeIds?: Dispatch<SetStateAction<Set<string>>>;
     setDialogNodeId: Dispatch<SetStateAction<string | null>>;
     applyAgentOps: (ops?: CanvasAgentOp[]) => unknown;
 };
@@ -111,6 +112,7 @@ export function usePluginHost(params: PluginHostParams) {
     const pluginHost = useMemo<CanvasPluginHost>(
         () => ({
             getProjectId: () => projectIdRef.current,
+            selectNodes: params.setSelectedNodeIds ? (ids) => params.setSelectedNodeIds!(new Set(ids)) : undefined,
             getNode: (id) => nodesRef.current.find((node) => node.id === id) || null,
             getNodes: () => nodesRef.current,
             getConnections: () => connectionsRef.current,
@@ -131,7 +133,7 @@ export function usePluginHost(params: PluginHostParams) {
             openPanel: (nodeId) => setDialogNodeId(nodeId),
             closePanel: () => setDialogNodeId(null),
         }),
-        [applyAgentOps, pluginAi],
+        [applyAgentOps, params.setSelectedNodeIds, pluginAi],
     );
 
     const renderPluginPanel = useCallback(

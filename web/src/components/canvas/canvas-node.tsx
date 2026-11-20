@@ -4,13 +4,15 @@ import { CHARACTER_RECIPE_NODE_TYPE } from "@/types/canvas";
 import { LOCAL_FUSION_NODE_TYPE, FUSION_PATCH_PORT } from "@/lib/canvas/canvas-fusion-ports";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import { MoreHorizontal, ChevronRight, Copy, Download, Image as ImageIcon, Maximize2, Music2, Plus, Puzzle, RefreshCw, Sparkles, Star, Trash2, Video } from "lucide-react";
+import { Clock3, MoreHorizontal, ChevronRight, Copy, Download, Image as ImageIcon, Maximize2, Music2, Plus, Puzzle, RefreshCw, Sparkles, Star, Trash2, Video } from "lucide-react";
 import { Modal } from "antd";
 import { Popover } from "radix-ui";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { NODE_PANEL_CONTENT_WIDTH, NODE_PANEL_WIDTH } from "@/lib/canvas/canvas-node-size";
 import { formatBytes } from "@/lib/image-utils";
+import { formatGenerationDuration } from "@/lib/generation-timer";
+import { LiveGenerationTimer } from "@/components/image-generation-pending";
 import { canvasTitleWithoutExtension } from "@/lib/canvas/canvas-download-name";
 import { pickImageSource } from "@/lib/image-thumbnail";
 import { previewUrlFor, subscribeImagePreviews } from "@/services/image-storage";
@@ -168,6 +170,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const isImage = data.type === CanvasNodeType.Image;
     const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent", CanvasNodeType.Text, LOCAL_FUSION_NODE_TYPE, CHARACTER_RECIPE_NODE_TYPE].includes(data.type);
+    const generationDuration = data.metadata?.status === "success" ? formatGenerationDuration(data.metadata.generationDurationMs) : null;
     const titleName = isImage ? canvasTitleWithoutExtension(data.title || "") : data.title || "";
     const [titleDraft, setTitleDraft] = useState(titleName);
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
@@ -400,7 +403,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 else onContextMenu(event, data.id);
             }}
         >
-            {data.type === CanvasNodeType.Text && !isEditingTitle ? null : <div className={`absolute bottom-full left-0 z-[65] mb-1 flex max-w-full items-center gap-1.5 ${isImage || largeTitle ? "" : "rounded-full border border-black/[0.06] bg-white/90 px-2.5 py-0.5 shadow-xs backdrop-blur-md dark:border-white/[0.08] dark:bg-[#1c1f26]/90"}`} data-node-title={data.id} style={isImage || largeTitle ? { width: Math.max(0, data.width - 24), maxWidth: "none", overflow: "hidden" } : undefined} onMouseDown={(event) => {
+            {data.type === CanvasNodeType.Text && !isEditingTitle ? null : <div className={`absolute bottom-full left-0 z-[65] mb-1 flex max-w-full items-center gap-1.5 ${isImage || largeTitle ? "" : "rounded-full border border-black/[0.06] bg-white/90 px-2.5 py-0.5 shadow-xs backdrop-blur-md dark:border-white/[0.08] dark:bg-[#1c1f26]/90"}`} data-node-title={data.id} style={generationDuration ? { width: data.width, overflow: "hidden" } : isImage || largeTitle ? { width: Math.max(0, data.width - 24), maxWidth: "none", overflow: "hidden" } : undefined} onMouseDown={(event) => {
                 if (referenceSelectionState) {
                     event.stopPropagation();
                     if (event.button === 0 && referenceSelectionState === "available") onSelectReference?.(data.id);
@@ -413,7 +416,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         value={titleDraft}
                         aria-label={isGroup ? "组名称" : "节点名称"}
                         maxLength={64}
-                        className="h-6 max-w-full border-0 border-b border-dashed bg-transparent px-0 text-left text-base font-medium outline-none"
+                        className="h-6 min-w-0 max-w-full flex-1 border-0 border-b border-dashed bg-transparent px-0 text-left text-base font-medium outline-none"
                         style={{ borderColor: theme.node.muted, color: theme.node.text, fontSize: NODE_TITLE_FONT_SIZE }}
                         onChange={(event) => setTitleDraft(event.target.value)}
                         onBlur={finishTitleEditing}
@@ -430,8 +433,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                     <span className="grid shrink-0 place-items-center [&>svg]:size-full" style={{ width: Math.round(NODE_TITLE_FONT_SIZE * 1.2), height: Math.round(NODE_TITLE_FONT_SIZE * 1.2), color: theme.accent.base }} aria-hidden="true">{getNodeDefinition(data.type)?.icon}</span>
                     <button
                         type="button"
-                        className="block min-w-0 max-w-full truncate border-b border-dashed border-transparent px-0 py-0.5 text-left text-base font-medium opacity-75 transition hover:border-current hover:opacity-100"
-                        style={{ color: theme.node.text, fontSize: NODE_TITLE_FONT_SIZE, ...(isGroup ? { padding: "2px 8px", borderRadius: 7, border: "1px solid " + groupColor, background: "color-mix(in srgb, " + groupColor + " 12%, " + theme.node.panel + ")", opacity: 1 } : {}), ...(isImage || largeTitle ? { width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } : {}) }}
+                        className={`block min-w-0 max-w-full truncate ${generationDuration ? "flex-1" : ""} border-b border-dashed border-transparent px-0 py-0.5 text-left text-base font-medium opacity-75 transition hover:border-current hover:opacity-100`}
+                        style={{ color: theme.node.text, fontSize: NODE_TITLE_FONT_SIZE, ...(isGroup ? { padding: "2px 8px", borderRadius: 7, border: "1px solid " + groupColor, background: "color-mix(in srgb, " + groupColor + " 12%, " + theme.node.panel + ")", opacity: 1 } : {}), ...(isImage || largeTitle || generationDuration ? { width: generationDuration ? undefined : "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } : {}) }}
                         title={t("canvas.node.renameHint")}
                         onDoubleClick={(event) => {
                             event.stopPropagation();
@@ -442,6 +445,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     </button>
                     </>
                 )}
+                {generationDuration && <span data-generation-duration title={`本次生图耗时 ${generationDuration}`} className="bf-spring-pop inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold tabular-nums" style={{ color: theme.toolbar.activeText, background: theme.accent.soft, borderColor: theme.accent.soft }}><Clock3 size={10} className="shrink-0" />{generationDuration}</span>}
             </div>}
 
             <div
@@ -539,7 +543,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     className="absolute left-1/2 top-full z-[70] overflow-hidden rounded-[20px] border shadow-2xl"
                     style={{
                         width: NODE_PANEL_WIDTH / scale,
-                        height: NODE_PANEL_HEIGHT / scale,
+                        height: data.type === CanvasNodeType.Image ? undefined : NODE_PANEL_HEIGHT / scale,
                         marginTop: 16 / scale,
                         transform: "translateX(-50%)",
                         background: theme.node.panel,
@@ -550,7 +554,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     onMouseDown={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
                 >
-                    <div data-node-panel-content style={{ width: NODE_PANEL_CONTENT_WIDTH, height: NODE_PANEL_CONTENT_HEIGHT, zoom: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH / scale }}>
+                    <div data-node-panel-content style={{ width: NODE_PANEL_CONTENT_WIDTH, height: data.type === CanvasNodeType.Image ? undefined : NODE_PANEL_CONTENT_HEIGHT, zoom: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH / scale }}>
                         {renderPanel(data)}
                     </div>
                 </div>
@@ -565,7 +569,7 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Text && props.node.metadata?.texts?.length && (props.node.metadata.status !== "error" || props.node.metadata.texts.some((text) => text.content))) return <TextContent {...props} />;
     const workflowDefinition = (props.node.type.startsWith("dxos:") || props.node.type === LOCAL_FUSION_NODE_TYPE || props.node.type === CHARACTER_RECIPE_NODE_TYPE) ? getNodeDefinition(props.node.type) : undefined;
     if (workflowDefinition?.Content && props.pluginContext) { const Content = workflowDefinition.Content; return <Content ctx={props.pluginContext} />; }
-    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
+    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} startedAt={props.node.metadata.generationStartedAt} showTimer={props.node.type === CanvasNodeType.Image || props.node.metadata.generationStartedAt !== undefined} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
     const Renderer = nodeContentRenderers[props.node.type as CanvasNodeType];
@@ -594,12 +598,13 @@ function GroupNodeContent(_props: NodeContentRendererProps) {
     return <div className="pointer-events-none h-full w-full" />;
 }
 
-function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
+function LoadingContent({ theme, startedAt, showTimer }: Pick<NodeContentRendererProps, "theme"> & { startedAt?: number; showTimer: boolean }) {
     const { t } = useTranslation();
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
             <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
             <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>
+            {showTimer && <LiveGenerationTimer startedAt={startedAt} />}
         </div>
     );
 }
@@ -973,8 +978,9 @@ function ImageContent({
                         className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
                     />
                 ) : (
-                    <ImageSlotStatus image={primaryImage} />
+                    <ImageSlotStatus image={primaryImage} startedAt={node.metadata?.generationStartedAt} />
                 )}
+                {primaryContent && node.metadata?.status === "loading" && node.metadata.generationStartedAt !== undefined && <div className="pointer-events-none absolute inset-0 grid place-items-center"><LiveGenerationTimer startedAt={node.metadata.generationStartedAt} /></div>}
                 {node.metadata?.previewFilter ? <span className="canvas-preview-badge">效果预览</span> : null}
             </div>
             {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
@@ -1055,7 +1061,7 @@ function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, on
                 onView();
             }}
         >
-            {image.content ? <DecodedCanvasImage key={image.content} src={source} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" /> : <ImageSlotStatus image={image} />}
+            {image.content ? <DecodedCanvasImage key={image.content} src={source} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" /> : <ImageSlotStatus image={image} startedAt={node.metadata?.generationStartedAt} />}
             {image.content ? (
                 <div className="pointer-events-none absolute inset-x-2 top-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/node:pointer-events-auto group-hover/node:opacity-100">
                     <button type="button" className="flex h-8 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] font-medium shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("common.download")} onClick={(event) => (event.stopPropagation(), onDownload())}>
@@ -1094,14 +1100,15 @@ function BatchImageFailureActions({ placement, onRetry, onDelete }: { placement:
     );
 }
 
-function ImageSlotStatus({ image }: { image?: CanvasNodeImage }) {
+function ImageSlotStatus({ image, startedAt }: { image?: CanvasNodeImage; startedAt?: number }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
     const failed = image?.status === "error";
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
             {failed ? <span className="text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span> : <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
-            {!failed ? <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
+            {!failed && <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>}
+            {image?.status === "loading" && <LiveGenerationTimer startedAt={startedAt} />}
         </div>
     );
 }

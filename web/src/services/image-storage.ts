@@ -207,6 +207,8 @@ function cacheImagePreview(storageKey: string, preview: Blob) {
     return url;
 }
 
+export function flushImagePreviewWrites() { return previewQueue; }
+
 async function deleteImagePreview(storageKey: string) {
     const url = previewUrls.get(storageKey);
     if (url) URL.revokeObjectURL(url);

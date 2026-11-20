@@ -1,3 +1,4 @@
+import { generationTaskKey, useGenerationRunnerStore, type RunningGenerationTask } from "./use-generation-runner-store";
 import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 
@@ -156,7 +157,8 @@ export const useCanvasStore = create<CanvasStore>()(
                 set((state) => ({
                     projects: state.projects.map((project) => (project.id === id ? { ...project, title: title.trim() || project.title, updatedAt: new Date().toISOString() } : project)),
                 })),
-            deleteProjects: (ids) =>
+            deleteProjects: (ids) => {
+                ids.forEach(useGenerationRunnerStore.getState().abortProjectTasks);
                 set((state) => {
                     const now = new Date().toISOString();
                     const removing = new Set(ids);
@@ -164,12 +166,15 @@ export const useCanvasStore = create<CanvasStore>()(
                     const projects = state.projects.filter((project) => !removing.has(project.id));
                     const deletedProjects = [...state.deletedProjects.filter((item) => !removing.has(item.id)), ...ids.map((id) => ({ id, deletedAt: now }))];
                     return { projects, deletedProjects };
-                }),
+                });
+            },
             replaceProjects: (projects, deletedProjects = []) => set({ projects, deletedProjects }),
             updateProject: (id, patch) => set((state) => {
                 const current = state.projects.find((project) => project.id === id);
                 if (!current) return state;
-                const project = { ...current, ...(typeof patch === "function" ? patch(current) : patch), updatedAt: new Date().toISOString() };
+                const changes = typeof patch === "function" ? patch(current) : patch;
+                if (Object.keys(changes).every((key) => Object.is(changes[key as keyof CanvasProjectPatch], current[key as keyof CanvasProjectPatch]))) return state;
+                const project = { ...current, ...changes, updatedAt: new Date().toISOString() };
                 if (project.nodes !== current.nodes) {
                     void recordCanvasImageHistory(current).catch(() => undefined);
                     void recordCanvasImageHistory(project).catch(() => undefined);
@@ -199,4 +204,23 @@ export async function flushCanvasStorage() {
     const { projects, deletedProjects } = useCanvasStore.getState();
     queuedPersistState = { projects, deletedProjects };
     await localForageStorage.setItem(CANVAS_STORE_KEY, JSON.stringify({ state: queuedPersistState, version: 0 }));
+}
+
+/** Stop an image task even if the page that started it no longer exists. */
+export function stopCanvasImageTask(task: RunningGenerationTask, reason = "已停止生成") {
+    const runner = useGenerationRunnerStore.getState();
+    const key = generationTaskKey(task.projectId, task.nodeId), current = runner.tasks[key];
+    if (current?.controller !== task.controller) return;
+    runner.abortTask(current);
+    useCanvasStore.getState().updateProject(current.projectId, (project) => {
+        const replacement = useGenerationRunnerStore.getState().tasks[key];
+        if (replacement) return {};
+        const ids = new Set([current.nodeId, current.targetNodeId]);
+        return { nodes: project.nodes.map((node) => ids.has(node.id) && node.metadata?.status === "loading" ? {
+            ...node, metadata: {
+                ...node.metadata, status: "idle", generationStartedAt: undefined, errorDetails: undefined,
+                images: node.metadata.images?.map((image) => image.status === "loading" ? { ...image, status: "error", errorDetails: reason } : image),
+            },
+        } : node) };
+    });
 }

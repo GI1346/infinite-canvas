@@ -42,6 +42,7 @@ export type CanvasNodeToolbarItem = {
 export type CanvasNodeContext = {
     // Live project identity for asynchronous node operations; older external hosts may omit it.
     getProjectId?: () => string | undefined;
+    selectNodes?: (ids: string[]) => void;
     node: CanvasNodeData;
     theme: CanvasTheme;
     scale: number;
@@ -78,6 +79,7 @@ export type PluginStorage = {
 // Node-independent host capabilities constructed by the canvas page and injected into the render chain.
 export type CanvasPluginHost = {
     getProjectId?: () => string | undefined;
+    selectNodes?: (ids: string[]) => void;
     getNode: (id: string) => CanvasNodeData | null;
     getNodes: () => CanvasNodeData[];
     getConnections: () => CanvasConnection[];

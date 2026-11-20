@@ -10,6 +10,7 @@ import { TABLE_TYPE, CONCURRENT_TYPE, channelsFor, channelItems, itemAt, inputTe
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions } from "@/lib/media-size";
 import { workflowDisplayMetadata } from "@/lib/canvas/workflow-display-size";
 import { resolveModelForCapability, useEffectiveConfig } from "@/stores/use-config-store";
+import { generationTaskKey, useGenerationRunnerStore } from "@/stores/canvas/use-generation-runner-store";
 import { ensureImagePreview, getImagePreviewRevision, previewUrlFor, subscribeImagePreviews } from "@/services/image-storage";
 
 const button = "rounded-lg bg-black/[0.04] px-2.5 py-1 text-sm transition hover:bg-[#0ea977]/[0.12] dark:bg-white/[0.06] dark:hover:bg-[#37d39b]/[0.16] disabled:opacity-40";
@@ -54,6 +55,8 @@ function TableContent({ ctx }: { ctx: CanvasNodeContext }) {
     const count = tableRows(node, graph.nodes, graph.connections).length;
     const cell: CSSProperties = { border: `1px solid ${theme.node.stroke}`, minWidth: 240, padding: 12, verticalAlign: "top" };
     const input: CSSProperties = { width: "100%", background: "transparent", color: theme.node.text, outline: "none", fontSize: "inherit", lineHeight: "inherit" };
+    const textCell = "flex h-full min-h-[100px] flex-col";
+    const textEditor = "h-full w-full flex-1 resize-none overflow-y-auto overscroll-contain";
     const update = (value: DxTable) => ctx.updateMetadata({ table: value });
     const setCell = (row: number, col: number, text: string) => {
         const rows = Array.from({ length: Math.max(count, row + 1) }, (_, i) => [...(table.rows[i] || table.columns.map(() => ""))]);
@@ -81,15 +84,25 @@ function TableContent({ ctx }: { ctx: CanvasNodeContext }) {
                 {sources.map(({ channel, items }, index) => <th key={channel.id} style={cell}><div className="flex items-center justify-between">输入 {index + 1}<button title="移除输入及其连线" className={button} disabled={channels.length === 1} onClick={() => { ctx.applyOps([{ type: "delete_connections", ids: ctx.getConnections().filter((c) => c.toNodeId === node.id && (c.toPort || channels[0].id) === channel.id).map((c) => c.id) }]); ctx.updateMetadata({ tableInputChannels: channels.filter((c) => c.id !== channel.id) }); }}>×</button></div><select aria-label={`输入 ${index + 1} 配对方式`} style={input} value={channel.mode || "auto"} onChange={(e) => ctx.updateMetadata({ tableInputChannels: channels.map((c) => c.id === channel.id ? { ...c, mode: e.target.value === "auto" ? undefined : e.target.value as "sequence" | "shared" } : c) })}><option value="auto">自动（{items.length > 1 ? "逐行" : "共享"}）</option><option value="sequence">逐行配对</option><option value="shared">共享 / 重复末项</option></select></th>)}
                 {table.columns.map((name, col) => <th key={col} style={cell}><div className="flex"><input aria-label={`字段 ${col + 1} 名称`} className="min-w-0" style={input} value={name} onChange={(e) => update({ ...table, columns: table.columns.map((c, i) => i === col ? e.target.value : c) })} /><button className={button} title="删除字段" onClick={() => update({ ...table, columns: table.columns.filter((_, i) => i !== col), rows: table.rows.map((r) => r.filter((_, i) => i !== col)) })}>×</button></div></th>)}<th style={{ ...cell, minWidth: 52 }} /></tr></thead>
                 <tbody>{Array.from({ length: count }, (_, row) => <tr key={row} className="transition-colors hover:bg-[#0ea977]/[0.03]"><td style={{ ...cell, minWidth: 64 }}><label><input aria-label={`选择第 ${row + 1} 行`} type="checkbox" className="size-5" checked={table.selectedRows.includes(row)} onChange={(e) => update({ ...table, selectedRows: e.target.checked ? [...table.selectedRows, row] : table.selectedRows.filter((i) => i !== row) })} /> {row + 1}</label></td>
-                    {sources.map(({ channel, items }, column) => { const item = itemAt(items, { ...channel, mode: channel.mode || (items.length > 1 ? "sequence" : "shared") }, row); return <td key={channel.id} style={cell}>{item?.type === "media" && (item.mediaType === "image" ? <img className="max-h-36 max-w-42 rounded object-contain" src={previewUrlFor(item.storageKey) || item.url} alt={item.title} decoding="async" draggable={false} /> : <span>{item.mediaType} · {item.title}</span>)}{item?.type !== "media" || table.inputTexts?.[channel.id]?.[row] !== undefined ? <textarea aria-label={`第 ${row + 1} 行输入 ${column + 1} 文本`} rows={3} className="resize-none" style={input} value={inputTextAt(table, channel.id, row, item)} placeholder="连接图片组或文本到左侧端口，也可直接输入" onChange={(e) => setInputText(channel.id, row, e.target.value)} /> : null}</td>; })}
-                    {table.columns.map((_, col) => <td key={col} style={cell}><textarea aria-label={`第 ${row + 1} 行第 ${col + 1} 字段`} rows={3} style={input} value={table.rows[row]?.[col] || ""} onChange={(e) => setCell(row, col, e.target.value)} onPaste={(e) => {
+                    {sources.map(({ channel, items }, column) => {
+                        const item = itemAt(items, { ...channel, mode: channel.mode || (items.length > 1 ? "sequence" : "shared") }, row);
+                        const media = item?.type === "media" ? item : null;
+                        const hasText = !media || table.inputTexts?.[channel.id]?.[row] !== undefined;
+                        return <td key={channel.id} className="h-px align-top" style={cell}>
+                            <div className={hasText ? textCell : undefined}>
+                                {media && <div className="shrink-0">{media.mediaType === "image" ? <img className="max-h-36 max-w-42 rounded object-contain" src={previewUrlFor(media.storageKey) || media.url} alt={media.title} decoding="async" draggable={false} /> : <span>{media.mediaType} · {media.title}</span>}</div>}
+                                {hasText && <textarea aria-label={`第 ${row + 1} 行输入 ${column + 1} 文本`} data-node-scroll className={`${textEditor} ${media ? "min-h-[100px]" : "min-h-0"}`} style={input} value={inputTextAt(table, channel.id, row, item)} placeholder="连接图片组或文本到左侧端口，也可直接输入" onChange={(e) => setInputText(channel.id, row, e.target.value)} />}
+                            </div>
+                        </td>;
+                    })}
+                    {table.columns.map((_, col) => <td key={col} className="h-px align-top" style={cell}><div className={textCell}><textarea aria-label={`第 ${row + 1} 行第 ${col + 1} 字段`} data-node-scroll className={`${textEditor} min-h-0`} style={input} value={table.rows[row]?.[col] || ""} onChange={(e) => setCell(row, col, e.target.value)} onPaste={(e) => {
                         const text = e.clipboardData.getData("text/plain"); if (!text.includes("\t")) return; e.preventDefault();
                         const pasted = text.replace(/\r/g, "").replace(/\n$/, "").split("\n").map((r) => r.split("\t"));
                         const width = Math.max(table.columns.length, col + Math.max(...pasted.map((r) => r.length)));
                         const columns = Array.from({ length: width }, (_, i) => table.columns[i] || `字段 ${i + 2}`);
                         const rows = Array.from({ length: Math.max(count, row + pasted.length) }, (_, i) => columns.map((_, j) => table.rows[i]?.[j] || ""));
                         pasted.forEach((r, i) => r.forEach((v, j) => { rows[row + i][col + j] = v; })); update({ ...table, columns, rows });
-                    }} /></td>)}<td style={{ ...cell, minWidth: 52 }}><button title="删除数据行（连线输入由上游控制）" className={button} disabled={row >= table.rows.length} onClick={() => update(deleteTableRow(table, row))}>×</button></td></tr>)}</tbody>
+                    }} /></div></td>)}<td style={{ ...cell, minWidth: 52 }}><button title="删除数据行（连线输入由上游控制）" className={button} disabled={row >= table.rows.length} onClick={() => update(deleteTableRow(table, row))}>×</button></td></tr>)}</tbody>
             </table>
         </div>
         {error && <p role="alert">{error}</p>}
@@ -111,21 +124,23 @@ function ConcurrentContent({ ctx }: { ctx: CanvasNodeContext }) {
     const controller = useRef<AbortController | null>(null);
     const mounted = useRef(true);
     const [localRunning, setRunning] = useState(false), [error, setError] = useState("");
-    const running = localRunning || (meta.status === "loading" && isWorkflowNodeRunning(node.id));
+    const backgroundProjectId = meta.generationMode === "video" || meta.generationMode === "text" ? undefined : ctx.getProjectId?.();
+    const backgroundRunning = useGenerationRunnerStore((state) => backgroundProjectId ? Boolean(state.tasks[generationTaskKey(backgroundProjectId, node.id)]) : false);
+    const running = localRunning || backgroundRunning || (meta.status === "loading" && isWorkflowNodeRunning(node.id, backgroundProjectId));
     const selectRow = (rowNumber: number, checked?: boolean) => {
         const latest = current.current.node.metadata || {};
         if (running || !latest.tableBatchManualSelection) return;
         const selected = latest.tableBatchSelectedRows || [];
         current.current.updateMetadata({ tableBatchSelectedRows: (checked ?? !selected.includes(rowNumber)) ? [...new Set([...selected, rowNumber])] : selected.filter((number) => number !== rowNumber) });
     };
-    useEffect(() => { mounted.current = true; return () => { mounted.current = false; controller.current?.abort(); }; }, [node.id]);
+    useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (!backgroundProjectId) controller.current?.abort(); }; }, [node.id, backgroundProjectId]);
     const size = meta.size || config.size;
     const input: CSSProperties = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 6, padding: 8, minWidth: 0, fontSize: "inherit", lineHeight: "inherit" };
     const run = async (retry = false) => {
-        if (controller.current || isWorkflowNodeRunning(node.id)) return;
+        if (controller.current || isWorkflowNodeRunning(node.id, backgroundProjectId)) return;
         const abort = new AbortController(); controller.current = abort; setRunning(true); setError("");
         try {
-            await runWorkflowNode(node.id, { getNode: (id) => current.current.getNode(id), getNodes: () => current.current.getNodes(), getConnections: () => current.current.getConnections(), applyOps: (ops) => current.current.applyOps(ops), ai: current.current.ai, getConfig: () => config, isActive: () => mounted.current }, { signal: abort.signal, retry });
+            await runWorkflowNode(node.id, { getNode: (id) => current.current.getNode(id), getNodes: () => current.current.getNodes(), getConnections: () => current.current.getConnections(), applyOps: (ops) => current.current.applyOps(ops), ai: current.current.ai, getConfig: () => config, isActive: () => mounted.current }, { signal: abort.signal, retry, projectId: backgroundProjectId });
         } catch (reason) { if (mounted.current && controller.current === abort && !abort.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason)); }
         finally { if (controller.current === abort) { controller.current = null; if (mounted.current) setRunning(false); } }
     };
@@ -149,7 +164,7 @@ function ConcurrentContent({ ctx }: { ctx: CanvasNodeContext }) {
         <div className="flex flex-wrap items-center gap-3 rounded-xl bg-black/[0.04] px-2.5 py-1.5 dark:bg-white/[0.06]"><label>并发数 <input aria-label="并发数" disabled={running} type="number" min={1} className="w-20" style={input} value={meta.tableBatchConcurrency || 1} onChange={(e) => ctx.updateMetadata({ tableBatchConcurrency: Math.max(1, Number(e.target.value) || 1) })} /></label><label>起始行 <input aria-label="起始行" type="number" min={1} disabled={running || meta.tableBatchManualSelection} className="w-20" style={input} value={meta.tableBatchStartRow || 1} onChange={(e) => ctx.updateMetadata({ tableBatchStartRow: Math.max(1, Number(e.target.value) || 1) })} /></label><label><input type="checkbox" className="size-5" disabled={running} checked={Boolean(meta.tableBatchManualSelection)} onChange={(e) => ctx.updateMetadata({ tableBatchManualSelection: e.target.checked })} /> 独立选择</label></div>
         <textarea aria-label="附加提示词" disabled={running} rows={2} style={input} placeholder="附加提示词（可空）" value={meta.prompt || ""} onChange={(e) => ctx.updateMetadata({ prompt: e.target.value })} />
         {(error || meta.errorDetails) && <p role="alert">{error || meta.errorDetails}</p>}
-        <div className="flex justify-end gap-2"><button className={button} disabled={running || !meta.tableBatchRun} onClick={() => void run(true)}>重试未完成行</button>{running ? <button className={button} onClick={() => { controller.current?.abort(); stopWorkflowNode(node.id); controller.current = null; setRunning(false); }}>停止</button> : <button className={primaryButton} onClick={() => void run()}>▶ 运行 {selectedGenerationRows(node, rows).length} 行</button>}</div>
+        <div className="flex justify-end gap-2"><button className={button} disabled={running || !meta.tableBatchRun} onClick={() => void run(true)}>重试未完成行</button>{running ? <button className={button} onClick={() => { controller.current?.abort(); stopWorkflowNode(node.id, backgroundProjectId); controller.current = null; setRunning(false); }}>停止</button> : <button className={primaryButton} onClick={() => void run()}>▶ 运行 {selectedGenerationRows(node, rows).length} 行</button>}</div>
     </div>;
 }
 

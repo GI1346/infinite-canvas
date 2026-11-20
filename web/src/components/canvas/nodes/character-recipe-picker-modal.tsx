@@ -13,10 +13,10 @@ const renderOverlay = (modal: ReactNode) => <div data-canvas-overlay data-canvas
 const angleOrder = ["正面", "俯视", "仰视", "侧面", "斜侧"];
 const filterLabels = { portrait: ["分区", "发长"], costume: ["一级分类", "穿搭分类"], pose: ["动作体系", "动作分类", "视角"] };
 
-export function RecipeDepthToggle({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
+export function RecipeDepthToggle({ value, onChange, compact = false }: { value: boolean; onChange: (value: boolean) => void; compact?: boolean }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    return <div role="group" aria-label="姿势参考类型" className="inline-flex shrink-0 gap-0.5 rounded-full border p-0.5" style={{ borderColor: theme.node.stroke }}>
-        {([false, true] as const).map((depth) => <button key={String(depth)} type="button" aria-pressed={value === depth} onClick={() => onChange(depth)} className="rounded-full px-1.5 py-0.5 text-[10px] leading-4" style={{ color: value === depth ? theme.toolbar.activeText : theme.node.muted, background: value === depth ? theme.toolbar.activeBg : undefined }}>{depth ? "深度" : "白模"}</button>)}
+    return <div role="group" aria-label="姿势参考类型" className={`pointer-events-auto inline-flex shrink-0 gap-0.5 rounded-full border p-0.5 ${compact ? "@max-[76px]:gap-0 @max-[76px]:p-0" : ""}`} style={{ borderColor: theme.node.stroke, background: compact ? theme.toolbar.panel : undefined }}>
+        {([false, true] as const).map((depth) => <button key={String(depth)} type="button" aria-pressed={value === depth} onClick={() => onChange(depth)} className={`whitespace-nowrap rounded-full px-1.5 py-0.5 ${compact ? "text-[9px] leading-3 @max-[76px]:px-0.5" : "text-[10px] leading-4"}`} style={{ color: value === depth ? theme.toolbar.activeText : theme.node.muted, background: value === depth ? theme.toolbar.activeBg : undefined }}>{depth ? "深度" : "白模"}</button>)}
     </div>;
 }
 

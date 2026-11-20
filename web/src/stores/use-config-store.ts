@@ -25,6 +25,7 @@ export type ModelChannel = {
 };
 
 export type AiConfig = {
+    autoPairQuotesEnabled?: boolean;
     channelMode: "remote" | "local";
     baseUrl: string;
     apiKey: string;

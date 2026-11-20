@@ -121,7 +121,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
         if (source.type === "dxos:llm" || source.type === "dxos:concurrent") {
             const host = pluginHostRef.current;
             if (!host) throw new Error("工作流运行器尚未就绪");
-            return runWorkflowNode(nodeId, { ...host, applyOps: applyAgentOps, getConfig: () => useConfigStore.getState().config, isActive }, { signal, prompt });
+            return runWorkflowNode(nodeId, { ...host, applyOps: applyAgentOps, getConfig: () => useConfigStore.getState().config, isActive }, { signal, prompt, projectId });
         }
         if (!["config", "text", "image", "video", "audio"].includes(source.type)) throw new Error(`该节点没有专用运行器：${source.type}`);
         if (!generateNodeRef.current) throw new Error("生成器尚未就绪");

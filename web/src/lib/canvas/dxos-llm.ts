@@ -57,29 +57,41 @@ export function buildLlmPrompt(inputs: LlmInputs, prompt = "") {
     return [inputs.text, prompt.trim(), hierarchy].filter(Boolean).join("\n\n");
 }
 
-export function parseLlmTable(text: string): DxTable {
+export function parseLlmTable(text: string): { table: DxTable; summary?: string } {
     const raw = text.trim(), fence = String.fromCharCode(96).repeat(3);
     const fenced = raw.match(new RegExp("^" + fence + "(?:json)?\\s*([\\s\\S]*?)" + fence + "$", "i"));
     let value: unknown;
     try { value = JSON.parse(fenced ? fenced[1].trim() : raw); }
     catch { throw new Error("模型未返回合法的多维表格 JSON，请调整提示词后重试"); }
-    if (!value || typeof value !== "object") throw new Error("模型没有返回统一的多维表格格式");
-    const table = value as Partial<DxTable>;
-    if (table.kind !== "table" || table.version !== 1 || !Array.isArray(table.columns) || !table.columns.length || !table.columns.every((column) => typeof column === "string" && column.trim()) || !Array.isArray(table.rows) || !table.rows.every((row) => Array.isArray(row) && row.length === table.columns!.length && row.every((cell) => typeof cell === "string"))) throw new Error("需要 kind=table、version=1、非空列名及长度与列数一致的字符串行");
-    return { kind: "table", version: 1, columns: [...table.columns], rows: table.rows.map((row) => [...row]), selectedRows: [], mergedGroups: [] };
+    const output = Array.isArray(value) ? { rows: value } : value;
+    if (!output || typeof output !== "object" || !("rows" in output) || !Array.isArray(output.rows)) throw new Error("多维表格结果需要包含 rows 数组");
+    const summary = "summary" in output ? output.summary : undefined;
+    if (summary !== undefined && typeof summary !== "string") throw new Error("多维表格的 summary 必须是文字");
+    const base = { kind: "table" as const, version: 1 as const, selectedRows: [], mergedGroups: [] };
+    if ("kind" in output) {
+        const { kind, version, columns, rows } = output as Partial<DxTable>;
+        if (kind !== "table" || version !== 1 || !Array.isArray(columns) || !columns.length || !columns.every((column) => typeof column === "string" && column.trim()) || !rows?.every((row) => Array.isArray(row) && row.length === columns.length && row.every((cell) => typeof cell === "string"))) throw new Error("旧版表格需要 kind=table、version=1、非空列名及长度与列数一致的字符串行");
+        return { table: { ...base, columns, rows }, summary: summary?.trim() || undefined };
+    }
+    const rows = (output.rows as unknown[]).map((row, index) => {
+        if (!row || typeof row !== "object" || !("title" in row) || !("prompt" in row) || typeof row.title !== "string" || typeof row.prompt !== "string" || !row.title.trim() || !row.prompt.trim()) throw new Error(`多维表格第 ${index + 1} 行需要非空的 title 和 prompt`);
+        return [row.title.trim(), row.prompt.trim()];
+    });
+    return { table: { ...base, columns: ["图片名称与比例", "提示词"], rows }, summary: summary?.trim() || undefined };
 }
 
 export const llmTableSystemPrompt = [
-    '请将分析结果输出为严格的多维表格 JSON，不要解释或 Markdown。格式必须为 {"kind":"table","version":1,"columns":["列名"],"rows":[["内容"]]}。列名为非空字符串，每行单元格数量与 columns 一致，所有单元格必须是字符串。',
-    "每行必须是一条完整、独立、可直接用于后续生成的内容，完成真实分析或创作，不写“参考图1”等占位。严格遵守用户指定的数量；未指定时结合输入数量和任务决定。图片组可逐张对应，单图通常应用到所有相关行。",
-    "目标主体与风格参考有区分时，每行写清关系，仅迁移用户要求的风格/布局等信息，不自动迁移参考图中的品牌、外观、人物、文案或数据。按任务设计真正有用的文字列，无需多余序号列。",
-    "系统会在独立输入通道保留原图，不要输出图片、参考图、生成输入或图片 URL 列，不要以图片列覆盖文字分析。",
+    '只输出一个严格的 JSON 对象，不要代码围栏、Markdown 表格或 JSON 外的说明。通用格式：{"summary":"前置分析、策划总纲与统一规范（纯文字）","rows":[{"title":"图片名称与比例","prompt":"该图可独立生图的完整提示词"}]}。无论题材或用户提示词中的排版要求，均使用此结构。',
+    "rows 中每项必须且只能对应一张实际需要生成的图片。遵守用户指定的数量、分组及顺序：如需 5 张主图和 10 张详情页，rows 必须恰好 15 项，第 1 项直接是主图1，第 6 项是详情页1。若未指定数量，按实际要求的画面拆分；明确只需分析、不生成图片时，rows 为 []。",
+    "产品分析、核心卖点、方案总览、统一视觉规范、统一正负面提示词等非画面内容只能写入 summary，禁止把这些章节、标题、分类说明或占位符作为 rows 项。没有摘要时，summary 写空字符串。",
+    "每项 title 写明该图的名称和有要求的比例；prompt 写成独立完整、可直接生图的提示词，将适用的统一风格、字体、画质与正负面要求融合进该项，不要写‘同上’或要求读取 summary。区分目标主体与风格参考，仅迁移用户要求的元素。原图由独立输入通道保留，不输出图片 URL。",
 ].join("\n");
 
-export function buildLlmOutputOps(node: CanvasNodeData, mode: "text" | "list", text: string, inputs: LlmInputs, nodes: CanvasNodeData[], connections: CanvasConnection[], outputId = nanoid()): { outputId: string; ops: CanvasAgentOp[] } {
+export function buildLlmOutputOps(node: CanvasNodeData, mode: "text" | "list", text: string, inputs: LlmInputs, nodes: CanvasNodeData[], connections: CanvasConnection[], outputId = nanoid()): { outputId: string; ops: CanvasAgentOp[]; summary?: string } {
     const downstreamIds = new Set(connections.filter((edge) => edge.fromNodeId === node.id).map((edge) => edge.toNodeId));
     const y = Math.max(node.position.y, ...nodes.filter((source) => downstreamIds.has(source.id)).map((source) => source.position.y + source.height + 42));
-    const table = mode === "list" ? parseLlmTable(text) : null;
+    const listResult = mode === "list" ? parseLlmTable(text) : null;
+    const table = listResult?.table;
     const groups = inputs.groups.filter((group) => nodes.some((source) => source.id === group.sourceNodeId));
     const ops: CanvasAgentOp[] = [
         { type: "add_node", id: outputId, nodeType: table ? TABLE_TYPE : "text", title: table ? "LLM 输出列表" : "LLM 输出文本", position: { x: node.position.x + node.width + 100, y }, width: table ? 700 : TEXT_NODE_DEFAULT_SIZE.width, height: table ? 600 : TEXT_NODE_DEFAULT_SIZE.height, metadata: table ? { table, tableRowsFromData: true, tableInputChannels: groups.length ? groups.map((group) => ({ id: group.id, mode: group.references.length > 1 ? "sequence" : "shared", imagesOnly: true, mediaNodeIds: group.mediaNodeIds })) : [{ id: "input-1" }], status: "success" } : { content: text, status: "success" } },
@@ -87,5 +99,5 @@ export function buildLlmOutputOps(node: CanvasNodeData, mode: "text" | "list", t
         { type: "connect_nodes", fromNodeId: node.id, toNodeId: outputId, ...(table ? { toPort: "llm-output" } : {}) },
     ];
     if (table) groups.forEach((group) => ops.push({ type: "connect_nodes", fromNodeId: group.sourceNodeId, toNodeId: outputId, toPort: group.id }));
-    return { outputId, ops };
+    return { outputId, ops, summary: listResult?.summary };
 }

@@ -70,7 +70,10 @@ export function LlmContent({ ctx }: { ctx: CanvasNodeContext }) {
             <div className="flex min-h-[140px] flex-1 flex-col rounded-xl border border-black/[0.06] bg-black/[0.03] p-3 transition-colors focus-within:border-[#0ea977] dark:border-white/[0.08] dark:bg-white/[0.05]">
                 <textarea aria-label="LLM 提示词" disabled={running} className="h-full w-full flex-1 resize-none overscroll-contain border-0 bg-transparent leading-relaxed outline-none" style={{ color: theme.node.text, fontSize: "inherit" }} placeholder="例如：分析已连接图片；输入你的分析要求…" value={meta.prompt || ""} onChange={(event) => ctx.updateMetadata({ prompt: event.target.value })} />
             </div>
-            {(meta.content || running) && <div data-node-scroll data-node-no-drag aria-label="LLM 分析结果" className="max-h-72 shrink-0 select-text overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-xl border border-black/[0.05] bg-black/[0.02] p-3 dark:border-white/[0.07] dark:bg-white/[0.03]" style={{ color: theme.node.muted }}>{running ? "正在分析…" : meta.content}</div>}
+            {running || meta.content || meta.llmSummary ? <div data-node-scroll data-node-no-drag aria-label="LLM 分析结果" className="max-h-72 shrink-0 select-text overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-xl border border-black/[0.05] bg-black/[0.02] p-3 dark:border-white/[0.07] dark:bg-white/[0.03]" style={{ color: theme.node.muted }}>{running ? "正在分析…" : meta.llmSummary ? <details>
+                <summary className="cursor-pointer select-none font-medium" style={{ color: theme.node.text }}>分析摘要</summary>
+                <p className="mt-2">{meta.llmSummary}</p>
+            </details> : meta.content}</div> : null}
             {incoming.error && <p role="alert" className="break-words" style={{ color: theme.node.muted }}>{summary}</p>}
         </div>
         <div className="shrink-0 space-y-3 border-t p-5" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>

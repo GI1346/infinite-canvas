@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { App, Button, Input } from "antd";
-import { Download, FileUp, Plus, Search, Trash2 } from "lucide-react";
+import { App, Button, Input, Segmented } from "antd";
+import { Download, FileUp, Plus, Search, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasGlass, canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { readZip } from "@/lib/zip";
 import { setMediaBlob } from "@/services/file-storage";
@@ -26,6 +26,7 @@ export default function CanvasPage() {
     const [searchParams] = useSearchParams();
     const inputRef = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState("");
+    const [view, setView] = useState<"grid" | "list">("grid");
     const autoOpenRef = useRef(false);
     const hydrated = useCanvasStore((state) => state.hydrated);
     const hydrationError = useCanvasStore((state) => state.hydrationError);
@@ -83,7 +84,7 @@ export default function CanvasPage() {
 
     return (
         <main className="h-full overflow-auto" style={{ color: theme.node.text }}>
-            <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-7 px-9 py-7">
+            <div className={`mx-auto flex w-full max-w-[1180px] flex-col gap-7 px-9 py-7 ${selectedIds.length ? "pb-24" : ""}`}>
                 <header className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                         <h1 className="m-0 text-[34px] font-semibold leading-tight">文件</h1>
@@ -92,7 +93,7 @@ export default function CanvasPage() {
                     <div className="flex flex-wrap items-center gap-2.5">
                         <Input
                             aria-label="搜索项目"
-                            className="!w-[220px] !rounded-2xl"
+                            className="bf-spring-search !rounded-2xl"
                             style={{ background: theme.glass.inset, borderColor: theme.glass.insetBorder, color: theme.node.text }}
                             prefix={<Search className="size-4" style={{ color: theme.node.muted }} />}
                             placeholder="搜索项目"
@@ -100,14 +101,6 @@ export default function CanvasPage() {
                             onChange={event => setQuery(event.target.value)}
                             allowClear
                         />
-                        {selectedIds.length ? (
-                            <>
-                                <Button className="!rounded-2xl" disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), `${t("canvas.title")}-${selectedIds.length}`)}>
-                                    {t("canvas.exportSelected")}
-                                </Button>
-                                <Button className="!rounded-2xl" disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>{t("canvas.deleteSelected")}</Button>
-                            </>
-                        ) : null}
                         {projects.length ? (
                             <Button className="!rounded-2xl" icon={<Trash2 className="size-4" />} disabled={!hydrated} onClick={() => setDeleteIds(projects.map((project) => project.id))}>
                                 {t("canvas.deleteAll")}
@@ -119,9 +112,9 @@ export default function CanvasPage() {
                 <section className="grid max-w-[580px] grid-cols-2 gap-4">
                     <Button
                         disabled={!hydrated}
-                        className="!h-16 !w-full !justify-center !rounded-2xl !text-base !font-medium !border"
+                        className="bf-mag-btn group !h-16 !w-full !justify-center !rounded-2xl !text-base !font-medium !border"
                         style={primaryStyle}
-                        icon={<Plus className="size-5" />}
+                        icon={<Plus className="size-5 motion-safe:transition-transform motion-safe:group-hover:rotate-90" />}
                         onClick={createAndEnter}
                     >
                         {t("canvas.create")}
@@ -129,7 +122,7 @@ export default function CanvasPage() {
                     <Button
                         disabled={!hydrated}
                         className="!h-16 !w-full !justify-center !rounded-2xl !text-base !font-medium !border"
-                        style={{ background: theme.glass.inset, borderColor: theme.glass.insetBorder, color: theme.node.text }}
+                        style={{ ...canvasGlass(theme), color: theme.node.text }}
                         icon={<FileUp className="size-5" />}
                         onClick={() => inputRef.current?.click()}
                     >
@@ -141,6 +134,7 @@ export default function CanvasPage() {
                     <h2 className="m-0 text-xl font-semibold">最近项目</h2>
                     <span className="h-4 w-px" style={{ background: theme.node.stroke }} />
                     <span className="text-xs" style={{ color: theme.node.muted }}>{projects.length} 个画布</span>
+                    <Segmented className="ml-auto" aria-label="项目视图" value={view} onChange={setView} options={[{label: "网格", value: "grid"}, {label: "列表", value: "list"}]} />
                 </div>
 
                 {!hydrated ? (
@@ -148,9 +142,9 @@ export default function CanvasPage() {
                 ) : projects.length && !visibleProjects.length ? (
                     <section className="py-20 text-center text-sm" style={{ color: theme.node.muted }}>没有匹配的项目</section>
                 ) : projects.length ? (
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(272px,1fr))] gap-5">
+                    <div className={view === "grid" ? "grid grid-cols-[repeat(auto-fill,minmax(min(100%,272px),1fr))] gap-5" : "grid gap-2"}>
                         {visibleProjects.map((project) => (
-                            <CanvasProjectCard key={project.id} project={project} />
+                            <CanvasProjectCard key={project.id} project={project} list={view === "list"} />
                         ))}
                     </div>
                 ) : (
@@ -164,6 +158,12 @@ export default function CanvasPage() {
                 )}
             </div>
 
+            {selectedIds.length > 0 && <div className="pointer-events-none fixed inset-x-0 bottom-5 z-20 flex justify-center px-2"><div className="bf-spring-pop pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-2xl border p-2" style={canvasGlass(theme)}>
+                <span className="px-2 text-xs">已选 <span key={selectedIds.length} className="bf-digit-roll font-mono">{selectedIds.length}</span> 个画布</span>
+                <Button size="small" disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), `${t("canvas.title")}-${selectedIds.length}`)}>{t("canvas.exportSelected")}</Button>
+                <Button size="small" danger disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>{t("canvas.deleteSelected")}</Button>
+                <Button size="small" type="text" aria-label="取消选择画布" icon={<X size={15} />} onClick={() => useCanvasUiStore.getState().removeSelectedProjectIds(selectedIds)} />
+            </div></div>}
             <input ref={inputRef} type="file" accept="application/zip,.zip" className="hidden" onChange={(event) => void importCanvas(event.target.files?.[0])} />
             <CanvasDeleteProjectsDialog />
         </main>

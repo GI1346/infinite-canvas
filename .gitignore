@@ -40,3 +40,6 @@ desktop/release-*/
 
 # 本地工具的项目记忆/缓存
 .workbuddy/
+
+# 姿势图库本体（ai-pose-gallery-zh，约 1.1G，暂不进 git；需要时单独分发）
+web/public/pose-gallery/

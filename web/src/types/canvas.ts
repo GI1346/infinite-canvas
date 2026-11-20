@@ -73,6 +73,7 @@ export type CanvasNodeMetadata = {
     presetCustomPalettes?: { value: string; name: string; colors: string[]; prompt: string }[];
     llmChannelId?: string;
     llmOutputNodeId?: string;
+    llmSummary?: string;
     table?: import("@/lib/canvas/dxos-table").DxTable;
     tableRowsFromData?: boolean;
     tableInputChannels?: import("@/lib/canvas/dxos-table").DxInputChannel[];
@@ -89,6 +90,8 @@ export type CanvasNodeMetadata = {
     status?: CanvasNodeStatus;
     errorDetails?: string;
     fontSize?: number;
+    generationStartedAt?: number;
+    generationDurationMs?: number;
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;
     /** 派生结果所属系列的原始节点 id；同一系列的结果按 generationSlot 排网格。 */

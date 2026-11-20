@@ -91,6 +91,7 @@ export function CanvasStylePicker({ selections, onSelect, customPalettes, onCust
                     onCancel={() => setTab(null)}
                     footer={null}
                     closable={false}
+                    modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}
                     style={{ background: theme.node.panel, padding: 0, borderRadius: 20, overflow: "hidden" }}
                     styles={{ body: { padding: 0 }, mask: { background: theme.canvas.background === "#0d0d0d" ? "rgba(0,0,0,.55)" : "rgba(0,0,0,.28)" } }}
                 >

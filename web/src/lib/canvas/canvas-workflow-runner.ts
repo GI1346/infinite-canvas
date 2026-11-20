@@ -1,7 +1,10 @@
 import { imageQualityForModel } from "@/lib/image-quality";
 import { nanoid } from "nanoid";
 
-import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
+import { applyCanvasAgentOps, type CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
+import { finishImageGenerationTiming, startImageGenerationTiming } from "@/lib/generation-timer";
+import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { generationTaskKey, startCanvasImageTask, useGenerationRunnerStore, type RunningGenerationTask } from "@/stores/canvas/use-generation-runner-store";
 import { imageOutputCropContext } from "@/lib/canvas/canvas-local-fusion";
 import { arrangeGrid } from "@/lib/canvas/canvas-grid-layout";
 import { getGroupWrapRect } from "@/lib/canvas/canvas-node-geometry";
@@ -25,26 +28,27 @@ export type CanvasWorkflowHost = {
     getConfig: () => AiConfig;
     isActive?: () => boolean;
 };
-export type CanvasWorkflowRunOptions = { signal?: AbortSignal; prompt?: string; retry?: boolean };
-type WorkflowRun = { controller: AbortController; host: CanvasWorkflowHost; onStop?: () => void };
+export type CanvasWorkflowRunOptions = { signal?: AbortSignal; prompt?: string; retry?: boolean; projectId?: string };
+type WorkflowRun = { key: string; controller: AbortController; host: CanvasWorkflowHost; onStop?: () => void; imageTask?: RunningGenerationTask };
 const activeRuns = new Map<string, WorkflowRun>();
-export function isWorkflowNodeRunning(id: string) { return activeRuns.has(id) || runningTableBatches.has(id); }
+export function isWorkflowNodeRunning(id: string, projectId?: string) { return projectId ? activeRuns.has(generationTaskKey(projectId, id)) : activeRuns.has(id) || runningTableBatches.has(id); }
 function write(host: CanvasWorkflowHost, id: string, patch: CanvasNodeMetadata) { host.applyOps([{ type: "update_node", id, metadata: patch }]); }
 function visible(host: CanvasWorkflowHost, id: string) { return host.isActive?.() !== false && Boolean(host.getNode(id)); }
-function owns(id: string, run: WorkflowRun) { return activeRuns.get(id) === run; }
+function owns(_id: string, run: WorkflowRun) { return activeRuns.get(run.key) === run; }
 function stopRun(id: string, run: WorkflowRun) {
     if (!owns(id, run)) return;
-    run.controller.abort();
+    if (!run.controller.signal.aborted) run.controller.abort();
+    if (!owns(id, run)) return;
     // Release synchronously: an uncooperative transport must not lock the next run.
     // Its later catch/finally paths all check this same run identity before writing.
     try {
         if (visible(run.host, id)) {
             run.onStop?.();
-            write(run.host, id, { status: "idle", errorDetails: undefined });
+            write(run.host, id, { status: "idle", generationStartedAt: undefined, errorDetails: undefined });
         }
-    } finally { if (owns(id, run)) { activeRuns.delete(id); runningTableBatches.delete(id); } }
+    } finally { if (owns(id, run)) { activeRuns.delete(run.key); runningTableBatches.delete(run.key); } }
 }
-export function stopWorkflowNode(id: string) { const run = activeRuns.get(id); if (run) stopRun(id, run); }
+export function stopWorkflowNode(id: string, projectId?: string) { const run = activeRuns.get(projectId ? generationTaskKey(projectId, id) : id); if (run) stopRun(id, run); }
 function assertActive(host: CanvasWorkflowHost, id: string, signal?: AbortSignal) {
     if (signal?.aborted || !visible(host, id)) throw new DOMException("节点已停止或画布已切换", "AbortError");
 }
@@ -78,7 +82,7 @@ async function runLlm(node: CanvasNodeData, host: CanvasWorkflowHost, options: C
     if (!result.text.trim()) throw new Error("模型未返回分析内容");
     const current = host.getNode(node.id)!;
     const output = buildLlmOutputOps(current, mode, result.text, inputs, host.getNodes(), host.getConnections());
-    host.applyOps([...output.ops, { type: "update_node", id: node.id, metadata: { content: result.text, status: "success", errorDetails: undefined, llmOutputNodeId: output.outputId, model, llmChannelId: channelId } }]);
+    host.applyOps([...output.ops, { type: "update_node", id: node.id, metadata: { content: mode === "text" ? result.text : undefined, llmSummary: output.summary, status: "success", errorDetails: undefined, llmOutputNodeId: output.outputId, model, llmChannelId: channelId } }]);
     return host.getNode(output.outputId) || undefined;
 }
 
@@ -98,12 +102,13 @@ async function runConcurrent(node: CanvasNodeData, host: CanvasWorkflowHost, opt
         state.tasks.forEach((task) => {
             if (task.status !== "queued" && task.status !== "running") return;
             task.status = "stopped"; task.error = "已停止";
-            task.outputIds.forEach((id) => { if (host.getNode(id)) host.applyOps([{ type: "update_node", id, metadata: { status: "error", errorDetails: task.error } }]); });
+            task.outputIds.forEach((id) => { if (host.getNode(id)) host.applyOps([{ type: "update_node", id, metadata: { status: "error", generationStartedAt: undefined, errorDetails: task.error } }]); });
         });
         state.state = "stopped"; publish();
     };
-    runningTableBatches.add(node.id);
-    write(host, node.id, { status: "loading", errorDetails: undefined }); publish();
+    runningTableBatches.add(run.key);
+    if (run.imageTask) useGenerationRunnerStore.getState().updateTask(run.imageTask, { outputNodeIds: state.tasks.flatMap((task) => task.outputIds) });
+    write(host, node.id, { status: "loading", ...(run.imageTask ? startImageGenerationTiming(run.imageTask.startedAt) : {}), errorDetails: undefined }); publish();
     const group = nanoid(), origin = { x: node.position.x + node.width + 100, y: node.position.y };
     const requestedSize = meta.imageAspectRatio === "auto" ? null : parsePixelSize(meta.size || host.getConfig().size) || parseAspectRatio(meta.imageAspectRatio || meta.size || host.getConfig().size);
     const placeholderSize = mode === "image" ? requestedSize ? fitNodeSize(requestedSize.width * IMAGE_NODE_MAX_EDGE, requestedSize.height * IMAGE_NODE_MAX_EDGE) : { width: IMAGE_NODE_MAX_EDGE, height: IMAGE_NODE_MAX_EDGE } : { width: 300, height: 280 };
@@ -140,14 +145,15 @@ async function runConcurrent(node: CanvasNodeData, host: CanvasWorkflowHost, opt
             const prompt = [row.text, options.prompt ?? meta.prompt].filter(Boolean).join("\n"), references = row.media.map((media) => media.url);
             try {
                 if (!host.getNode(id)) throw new Error("生成结果节点已删除，未重新创建");
-                write(host, id, { status: "loading", ...(mode === "image" ? { cropContext } : {}) });
+                const startedAt = Date.now();
+                write(host, id, { status: "loading", ...(mode === "image" ? { cropContext, ...startImageGenerationTiming(startedAt) } : {}) });
                 if (row.media.some((media) => media.mediaType !== "image")) throw new Error("此批量入口当前只接收图片参考；视频或音频素材请使用画布原生对应节点");
                 let output: CanvasNodeMetadata;
                 if (mode === "image") {
                     const result = await host.ai.generateImage(prompt, { model, references, count: 1, size: meta.imageAspectRatio === "auto" ? "auto" : meta.size, resolution: meta.imageResolution, quality: imageQualityForModel(model, meta.quality || host.getConfig().quality), signal });
                     assertRun(host, node.id, run);
                     if (!result.images.length) throw new Error("中转站未返回图片");
-                    output = { ...imageMetadata(await uploadImage(result.images[0], { signal })), cropContext };
+                    output = { ...imageMetadata(await uploadImage(result.images[0], { signal })), ...finishImageGenerationTiming(startedAt), cropContext };
                 } else if (mode === "video") {
                     const result = await host.ai.generateVideo(prompt, { model, references, size: meta.size, seconds: meta.seconds, signal });
                     assertRun(host, node.id, run);
@@ -162,7 +168,7 @@ async function runConcurrent(node: CanvasNodeData, host: CanvasWorkflowHost, opt
                 updateOutput(id, output, size); task.status = "success";
             } catch (error) {
                 task.status = !active() || (error instanceof DOMException && error.name === "AbortError") ? "stopped" : "error"; task.error = error instanceof Error ? error.message : String(error);
-                if (owns(node.id, run) && visible(host, node.id) && host.getNode(id)) host.applyOps([{ type: "update_node", id, metadata: { status: "error", errorDetails: task.error } }]);
+                if (owns(node.id, run) && visible(host, node.id) && host.getNode(id)) host.applyOps([{ type: "update_node", id, metadata: { status: "error", generationStartedAt: undefined, errorDetails: task.error } }]);
             } finally { publish(); }
         });
     } finally {
@@ -171,11 +177,11 @@ async function runConcurrent(node: CanvasNodeData, host: CanvasWorkflowHost, opt
             state.tasks.forEach((task) => {
                 if (task.status !== "queued" && task.status !== "running") return;
                 task.status = "stopped"; task.error = "已停止";
-                if (visible(host, node.id)) task.outputIds.forEach((id) => { if (host.getNode(id)) write(host, id, { status: "error", errorDetails: task.error }); });
+                if (visible(host, node.id)) task.outputIds.forEach((id) => { if (host.getNode(id)) write(host, id, { status: "error", generationStartedAt: undefined, errorDetails: task.error }); });
             });
             state.state = active() ? "completed" : "stopped";
             publish();
-            if (visible(host, node.id)) write(host, node.id, { status: state.tasks.every((task) => task.status === "success") ? "success" : "error", errorDetails: state.tasks.filter((task) => task.status !== "success").map((task) => `第 ${task.rowNumber} 行：${task.error || "已停止"}`).join("\n") || undefined });
+            if (visible(host, node.id)) write(host, node.id, { status: state.tasks.every((task) => task.status === "success") ? "success" : "error", generationStartedAt: undefined, errorDetails: state.tasks.filter((task) => task.status !== "success").map((task) => `第 ${task.rowNumber} 行：${task.error || "已停止"}`).join("\n") || undefined });
         }
     }
     assertRun(host, node.id, run);
@@ -189,10 +195,29 @@ export async function runWorkflowNode(nodeId: string, host: CanvasWorkflowHost, 
     assertActive(host, nodeId, options.signal);
     const node = host.getNode(nodeId)!;
     if (node.type !== LLM_TYPE && node.type !== CONCURRENT_TYPE) throw new Error(`没有专用运行器的工作流节点：${node.type}`);
-    if (isWorkflowNodeRunning(nodeId)) throw new Error("节点正在运行，请等待完成");
-    const run: WorkflowRun = { controller: new AbortController(), host };
-    activeRuns.set(nodeId, run);
-    const forwardAbort = () => stopRun(nodeId, run);
+    const originalHost = host;
+    const projectId = node.type === CONCURRENT_TYPE && node.metadata?.generationMode !== "text" && node.metadata?.generationMode !== "video" ? options.projectId : undefined;
+    if (isWorkflowNodeRunning(nodeId, projectId) || (projectId && useGenerationRunnerStore.getState().isNodeRunning(projectId, nodeId))) throw new Error("节点正在运行，请等待完成");
+    const imageTask = projectId ? startCanvasImageTask(projectId, nodeId, Date.now()) : undefined;
+    if (projectId) {
+        const getProject = () => useCanvasStore.getState().openProject(projectId);
+        host = {
+            ...host,
+            getNode: (id) => getProject()?.nodes.find((item) => item.id === id),
+            getNodes: () => getProject()?.nodes ?? [],
+            getConnections: () => getProject()?.connections ?? [],
+            isActive: () => Boolean(getProject()),
+            applyOps: (ops) => useCanvasStore.getState().updateProject(projectId, (project) => {
+                const next = applyCanvasAgentOps({ projectId, title: project.title, nodes: project.nodes, connections: project.connections, selectedNodeIds: [], viewport: project.viewport }, ops);
+                return { nodes: next.nodes, connections: next.connections, viewport: next.viewport };
+            }),
+        };
+    }
+    const run: WorkflowRun = { key: projectId ? generationTaskKey(projectId, nodeId) : nodeId, controller: imageTask?.controller ?? new AbortController(), host, imageTask };
+    activeRuns.set(run.key, run);
+    const onAbort = () => { stopRun(nodeId, run); if (imageTask) useGenerationRunnerStore.getState().finishTask(imageTask); };
+    if (imageTask) run.controller.signal.addEventListener("abort", onAbort, { once: true });
+    const forwardAbort = () => { if (!imageTask || originalHost.isActive?.() !== false) stopRun(nodeId, run); };
     options.signal?.addEventListener("abort", forwardAbort, { once: true });
     try {
         assertRun(host, nodeId, run);
@@ -202,11 +227,13 @@ export async function runWorkflowNode(nodeId: string, host: CanvasWorkflowHost, 
     } catch (error) {
         if (owns(nodeId, run) && visible(host, nodeId)) {
             const aborted = run.controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
-            write(host, nodeId, { status: aborted ? "idle" : "error", errorDetails: aborted ? undefined : error instanceof Error ? error.message : String(error) });
+            write(host, nodeId, { status: aborted ? "idle" : "error", generationStartedAt: undefined, errorDetails: aborted ? undefined : error instanceof Error ? error.message : String(error) });
         }
         throw error;
     } finally {
         options.signal?.removeEventListener("abort", forwardAbort);
-        if (owns(nodeId, run)) { activeRuns.delete(nodeId); runningTableBatches.delete(nodeId); }
+        run.controller.signal.removeEventListener("abort", onAbort);
+        if (owns(nodeId, run)) { activeRuns.delete(run.key); runningTableBatches.delete(run.key); }
+        if (imageTask) useGenerationRunnerStore.getState().finishTask(imageTask);
     }
 }

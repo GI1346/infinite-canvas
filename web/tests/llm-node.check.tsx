@@ -103,11 +103,19 @@ async function helperTests() {
         assert.equal(migrated[2], custom); assert.equal(enlargeWorkflowNodes(migrated), migrated);
     });
     await check("strict/fenced table JSON retained as editable strings without truncation", () => {
-        assert.deepEqual(parseLlmTable(tableJson), { kind: "table", version: 1, columns: ["描述", "提示词"], rows: [["图片一", "翻译英文"], ["图片二", "保留构图"]], selectedRows: [], mergedGroups: [] });
+        assert.deepEqual(parseLlmTable(tableJson).table, { kind: "table", version: 1, columns: ["描述", "提示词"], rows: [["图片一", "翻译英文"], ["图片二", "保留构图"]], selectedRows: [], mergedGroups: [] });
         assert.deepEqual(parseLlmTable("```json\n" + tableJson + "\n```"), parseLlmTable(tableJson));
         const large = { kind: "table", version: 1, columns: Array.from({ length: 41 }, (_, i) => `列${i}`), rows: Array.from({ length: 201 }, () => Array.from({ length: 41 }, () => "x".repeat(20001))) };
-        const parsed = parseLlmTable(JSON.stringify(large)); assert.equal(parsed.columns.length, 41); assert.equal(parsed.rows.length, 201); assert.equal(parsed.rows[0][0].length, 20001);
-        for (const value of ["not json", "[]", "null", '{"kind":"table","version":"1","columns":["x"],"rows":[]}', '{"kind":"table","version":1,"columns":[" "],"rows":[]}', '{"kind":"table","version":1,"columns":["x"],"rows":[[1]]}', '{"kind":"table","version":1,"columns":["x"],"rows":[["a","b"]]}', 'explanation ' + tableJson]) assert.throws(() => parseLlmTable(value), undefined, value.slice(0, 100));
+        const { table: parsed } = parseLlmTable(JSON.stringify(large)); assert.equal(parsed.columns.length, 41); assert.equal(parsed.rows.length, 201); assert.equal(parsed.rows[0][0].length, 20001);
+        for (const value of ["not json", "null", '{"kind":"table","version":"1","columns":["x"],"rows":[]}', '{"kind":"table","version":1,"columns":[" "],"rows":[]}', '{"kind":"table","version":1,"columns":["x"],"rows":[[1]]}', '{"kind":"table","version":1,"columns":["x"],"rows":[["a","b"]]}', 'explanation ' + tableJson]) assert.throws(() => parseLlmTable(value), undefined, value.slice(0, 100));
+    });
+    await check("new JSON and legacy arrays isolate the summary and reject incomplete image rows", () => {
+        const rows = [{ title: "镜头1 · 16:9", prompt: "电影感远景\n黄昏光线" }];
+        assert.deepEqual(parseLlmTable(JSON.stringify(rows)).table.rows, [[rows[0].title, rows[0].prompt]]);
+        assert.deepEqual(parseLlmTable(JSON.stringify({ summary: "只分析，不生成", rows: [] })).table.rows, []);
+        for (const invalid of [{ summary: "只有摘要" }, { summary: ["不是文字"], rows }, { rows: [{ title: "策划总纲" }, ...rows] }, { rows: [{ ...rows[0], prompt: "   " }] }]) {
+            assert.throws(() => parseLlmTable(JSON.stringify(invalid)), /rows|summary|title 和 prompt/);
+        }
     });
     await check("connected nested groups collect images/text once in input order, unsupported media errors", () => {
         const source = llm(), group = node("group", "group"), sub = node("sub", "group", { groupId: group.id }), a = image("first", input, { groupId: sub.id }), b = image("second", input2, { groupId: group.id }), text = node("prompt", "text", { content: "翻译英文" });
@@ -121,7 +129,7 @@ async function helperTests() {
         assert.deepEqual(inputs.references, [input, input2]); assert.deepEqual(inputs.imageNodeIds, [batch.id]);
         const output = buildLlmOutputOps(source, "list", tableJson, inputs, nodes, connections, "list-output");
         const snapshot = applyCanvasAgentOps({ projectId: "test", title: "test", nodes, connections, selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 } }, output.ops), table = snapshot.nodes.find((n) => n.id === output.outputId)!;
-        assert.equal(table.type, TABLE_TYPE); assert.deepEqual(table.metadata!.table, parseLlmTable(tableJson)); assert.deepEqual(tableRows(table, snapshot.nodes, snapshot.connections).map((r) => r.media.map((m) => m.url)), [[input], [input2]]);
+        assert.equal(table.type, TABLE_TYPE); assert.deepEqual(table.metadata!.table, parseLlmTable(tableJson).table); assert.deepEqual(tableRows(table, snapshot.nodes, snapshot.connections).map((r) => r.media.map((m) => m.url)), [[input], [input2]]);
         assert.ok(snapshot.connections.some((c) => c.fromNodeId === source.id && c.toNodeId === table.id)); assert.ok(snapshot.connections.some((c) => c.fromNodeId === batch.id && c.toNodeId === table.id && c.toPort === "input-1"));
         assert.deepEqual(channelItems(table, "input-1", snapshot.nodes, snapshot.connections).map((i) => i.type), ["media", "media"]);
     });
@@ -178,15 +186,31 @@ async function workflowTests() {
         try { await fire(button(ui.el, "开始分析"), mouse()); assert.equal(requests.length, 1); assert.equal(requests[0].headers.Authorization, "Bearer synthetic-text-a"); const content = requests[0].body.input.at(-1).content; assert.ok(content[0].text.startsWith("翻译英文\n\n请分析图片")); assert.ok(content[0].text.includes("图片组，共 2 张")); assert.deepEqual(content.slice(1), [{ type: "input_image", image_url: input }, { type: "input_image", image_url: input2 }]); }
         finally { await ui.close(); }
     });
-    await check("list result creates editable table with original images, output flow and concurrent-ready rows", async () => {
-        const source = llm(), group = node("group", "group"), first = image("first", input, { groupId: group.id }), second = image("second", input2, { groupId: group.id }), ui = await setup(source, [group, first, second], [edge(group.id, source.id)]);
-        reply = async () => responseText("```json\n" + tableJson + "\n```");
+    await check("list result keeps analysis in a collapsible summary and passes exactly 15 image rows downstream", async () => {
+        const source = node("llm", LLM_TYPE, { prompt: "生成 5 张主图与 10 张详情页" }), group = node("group", "group"), first = image("first", input, { groupId: group.id }), second = image("second", input2, { groupId: group.id }), ui = await setup(source, [group, first, second], [edge(group.id, source.id)]);
+        const summary = "产品分析与卖点\n统一视觉规范\n统一负面提示词";
+        const images = Array.from({ length: 15 }, (_, i) => ({ title: i < 5 ? `主图${i + 1} · 1:1` : `详情页${i - 4} · 3:4`, prompt: `第${i + 1}张独立提示词\n统一柔光和字体` }));
+        reply = async () => responseText("```json\n" + JSON.stringify({ summary, rows: images }) + "\n```");
         try {
             await fire(button(ui.el, "多维表格"), mouse()); await fire(button(ui.el, "开始分析"), mouse());
-            assert.equal(requests.length, 1); assert.ok(requests[0].body.input.some((m: any) => m.role === "system" && JSON.stringify(m.content).includes("kind")));
-            const table = ui.state().nodes.find((n) => n.id === ui.host().getNode(source.id)!.metadata!.llmOutputNodeId)!; assert.equal(table.type, TABLE_TYPE); assert.deepEqual(table.metadata!.table, parseLlmTable(tableJson));
-            const rows = tableRows(table, ui.state().nodes, ui.state().connections); assert.deepEqual(rows.map((r) => r.media.map((m) => m.url)), [[input], [input2]]); assert.equal(rows[0].text, "图片一\n翻译英文"); assert.ok(!rows[0].text.includes("kind"));
-            const concurrent = node("concurrent", CONCURRENT_TYPE), connections = [...ui.state().connections, edge(table.id, concurrent.id)]; assert.deepEqual(generationRows(concurrent, [...ui.state().nodes, concurrent], connections), rows);
+            assert.equal(requests.length, 1);
+            assert.ok(requests[0].body.input.some((m: any) => m.role === "system" && JSON.stringify(m.content).includes("summary") && JSON.stringify(m.content).includes("rows")));
+            const meta = ui.host().getNode(source.id)!.metadata!;
+            assert.equal(meta.content, undefined);
+            assert.equal(meta.llmSummary, summary);
+            const details = ui.el.querySelector<HTMLDetailsElement>("details")!;
+            assert.equal(details.open, false);
+            await fire(details.querySelector("summary")!, mouse());
+            assert.equal(details.open, true);
+            assert.equal(details.querySelector("p")?.textContent, summary);
+            const table = ui.state().nodes.find((n) => n.id === meta.llmOutputNodeId)!;
+            assert.equal(table.type, TABLE_TYPE);
+            assert.deepEqual(table.metadata!.table!.rows, images.map(({ title, prompt }) => [title, prompt]));
+            const rows = tableRows(table, ui.state().nodes, ui.state().connections);
+            assert.deepEqual(rows.slice(0, 2).map((r) => r.media.map((m) => m.url)), [[input], [input2]]);
+            const concurrent = node("concurrent", CONCURRENT_TYPE), connections = [...ui.state().connections, edge(table.id, concurrent.id)];
+            const downstream = generationRows(concurrent, [...ui.state().nodes, concurrent], connections);
+            assert.deepEqual(downstream.map((r) => r.text), images.map(({ title, prompt }) => title + "\n" + prompt));
             await act(async () => ui.host().applyOps([{ type: "update_node", id: table.id, metadata: { table: { ...table.metadata!.table!, rows: [["可编辑", "修改后"], ["第二", "保留"]] } } }])); assert.equal(tableRows(ui.host().getNode(table.id)!, ui.state().nodes, connections)[0].text, "可编辑\n修改后");
         } finally { await ui.close(); }
     });

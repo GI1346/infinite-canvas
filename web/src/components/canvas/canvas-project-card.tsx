@@ -12,7 +12,7 @@ import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { hasAgentUrlBootstrap } from "@/lib/agent/agent-url-bootstrap";
 
-export function CanvasProjectCard({ project }: { project: CanvasProject }) {
+export function CanvasProjectCard({ project, list = false }: { project: CanvasProject; list?: boolean }) {
     const theme = canvasThemes[useThemeStore(state => state.theme)];
     const image = project.nodes.find(node => node.type === "image" && (node.metadata?.storageKey || node.metadata?.content));
     const [cover, setCover] = useState("");
@@ -41,9 +41,9 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     };
 
     return (
-        <article className="group flex min-h-64 cursor-pointer flex-col overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_10px_26px_rgba(15,23,42,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#0ea977]/50 hover:shadow-[0_16px_36px_-8px_rgba(14,169,119,0.15)] dark:border-white/[0.12]" style={{ background: theme.glass.inset, color: theme.node.text }} onClick={() => !editing && open()}>
-            <div className="m-2.5 mb-0 flex h-40 items-center justify-center overflow-hidden rounded-xl" style={{ background: theme.glass.inset }}>{cover ? <img src={cover} alt="" className="h-full w-full object-cover" loading="lazy" /> : <div className="text-3xl font-semibold tracking-tight opacity-30">BlinkFlow</div>}</div>
-            <div className="flex items-start gap-3 px-5 pt-4">
+        <article className={`group flex cursor-pointer overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_10px_26px_rgba(15,23,42,0.10)] transition-all duration-200 motion-safe:hover:-translate-y-1 hover:border-[#0ea977]/50 hover:shadow-[0_16px_36px_-8px_rgba(14,169,119,0.15)] dark:border-white/[0.12] ${list ? "flex-wrap items-center sm:flex-nowrap" : "min-h-64 flex-col"}`} style={{ background: theme.glass.inset, color: theme.node.text }} onClick={() => !editing && open()}>
+            <div className={`relative m-2.5 flex items-center justify-center overflow-hidden rounded-xl ${list ? "h-16 w-24 shrink-0" : "mb-0 h-40"}`} style={{ background: theme.glass.inset }}>{cover ? <img src={cover} alt="" className="h-full w-full object-cover motion-safe:transition-transform motion-safe:duration-500 motion-safe:group-hover:scale-105" loading="lazy" /> : <div className="text-3xl font-semibold tracking-tight opacity-30">BlinkFlow</div>}{!list && <span className="pointer-events-none absolute bottom-3 right-3 rounded-full px-3 py-1 text-xs opacity-0 backdrop-blur-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" style={{ background: theme.accent.base, color: theme.node.panel }}>进入画布 ↗</span>}</div>
+            <div className={list ? "flex min-w-0 flex-1 items-center gap-2 px-2" : "flex items-start gap-3 px-5 pt-4"}>
                 <input
                     type="checkbox"
                     checked={selected}
@@ -70,7 +70,7 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
                     </button>
                 )}
             </div>
-            <div className="mt-3 flex flex-wrap items-end justify-between gap-2 px-5 pb-4">
+            <div className={list ? "ml-auto flex flex-wrap items-center gap-2 px-3 py-2" : "mt-3 flex flex-wrap items-end justify-between gap-2 px-5 pb-4"}>
                 <p className="rounded-md bg-black/[0.04] px-2 py-0.5 font-mono text-[11px] dark:bg-white/[0.06]" style={{ color: theme.node.muted }}>{t("canvas.project.updated", { date: new Date(project.updatedAt).toLocaleString(i18n.resolvedLanguage, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) })}</p>
                 <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
                     {editing ? (
