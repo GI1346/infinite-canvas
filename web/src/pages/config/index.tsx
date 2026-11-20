@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import { AppConfigPanel } from "@/components/layout/app-config-modal";
+import { HomeAppearanceControls } from "@/components/layout/home-appearance-controls";
 import { VersionReleaseModal } from "@/components/layout/version-release-modal";
 import { canvasGlass, canvasThemes } from "@/lib/canvas-theme";
 import { useCanvasImageSettingsStore } from "@/stores/canvas/use-canvas-image-settings-store";
@@ -18,10 +19,14 @@ function SystemPreferences() {
     const [sliderMax, setSliderMax] = useState(() => Math.max(4, Math.ceil(maxMb)));
     const surface = canvasGlass(theme);
     return <div className="mb-5 grid gap-3 lg:grid-cols-2">
-        <section className="rounded-2xl border p-4" style={surface}>
+        <section className="rounded-2xl border p-4 lg:row-span-2" style={surface}>
             <h2 className="mb-3 text-sm font-semibold">外观与画布</h2>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span>界面主题</span><Segmented aria-label="界面主题" value={colorTheme} onChange={setTheme} options={[{ value: "light", label: "浅色" }, { value: "dark", label: "深色" }]} /></div>
             <p className="mt-3 text-xs leading-relaxed" style={{ color: theme.node.muted }}>LibTV 滚轮：直接滚动平移，上下滚动时按住 Shift 横移，按住 Ctrl 缩放。</p>
+            <div className="mt-4 border-t pt-4" style={{ borderColor: theme.glass.border }}>
+                <h3 className="mb-3 text-sm font-semibold">主页壁纸与磨砂</h3>
+                <HomeAppearanceControls />
+            </div>
         </section>
         <section className="rounded-2xl border p-4" style={surface}>
             <h2 className="mb-3 text-sm font-semibold">编辑与生成</h2>

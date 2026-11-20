@@ -52,9 +52,12 @@ export function LlmContent({ ctx }: { ctx: CanvasNodeContext }) {
     };
     const cancel = () => { controller.current?.abort(); stopWorkflowNode(node.id); controller.current = null; setRunning(false); if (current.current.getNode(node.id)) current.current.updateMetadata({ status: "idle", errorDetails: undefined }); };
     return <div data-llm-chat className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl text-sm" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag} onPointerDown={stop} onKeyDown={stop}>
-        <div className="flex shrink-0 items-center gap-3 px-6 pt-5">
-            <span className="shrink-0 rounded-lg bg-[#0ea977]/12 px-3 py-1 text-sm font-semibold text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b]">AI 多模态</span>
-            <span className="min-w-0 truncate" style={{ color: theme.node.muted }}>{summary}</span>
+        <div className="flex min-w-0 shrink-0 items-center gap-2 px-6 pt-5">
+            <span className="shrink-0 rounded-lg bg-[#0ea977]/12 px-2.5 py-1 text-xs font-semibold text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b]">AI 多模态</span>
+            <span className="min-w-0 flex-1 truncate text-xs" title={summary} style={{ color: theme.node.muted }}>{summary}</span>
+            <fieldset aria-label="LLM 输出模式" disabled={running} className="inline-flex shrink-0 gap-0.5 rounded-full border p-0.5" style={{ borderColor: theme.node.stroke }}>
+                {([['text', '文本'], ['list', '多维表格']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} className="h-6 whitespace-nowrap rounded-full px-2.5 text-[11px] font-medium disabled:opacity-50" style={mode === value ? { background: theme.canvas.selectionStroke, color: theme.node.panel } : { color: theme.node.muted }} onClick={() => ctx.updateMetadata({ llmOutputMode: value })}>{label}</button>)}
+            </fieldset>
         </div>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-6 pb-6 pt-3">
             {!!incoming.inputs?.previews?.length && <div data-node-scroll data-node-no-drag aria-label="LLM 输入素材" className="max-h-44 shrink-0 overflow-auto overscroll-contain">
@@ -76,9 +79,11 @@ export function LlmContent({ ctx }: { ctx: CanvasNodeContext }) {
             </details> : meta.content}</div> : null}
             {incoming.error && <p role="alert" className="break-words" style={{ color: theme.node.muted }}>{summary}</p>}
         </div>
-        <div className="shrink-0 space-y-3 border-t p-5" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
-            <fieldset aria-label="LLM 输出模式" disabled={running} className="inline-flex min-w-0 gap-1 rounded-full border p-1" style={{ borderColor: theme.node.stroke }}>{([['text', '文本'], ['list', '多维表格']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} className="rounded-full px-4 py-0.5 disabled:opacity-50" style={mode === value ? { background: theme.canvas.selectionStroke, color: theme.node.panel } : { color: theme.node.muted }} onClick={() => ctx.updateMetadata({ llmOutputMode: value })}>{label}</button>)}</fieldset>
-            <div className="flex min-w-0 items-center gap-3"><div className="min-w-0 flex-1 rounded-xl border border-black/[0.06] bg-black/[0.03] px-2.5 py-1 transition-colors focus-within:border-[#0ea977] dark:border-white/[0.08] dark:bg-white/[0.05]"><ModelPicker config={config} value={model} capability="text" groupByChannel="list" fullWidth disabled={running} ariaLabel="LLM 模型" className="!h-14 !text-sm" placeholder="选择分析模型" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} onChange={(value) => ctx.updateMetadata({ model: value, llmChannelId: decodeChannelModel(value)?.channelId || "" })} /></div><button type="button" aria-label={running ? "停止分析" : "开始分析"} title={running ? "停止分析" : "开始分析"} onClick={() => running ? cancel() : void run()} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-lg font-semibold shadow-sm transition hover:opacity-95 active:scale-[0.99]" style={running ? { background: "#ef4444", color: "#ffffff" } : { backgroundImage: "linear-gradient(to bottom right, #0ea977, #12896a)", color: "#ffffff" }}>{running ? <Square size={18} /> : <Play size={18} />}<span>{running ? "停止" : "开始分析"}</span></button></div>
+        <div className="shrink-0 space-y-2 border-t px-5 py-3" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
+            <div className="flex min-w-0 items-center gap-2">
+                <div className="min-w-0 flex-1"><ModelPicker config={config} value={model} capability="text" groupByChannel="list" menuZoom={1} fullWidth disabled={running} ariaLabel="LLM 模型" className="!h-9 !text-xs !rounded-xl" placeholder="选择分析模型" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} onChange={(value) => ctx.updateMetadata({ model: value, llmChannelId: decodeChannelModel(value)?.channelId || "" })} /></div>
+                <button type="button" aria-label={running ? "停止分析" : "开始分析"} title={running ? "停止分析" : "开始分析"} onClick={() => running ? cancel() : void run()} className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-xs font-semibold shadow-sm transition hover:opacity-95 active:scale-[0.99]" style={running ? { background: "#ef4444", color: "#ffffff" } : { backgroundImage: "linear-gradient(to bottom right, #0ea977, #12896a)", color: "#ffffff" }}>{running ? <Square size={14} /> : <Play size={14} />}<span>{running ? "停止" : "开始分析"}</span></button>
+            </div>
             {(error || meta.errorDetails) && <p role="alert" className="break-words">{error || meta.errorDetails}</p>}
             {(running || meta.status === "success" || meta.status === "loading") && <p role="status" className="text-sm" style={{ color: theme.node.muted }}>{running ? "运行中" : meta.status === "loading" ? "上次运行已中断" : "已完成"}</p>}
         </div>
