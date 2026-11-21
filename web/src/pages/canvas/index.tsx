@@ -14,7 +14,8 @@ import { CanvasProjectCard } from "@/components/canvas/canvas-project-card";
 import type { CanvasExportFile } from "@/types/canvas-export";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
-import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
+import { CanvasExportDialog } from "@/components/canvas/canvas-export-dialog";
+import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { hasAgentUrlBootstrap } from "@/lib/agent/agent-url-bootstrap";
 
 export default function CanvasPage() {
@@ -82,6 +83,7 @@ export default function CanvasPage() {
     // 主页主按钮：统一品牌翡翠绿渐变，深浅色主题都一致。
     const primaryStyle = { backgroundImage: "linear-gradient(135deg,#0ea977,#12896a)", color: "#fff", borderColor: "rgba(255,255,255,.35)", boxShadow: "0 12px 28px rgba(14,169,119,.26)" };
 
+    const [exportProjects, setExportProjects] = useState<CanvasProject[]>([]);
     return (
         <main className="h-full overflow-auto" style={{ color: theme.node.text }}>
             <div className={`mx-auto flex w-full max-w-[1180px] flex-col gap-7 px-9 py-7 ${selectedIds.length ? "pb-24" : ""}`}>
@@ -144,7 +146,7 @@ export default function CanvasPage() {
                 ) : projects.length ? (
                     <div className={view === "grid" ? "grid grid-cols-[repeat(auto-fill,minmax(min(100%,272px),1fr))] gap-5" : "grid gap-2"}>
                         {visibleProjects.map((project) => (
-                            <CanvasProjectCard key={project.id} project={project} list={view === "list"} />
+                            <CanvasProjectCard key={project.id} project={project} list={view === "list"} onExport={(item) => setExportProjects([item])} />
                         ))}
                     </div>
                 ) : (
@@ -158,9 +160,10 @@ export default function CanvasPage() {
                 )}
             </div>
 
+            {exportProjects.length > 0 && <CanvasExportDialog request={{ kind: "projects", projects: exportProjects }} onClose={() => setExportProjects([])} />}
             {selectedIds.length > 0 && <div className="pointer-events-none fixed inset-x-0 bottom-5 z-20 flex justify-center px-2"><div className="bf-spring-pop pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-2xl border p-2" style={canvasGlass(theme)}>
                 <span className="px-2 text-xs">已选 <span key={selectedIds.length} className="bf-digit-roll font-mono">{selectedIds.length}</span> 个画布</span>
-                <Button size="small" disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), `${t("canvas.title")}-${selectedIds.length}`)}>{t("canvas.exportSelected")}</Button>
+                <Button size="small" disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => setExportProjects(projects.filter((project) => selectedIds.includes(project.id)))}>{t("canvas.exportSelected")}</Button>
                 <Button size="small" danger disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>{t("canvas.deleteSelected")}</Button>
                 <Button size="small" type="text" aria-label="取消选择画布" icon={<X size={15} />} onClick={() => useCanvasUiStore.getState().removeSelectedProjectIds(selectedIds)} />
             </div></div>}

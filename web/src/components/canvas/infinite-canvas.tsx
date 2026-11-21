@@ -18,10 +18,11 @@ type InfiniteCanvasProps = {
     onConnectionCutStart?: (event: React.PointerEvent<HTMLDivElement>) => boolean;
     isCuttingConnections?: boolean;
     onDrop?: (event: React.DragEvent<HTMLDivElement>) => void;
+    overlay?: React.ReactNode;
     children: React.ReactNode;
 };
 
-export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasContextMenu, onConnectionCutStart, isCuttingConnections = false, onDrop, children }: InfiniteCanvasProps) {
+export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasContextMenu, onConnectionCutStart, isCuttingConnections = false, onDrop, overlay, children }: InfiniteCanvasProps) {
     const colorTheme = useThemeStore((state) => state.theme);
     const theme = canvasThemes[colorTheme];
     const background = useThemeStore((state) => state.canvasBackgrounds[colorTheme]) || theme.canvas.background;
@@ -174,7 +175,9 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
         if (target?.closest(".ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
         // 画布上的固定浮层（顶部栏、左侧栏、右键菜单）不抢滚轮；节点内部（含文本节点卡片）一律放行给画布。
         const overlay = target?.closest("[data-canvas-overlay],[data-canvas-no-zoom]");
-        if (overlay && !overlay.closest("[data-node-id],[data-node-panel]")) return;
+        if (overlay?.closest("[data-canvas-quick-dock]")) {
+            if (focusedScrollableEditor(target) || nodeScrollArea(target)) return;
+        } else if (overlay && !overlay.closest("[data-node-id],[data-node-panel]")) return;
 
         if (cuttingRef.current) { event.preventDefault(); event.stopPropagation(); return; }
 
@@ -367,6 +370,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
                     {children}
                 </div>
             </div>
+            {overlay}
         </div>
     );
 }

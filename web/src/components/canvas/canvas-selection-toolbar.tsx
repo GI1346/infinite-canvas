@@ -28,7 +28,7 @@ export function CanvasSelectionToolbar({
         <svg className="pointer-events-none absolute z-[65] overflow-visible" style={{ left, top, width, height }}>
             <rect x={1} y={1} width={Math.max(width - 2, 0)} height={Math.max(height - 2, 0)} rx={16} ry={16} fill={theme.canvas.selectionFill} stroke={theme.canvas.selectionStroke} strokeOpacity={0.55} strokeWidth={1.5} strokeDasharray="7 5" strokeLinecap="round" />
         </svg>
-        {showToolbar && <div data-canvas-overlay data-canvas-no-zoom data-selection-toolbar className="absolute bottom-6 left-1/2 z-[70] flex max-w-[calc(100%_-_32px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-full border px-3 py-2 text-sm shadow-lg" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+        {showToolbar && <div data-canvas-overlay data-canvas-no-zoom data-selection-toolbar className="absolute bottom-[calc(var(--canvas-quick-dock-height,0px)+24px)] left-1/2 z-[59] flex max-w-[calc(100%_-_32px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-full border px-3 py-2 text-sm shadow-lg" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
             onMouseDown={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
             <span className="shrink-0 whitespace-nowrap px-2">已选 {nodes.length} 项</span>
             <SelectionAction title="宫格排列" icon={<Grid2X2 className="size-4" />} onClick={() => onArrange("grid")} />

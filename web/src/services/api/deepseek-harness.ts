@@ -46,12 +46,12 @@ export function harnessModelsState(): HarnessModelsState {
     };
 }
 
-export async function openDeepSeekHarness() {
+export async function openDeepSeekHarness(openSource: "quick-dock" | "other" = "other") {
     const context = useCanvasAssistantStore.getState().context;
     if (!context) throw new Error("请先打开一个画布");
     const projectId = context.getSnapshot().projectId;
     useCanvasAssistantStore.getState().setOpen(true);
-    useHarnessSidebarStore.setState({ tab: "harness", loading: true, error: "" });
+    useHarnessSidebarStore.setState({ tab: "harness", openSource, loading: true, error: "" });
     try {
         const harness = ensureHarnessBridge();
         if (!harness) throw new Error("请通过本地网页预览或桌面画布打开 Harness");

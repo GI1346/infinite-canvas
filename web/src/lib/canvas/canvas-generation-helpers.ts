@@ -1,4 +1,5 @@
 import { imageQualityForModel } from "@/lib/image-quality";
+import { hydrateWorkflowAssetUrls } from "@/lib/canvas/workflow-json";
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import i18n from "@/i18n";
 import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
@@ -46,7 +47,8 @@ export async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
 
 export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(
-        nodes.map(async (node) => {
+        nodes.map(async (source) => {
+            const node = source.metadata?.workflowAssetUrls ? await hydrateWorkflowAssetUrls(source) : source;
             const metadata = node.metadata;
             const content = metadata?.content;
             if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && metadata?.storageKey) return { ...node, metadata: { ...metadata, content: await resolveMediaUrl(metadata.storageKey, content) } };

@@ -61,6 +61,7 @@ export type CanvasCropContext = { full: true } | { conflict: true } | {
 };
 
 export type CanvasNodeMetadata = {
+    workflowAssetUrls?: Record<string, string>;
     characterRecipe?: CharacterRecipe;
     workflowDisplayVersion?: number;
     cropContext?: CanvasCropContext;

@@ -17,6 +17,7 @@ type Props = {
     selectedNodeIds: Set<string>;
     onInsertAsset: (payload: InsertAssetPayload) => void | Promise<void>;
     onInsertWorkflow?: (workflow: SavedWorkflow) => void | Promise<void>;
+    onImportWorkflow?: () => void;
 };
 
 const PANEL_INFO = {
@@ -25,7 +26,7 @@ const PANEL_INFO = {
     gallery: { title: "图片库", Icon: Images },
 };
 
-export const CanvasSidePanel = memo(function CanvasSidePanel({ nodes, connections = [], selectedNodeIds, onInsertAsset, onInsertWorkflow }: Props) {
+export const CanvasSidePanel = memo(function CanvasSidePanel({ nodes, connections = [], selectedNodeIds, onInsertAsset, onInsertWorkflow, onImportWorkflow }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { tab, width, panelMounted, panelClosing, setWidth, closePanel } = useCanvasSidePanelStore();
     const [resizing, setResizing] = useState(false);
@@ -81,7 +82,7 @@ export const CanvasSidePanel = memo(function CanvasSidePanel({ nodes, connection
                 <button type="button" aria-label={`收起${title}`} className="grid size-7 place-items-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.muted }} onClick={closePanel}><X className="size-4" /></button>
             </header>
             <div className="min-h-0 flex-1 overflow-hidden">
-                {tab === "resources" ? <ResourceBrowser compact onInsert={onInsertAsset} onInsertWorkflow={onInsertWorkflow} nodes={selectedNodeIds.size ? nodes.filter((node) => selectedNodeIds.has(node.id)) : nodes} connections={connections} /> : <ImageLibraryBrowser key={tab} compact mode={tab === "history" ? "history" : "gallery"} onInsert={onInsertAsset} />}
+                {tab === "resources" ? <ResourceBrowser compact onInsert={onInsertAsset} onInsertWorkflow={onInsertWorkflow} onImportWorkflow={onImportWorkflow} nodes={selectedNodeIds.size ? nodes.filter((node) => selectedNodeIds.has(node.id)) : nodes} connections={connections} /> : <ImageLibraryBrowser key={tab} compact mode={tab === "history" ? "history" : "gallery"} onInsert={onInsertAsset} />}
             </div>
             <button type="button" className="absolute inset-y-6 right-0 z-40 w-2 cursor-col-resize" onPointerDown={startResize} aria-label="调整悬浮窗口宽度" aria-pressed={resizing} />
         </motion.aside>

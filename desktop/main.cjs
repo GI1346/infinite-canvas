@@ -327,6 +327,54 @@ else {
     });
     win.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => { if (isMainFrame) cancelHarnessRequests('画布页面已切换，工具请求已停止'); });
     win.on('closed', () => { cancelHarnessRequests('画布已关闭'); app.quit(); });
+    const exportName = (name) => {
+      if (typeof name !== 'string') throw new Error('无效的导出名称');
+      const clean = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().replace(/[ .]+$/, '');
+      if (!clean || clean === '.' || clean === '..') throw new Error('无效的导出名称');
+      return /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(clean) ? '_' + clean : clean;
+    };
+    ipcMain.handle('fs:export-directory-bundle', async (event, folders) => {
+      trusted(event);
+      if (!Array.isArray(folders) || !folders.length) throw new Error('没有可导出的画布');
+      const manifest = folders.map((folder) => {
+        if (!folder || !Array.isArray(folder.files)) throw new Error('无效的导出清单');
+        return { name: exportName(folder.folderName), files: folder.files.map((file) => {
+          if (!file || (typeof file.textContent === 'string') === (typeof file.dataBase64 === 'string') || (typeof file.dataBase64 === 'string' && (file.dataBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(file.dataBase64)))) throw new Error('无效的导出内容');
+          return { name: exportName(file.filename), text: file.textContent, base64: file.dataBase64 };
+        }) };
+      });
+      const selected = await dialog.showOpenDialog(win, { title: '选择导出目录', properties: ['openDirectory', 'createDirectory'] });
+      if (selected.canceled || !selected.filePaths[0]) return { canceled: true };
+      const directory = await fs.promises.realpath(selected.filePaths[0]);
+      let writtenFiles = 0;
+      for (const folder of manifest) {
+        // Reserve a new child folder. Never follow or reuse an existing symlink/junction.
+        let target;
+        for (let index = 0; ; index++) {
+          target = path.join(directory, index ? folder.name + '_' + index : folder.name);
+          try { await fs.promises.mkdir(target); break; } catch (error) { if (error.code !== 'EEXIST') throw error; }
+        }
+        for (const file of folder.files) {
+          const parsed = path.parse(file.name);
+          for (let index = 0; ; index++) {
+            const dest = path.join(target, index ? parsed.name + '_' + index + parsed.ext : file.name);
+            try { await fs.promises.writeFile(dest, typeof file.text === 'string' ? file.text : Buffer.from(file.base64, 'base64'), { flag: 'wx' }); writtenFiles++; break; }
+            catch (error) { if (error.code !== 'EEXIST') throw error; }
+          }
+        }
+      }
+      return { canceled: false, directory, writtenFiles };
+    });
+    ipcMain.handle('fs:save-json-file', async (event, suggestedName, jsonString) => {
+      trusted(event);
+      if (typeof jsonString !== 'string') throw new Error('无效的工作流内容');
+      const name = exportName(suggestedName);
+      const picked = await dialog.showSaveDialog(win, { title: '保存工作流 JSON', defaultPath: /\.json$/i.test(name) ? name : name + '.json', filters: [{ name: 'BlinkFlow Workflow JSON', extensions: ['json'] }] });
+      if (picked.canceled || !picked.filePath) return { canceled: true };
+      await fs.promises.writeFile(picked.filePath, jsonString, 'utf8');
+      return { canceled: false, filePath: picked.filePath };
+    });
+
     ipcMain.handle('downloads:images', async (event, files) => {
       trusted(event);
       if (!Array.isArray(files) || files.some((file) => !file || typeof file.name !== 'string' || path.basename(file.name) !== file.name || /[<>:"/\\|?*\x00-\x1f]/.test(file.name) || !(file.data instanceof ArrayBuffer))) throw new Error('无效的图片下载数据');

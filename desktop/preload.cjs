@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld('blinkflowStorage', {
   clear: () => ipcRenderer.invoke('storage:clear'),
 });
 
+contextBridge.exposeInMainWorld('blinkflowDesktop', {
+  exportDirectoryBundle: (folders) => ipcRenderer.invoke('fs:export-directory-bundle', folders),
+  saveJsonFile: (suggestedName, json) => ipcRenderer.invoke('fs:save-json-file', suggestedName, json),
+});
+
 contextBridge.exposeInMainWorld('blinkflowDownloads', { saveImages: (files) => ipcRenderer.invoke('downloads:images', files) });
 
 contextBridge.exposeInMainWorld('blinkflowClipboard', {

@@ -5,6 +5,7 @@ type HarnessReferenceBatch = { id: string; projectId: string; files: Array<{ nod
 /** View state only. Official Harness keeps its own conversations and account session. */
 export const useHarnessSidebarStore = create<{
     tab: "agent" | "harness";
+    openSource?: "quick-dock" | "other";
     url: string;
     projectId: string;
     loading: boolean;

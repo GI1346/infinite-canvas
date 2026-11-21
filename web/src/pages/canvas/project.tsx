@@ -73,7 +73,8 @@ import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { useNodeContentSnapshot } from "@/pages/canvas/hooks/use-node-content-snapshot";
 import { buildNodeMentionReferences, getGroupResourceNodes, isCanvasReferenceNode, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
-import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
+import { parseAndImportWorkflowJson } from "@/lib/canvas/workflow-json";
+import { CanvasExportDialog, type ExportRequest } from "@/components/canvas/canvas-export-dialog";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { applyGroupSelection, applyUngroupSelection, canGroupSelectedNodes, canUngroupSelectedNodes, collectGroupMemberNodes, findContainingGroupId, findGroupDropTarget, focusViewportForNode, getConnectionTargetAnchor, getGroupWrapRect, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
 import {
@@ -101,6 +102,10 @@ import { registerBuiltinNodes } from "@/components/canvas/nodes/builtin-nodes";
 import { CanvasPluginManagerModal } from "@/components/canvas/canvas-plugin-manager-modal";
 import { CanvasRefreshShell } from "@/components/canvas/canvas-refresh-shell";
 import { CanvasTopBar } from "@/components/canvas/canvas-top-bar";
+import { CanvasBottomQuickDock, quickDockOpenKey, type QuickDockSubmission } from "@/components/canvas/canvas-bottom-quick-dock";
+import { openDeepSeekHarness } from "@/services/api/deepseek-harness";
+import { useHarnessSidebarStore } from "@/stores/use-harness-sidebar-store";
+import { computeMediaSize } from "@/lib/media-size";
 import { arrangeGrid } from "@/lib/canvas/canvas-grid-layout";
 import { arrangeSelection } from "@/lib/canvas/canvas-selection-layout";
 import { canvasDownloadMimeType, canvasDownloadName } from "@/lib/canvas/canvas-download-name";
@@ -224,6 +229,10 @@ const VIDEO_NODE_MAX_WIDTH = 420;
 const VIDEO_NODE_MAX_HEIGHT = 420;
 // Stable empty reference array prevents `... || []` from invalidating CanvasNode's React.memo on every render.
 const EMPTY_REFERENCES: CanvasResourceReference[] = [];
+function isQuickDockSource(node: CanvasNodeData) {
+    return node.type === CanvasNodeType.Text || (node.type === CanvasNodeType.Image && Boolean(node.metadata?.content || node.metadata?.storageKey));
+}
+
 const EMPTY_CANVAS_NODES: CanvasNodeData[] = [];
 const EMPTY_CANVAS_CONNECTIONS: CanvasConnection[] = [];
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
@@ -402,6 +411,21 @@ function InfiniteCanvasPage() {
     const selectedNodeIdsRef = useRef(selectedNodeIds);
     const viewportRef = useRef(viewport);
     const focusAnimRef = useRef<number | null>(null);
+    const [quickDockOpen, setQuickDockOpen] = useState(() => {
+        try { return localStorage.getItem(quickDockOpenKey) === "true"; } catch { return false; }
+    });
+    const openedHarnessFromDockRef = useRef(false);
+    useEffect(() => { try { localStorage.setItem(quickDockOpenKey, String(quickDockOpen)); } catch { /* Session only. */ } }, [quickDockOpen]);
+    useEffect(() => {
+        const stopHarness = useHarnessSidebarStore.subscribe((state) => { if (state.openSource === "other") openedHarnessFromDockRef.current = false; });
+        const stopAssistant = useCanvasAssistantStore.subscribe((state, previous) => {
+            if (previous.open && !state.open && openedHarnessFromDockRef.current) {
+                openedHarnessFromDockRef.current = false;
+                setQuickDockOpen(true);
+            }
+        });
+        return () => { stopHarness(); stopAssistant(); };
+    }, []);
     const pluginHostRef = useRef<CanvasPluginHost | null>(null);
     const generateNodeRef = useRef<((nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, signal?: AbortSignal) => Promise<string | void>) | null>(null);
     const connectingParamsRef = useRef(connectingParams);
@@ -1009,6 +1033,7 @@ function InfiniteCanvasPage() {
     };
     const hasMultipleSelectedNodes = selectedNodeIds.size > 1;
     const selectedNodes = useMemo(() => nodes.filter((node) => selectedNodeIds.has(node.id)), [nodes, selectedNodeIds]);
+    const quickDockSources = useMemo(() => Array.from(selectedNodeIds).map((id) => nodeById.get(id)).filter((node): node is CanvasNodeData => Boolean(node && isQuickDockSource(node))), [nodeById, selectedNodeIds]);
     const canGroupSelection = canGroupSelectedNodes(selectedNodeIds, contentNodes);
     const canUngroupSelection = canUngroupSelectedNodes(selectedNodeIds, contentNodes);
     const groupChildCountById = useMemo(() => {
@@ -1420,15 +1445,7 @@ function InfiniteCanvasPage() {
         setContextMenu(null);
     }, [size.height, size.width]);
 
-    const focusNode = useCallback(
-        (nodeId: string) => {
-            const node = nodesRef.current.find((item) => item.id === nodeId);
-            if (!node) return;
-            const target = focusViewportForNode(node, size, measureFocusFrame(containerRef.current, nodeId));
-            setSelectedNodeIds(new Set([nodeId]));
-            setSelectedConnectionId(null);
-            setContextMenu(null);
-
+    const animateViewportTo = useCallback((target: ViewportTransform) => {
             if (focusAnimRef.current) cancelAnimationFrame(focusAnimRef.current);
             const start = { ...viewportRef.current };
             const duration = 450;
@@ -1442,9 +1459,15 @@ function InfiniteCanvasPage() {
                 focusAnimRef.current = progress < 1 ? requestAnimationFrame(step) : null;
             };
             focusAnimRef.current = requestAnimationFrame(step);
-        },
-        [size.height, size.width],
-    );
+    }, []);
+    const focusNode = useCallback((nodeId: string) => {
+        const node = nodesRef.current.find((item) => item.id === nodeId);
+        if (!node) return;
+        setSelectedNodeIds(new Set([nodeId]));
+        setSelectedConnectionId(null);
+        setContextMenu(null);
+        animateViewportTo(focusViewportForNode(node, size, measureFocusFrame(containerRef.current, nodeId)));
+    }, [animateViewportTo, size.height, size.width]);
 
     // 视窗里一个节点都看不到时，回到离视窗中心最近的节点。
     const backToClosestNode = useCallback(() => {
@@ -1534,20 +1557,14 @@ function InfiniteCanvasPage() {
         navigate("/canvas");
     }, [cleanupAssetImages, deleteProjects, navigate, projectId]);
 
-    const exportCurrentProject = useCallback(async () => {
-        const project = useCanvasStore.getState().projects.find((item) => item.id === projectId);
+    const [exportRequest, setExportRequest] = useState<ExportRequest | null>(null);
+    const workflowInputRef = useRef<HTMLInputElement>(null);
+    const exportCurrentProject = useCallback((kind: "projects" | "workflow") => {
+        const project = useCanvasStore.getState().openProject(projectId);
         if (!project) return message.error(t("canvas.projectPage.notFound"));
-        const hide = message.loading(t("canvas.projectPage.exporting"), 0);
-        try {
-            await exportCanvasProjects([project], project.title || t("canvas.title"));
-            message.success(t("canvas.projectPage.exported"));
-        } catch (error) {
-            console.error(error);
-            message.error(t("canvas.sidePanel.exportFailed"));
-        } finally {
-            hide();
-        }
+        setExportRequest(kind === "projects" ? { kind, projects: [project], dated: true } : { kind, graph: { name: project.title, nodes: project.nodes, connections: project.connections } });
     }, [message, projectId, t]);
+    const chooseWorkflowFile = useCallback(() => workflowInputRef.current?.click(), []);
 
     const handleCanvasMouseDown = useCallback(
         (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1559,17 +1576,18 @@ function InfiniteCanvasPage() {
             if (event.button !== 0) return;
 
             const world = screenToCanvas(event.clientX, event.clientY);
+            const additive = event.shiftKey || event.ctrlKey || event.metaKey;
             const nextSelectionBox = {
                 startWorldX: world.x,
                 startWorldY: world.y,
                 currentWorldX: world.x,
                 currentWorldY: world.y,
-                additive: event.shiftKey,
-                initialSelectedNodeIds: event.shiftKey ? Array.from(selectedNodeIdsRef.current) : [],
+                additive,
+                initialSelectedNodeIds: additive ? Array.from(selectedNodeIdsRef.current) : [],
             };
             selectionBoxRef.current = nextSelectionBox;
             setSelectionBox(nextSelectionBox);
-            if (!event.shiftKey) {
+            if (!additive) {
                 setSelectedNodeIds(new Set());
             }
 
@@ -1602,6 +1620,7 @@ function InfiniteCanvasPage() {
     // It only selects; body onMouseDown still starts dragging, so text selection inside editors does not drag the node.
     // Cache the capture result for the following bubbling drag handler to avoid applying shift-selection twice.
     const pendingSelectionRef = useRef<Set<string> | null>(null);
+    const plainDragClickRef = useRef<string | null>(null);
     const handleNodeSelectCapture = useCallback(
         (event: ReactMouseEvent, nodeId: string) => {
             if (event.button !== 0) return;
@@ -1624,6 +1643,7 @@ function InfiniteCanvasPage() {
         const currentNodes = nodesRef.current;
         const nextSelected = pendingSelectionRef.current ?? selectNodeByEvent(event, nodeId).nextSelected;
         pendingSelectionRef.current = null;
+        plainDragClickRef.current = event.shiftKey || event.ctrlKey || event.metaKey ? null : nodeId;
         const dragIds = expandDragNodeIds(nextSelected, currentNodes);
         const initialSelectedNodes = new Map(currentNodes.filter((node) => dragIds.has(node.id)).map((node): [string, { x: number; y: number }] => [node.id, { x: node.position.x, y: node.position.y }]));
         dragRef.current = {
@@ -1670,8 +1690,9 @@ function InfiniteCanvasPage() {
         if (!canceled) prepareNodeDrag(clientX, clientY);
         const drag = dragRef.current;
 
-        const wasClick = !canceled && !drag.hasMoved && drag.initialSelectedNodes.size === 1;
-        const clickedNodeId = dragRef.current.initialSelectedNodes.keys().next().value;
+        const clickedNodeId = plainDragClickRef.current;
+        plainDragClickRef.current = null;
+        const wasClick = !canceled && !drag.hasMoved && clickedNodeId !== null;
         const currentViewport = viewportRef.current;
         const dx = clientX == null ? 0 : (clientX - dragRef.current.startX) / currentViewport.k;
         const dy = clientY == null ? 0 : (clientY - dragRef.current.startY) / currentViewport.k;
@@ -1731,6 +1752,7 @@ function InfiniteCanvasPage() {
         dragRef.current.copyRequested = false;
         dragRef.current.originalSelection = new Set();
         if (wasClick && clickedNodeId) {
+            setSelectedNodeIds(new Set([clickedNodeId]));
             const clickedNode = nodesRef.current.find((node) => node.id === clickedNodeId);
             const clickedDefinition = clickedNode ? getNodeDefinition(clickedNode.type) : undefined;
             if (clickedDefinition?.hidePanel) {
@@ -3023,7 +3045,7 @@ function InfiniteCanvasPage() {
     }, [projectId, renameProject, titleDraft]);
 
     const handleGenerateNode = useCallback(
-        async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, signal?: AbortSignal) => {
+        async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, signal?: AbortSignal, keepSelection = false) => {
             if (signal?.aborted) throw new DOMException("生成已停止", "AbortError");
             const project = generationProjectRef.current;
             const startedAt = Date.now();
@@ -3259,9 +3281,11 @@ function InfiniteCanvasPage() {
                         ...(reuseImageNode ? [] : [rootNode]),
                     ]);
                     if (!reuseImageNode) updateConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]);
-                    updateSelectedNodeIds(new Set([nodeId]));
-                    updateSelectedConnectionId(null);
-                    updateDialogNodeId(nodeId);
+                    if (!keepSelection) {
+                        updateSelectedNodeIds(new Set([nodeId]));
+                        updateSelectedConnectionId(null);
+                        updateDialogNodeId(nodeId);
+                    }
 
                     const controller = controllerForRun;
                     let hasSuccess = false;
@@ -3574,6 +3598,72 @@ function InfiniteCanvasPage() {
         generateNodeRef.current = handleGenerateNode;
     }, [handleGenerateNode]);
 
+    const selectQuickDockNodes = useCallback((ids: string[]) => {
+        const present = new Set(nodesRef.current.map(({ id }) => id));
+        setSelectedNodeIds(new Set(ids.filter((id) => present.has(id))));
+        setSelectedConnectionId(null);
+        setDialogNodeId(null);
+    }, []);
+    const handleFocusQuickDockNodes = useCallback((ids: string[]) => {
+        const lookup = new Set(ids), nodes = nodesRef.current.filter(({ id }) => lookup.has(id));
+        if (!nodes.length) { message.info("这些任务节点已不在画布上"); return; }
+        const left = Math.min(...nodes.map((node) => node.position.x)), top = Math.min(...nodes.map((node) => node.position.y));
+        const width = Math.max(...nodes.map((node) => node.position.x + node.width)) - left;
+        const height = Math.max(...nodes.map((node) => node.position.y + node.height)) - top;
+        const dock = containerRef.current?.querySelector<HTMLElement>("[data-canvas-quick-dock]");
+        selectQuickDockNodes(nodes.map(({ id }) => id));
+        animateViewportTo(focusViewportForNode({ position: { x: left, y: top }, width, height }, size, { bottomInset: (dock?.offsetHeight || 0) + 24 }));
+    }, [animateViewportTo, message, selectQuickDockNodes, size.height, size.width]);
+    const changeQuickDockOpen = useCallback((open: boolean) => {
+        if (open) openedHarnessFromDockRef.current = false;
+        setQuickDockOpen(open);
+    }, []);
+    const handleOpenHarnessFromDock = useCallback(() => {
+        openedHarnessFromDockRef.current = true;
+        setQuickDockOpen(false);
+        void openDeepSeekHarness("quick-dock").catch((error) => {
+            if (!useCanvasAssistantStore.getState().open && openedHarnessFromDockRef.current) changeQuickDockOpen(true);
+            message.error(error instanceof Error ? error.message : "Harness 启动失败");
+        });
+    }, [changeQuickDockOpen, message]);
+    const handleQuickDockGenerate = useCallback(async (payload: QuickDockSubmission) => {
+        if (!payload.prompt.trim()) return;
+        const page = generationProjectRef.current;
+        if (!payload.model || !isAiConfigReady(effectiveConfig, payload.model)) { openConfigDialog(true); return; }
+        const uploads = await Promise.all(payload.extraUploads.map(async ({ name, url }) => ({ name, image: await uploadImage(url) })));
+        if (!page.alive || generationProjectRef.current !== page) return;
+        const project = useCanvasStore.getState().openProject(page.id);
+        if (!project) return;
+        const byId = new Map(project.nodes.map((node) => [node.id, node]));
+        const sources = payload.sourceNodeIds.map((id) => byId.get(id)).filter((node): node is CanvasNodeData => Boolean(node && isQuickDockSource(node)));
+        const center = getCanvasCenter(), size = computeMediaSize(payload.resolution, payload.aspectRatio);
+        const { width, height } = configNodeSize(size);
+        const count = getGenerationCount(String(payload.count)), columns = Math.min(4, count), rows = Math.ceil(count / columns);
+        const gridWidth = columns * width + (columns - 1) * 24, gridHeight = rows * height + (rows - 1) * 48;
+        const uploadedNodes = uploads.map(({ name, image }, index) => ({ ...createCanvasNode(CanvasNodeType.Image, { x: sources.length ? Math.min(...sources.map(({ position }) => position.x)) - 336 : center.x - gridWidth / 2 - 336, y: (sources[0]?.position.y ?? center.y) + index * 272 }, imageMetadata(image)), ...fitNodeSize(image.width, image.height), title: name }));
+        const lowestLeft = sources.length ? Math.max(...sources.map((node) => node.position.x + node.width)) + 96 : center.x - gridWidth / 2;
+        let y = sources.length ? Math.min(...sources.map(({ position }) => position.y)) : center.y - gridHeight / 2;
+        for (const node of [...project.nodes].sort((a, b) => a.position.y - b.position.y)) {
+            if (node.position.x < lowestLeft + gridWidth + 24 && node.position.x + node.width + 24 > lowestLeft && node.position.y < y + gridHeight + 32 && node.position.y + node.height + 32 > y) y = node.position.y + node.height + 48;
+        }
+        const sourceNodeIds = [...sources, ...uploadedNodes].map(({ id }) => id);
+        const originId = nanoid();
+        const targets = Array.from({ length: count }, (_, i): CanvasNodeData => ({
+            id: i === 0 ? originId : nanoid(), type: CanvasNodeType.Image, title: payload.prompt.slice(0, 32), width, height,
+            position: { x: lowestLeft + (i % 4) * (width + 24), y: y + Math.floor(i / 4) * (height + 48) },
+            metadata: { ...newGenerationMetadata(effectiveConfig), status: "idle", generationMode: "image", composerContent: payload.prompt, model: payload.model, size, imageAspectRatio: payload.aspectRatio, imageResolution: payload.resolution, quality: payload.quality, count: 1, referenceNodeOrder: sourceNodeIds, generationOriginId: originId, generationSlot: i },
+        }));
+        const nextNodes = [...project.nodes, ...uploadedNodes, ...targets];
+        const nextConnections = [...project.connections, ...targets.flatMap(({ id }) => sourceNodeIds.map((fromNodeId) => ({ id: nanoid(), fromNodeId, toNodeId: id })))];
+        nodesRef.current = nextNodes;
+        connectionsRef.current = nextConnections;
+        useCanvasStore.getState().updateProject(page.id, { nodes: nextNodes, connections: nextConnections });
+        targets.forEach(({ id }) => void handleGenerateNode(id, "image", payload.prompt, undefined, true).catch((error) => {
+            if (!isGenerationCanceled(error)) recordDiagnostic("快捷生图", error, { projectId: page.id, nodeId: id });
+        }));
+        return { createdNodeIds: targets.map(({ id }) => id) };
+    }, [effectiveConfig, getCanvasCenter, handleGenerateNode, isAiConfigReady, openConfigDialog]);
+
     const handleRetryNode = useCallback(
         async (node: CanvasNodeData, imageId?: string) => {
             if (hasResumableVideoTask(node)) {
@@ -3870,10 +3960,13 @@ function InfiniteCanvasPage() {
         [insertAssistantImage, insertAssistantText, screenToCanvas, size.height, size.width],
     );
 
+    const workflowCenter = useCallback(() => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        return screenToCanvas((rect?.left || 0) + size.width / 2, (rect?.top || 0) + size.height / 2);
+    }, [screenToCanvas, size.width, size.height]);
     const handleWorkflowInsert = useCallback(async (workflow: SavedWorkflow) => {
         const targetProject = generationProjectRef.current;
-        const center = screenToCanvas((containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2, (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2);
-        const addition = await cloneWorkflow(workflow, center);
+        const addition = await cloneWorkflow(workflow, workflowCenter());
         if (!targetProject.alive || generationProjectRef.current !== targetProject) throw new Error("画布已切换，请在当前画布重新插入");
         const nextNodes = [...nodesRef.current, ...addition.nodes], nextConnections = [...connectionsRef.current, ...addition.connections];
         nodesRef.current = nextNodes;
@@ -3882,7 +3975,23 @@ function InfiniteCanvasPage() {
         setConnections(nextConnections);
         setSelectedNodeIds(new Set(addition.nodes.map((node) => node.id)));
         setSelectedConnectionId(null);
-    }, [screenToCanvas, size.width, size.height]);
+    }, [workflowCenter]);
+    const importWorkflowJson = useCallback(async (file: File) => {
+        const target = generationProjectRef.current;
+        const center = workflowCenter();
+        try {
+            const addition = await parseAndImportWorkflowJson(await file.text(), center);
+            if (!target.alive || generationProjectRef.current !== target || !useCanvasStore.getState().openProject(target.id)) return;
+            if (!addition.nodes.length) { message.info("工作流中没有节点"); return; }
+            useCanvasStore.getState().updateProject(target.id, (project) => ({ nodes: [...project.nodes, ...addition.nodes], connections: [...project.connections, ...addition.connections] }));
+            setSelectedNodeIds(new Set(addition.nodes.map(({ id }) => id)));
+            setSelectedConnectionId(null);
+            setDialogNodeId(null);
+            message.success(`已导入 ${addition.nodes.length} 个节点与 ${addition.connections.length} 条连线`);
+        } catch (error) {
+            if (target.alive && generationProjectRef.current === target) message.error(error instanceof Error ? error.message : "工作流导入失败");
+        }
+    }, [message, workflowCenter]);
     // Memoize every callback and render function passed to CanvasNode.
     // CanvasNode uses React.memo, but new prop references would invalidate it on every render and rerender every node
     // during click, hover, or viewport changes, which is especially expensive for Markdown. These useCallback values
@@ -3988,8 +4097,10 @@ function InfiniteCanvasPage() {
 
     return (
         <main className="bf-canvas-workspace flex h-full min-h-0 overflow-clip" style={{ background: theme.canvas.background, color: theme.node.text }}>
-            <section className="relative min-w-0 flex-1 overflow-clip">
-                <CanvasSidePanel nodes={contentNodes} selectedNodeIds={selectedNodeIds} connections={connections} onInsertAsset={handleAssetInsert} onInsertWorkflow={handleWorkflowInsert} />
+            <section data-canvas-project-surface className="relative min-w-0 flex-1 overflow-clip">
+                <CanvasSidePanel nodes={contentNodes} selectedNodeIds={selectedNodeIds} connections={connections} onInsertAsset={handleAssetInsert} onInsertWorkflow={handleWorkflowInsert} onImportWorkflow={chooseWorkflowFile} />
+                <input ref={workflowInputRef} type="file" accept=".json,application/json" aria-label="导入工作流文件" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void importWorkflowJson(file); }} />
+                {exportRequest && <CanvasExportDialog request={exportRequest} onClose={() => setExportRequest(null)} />}
                 <CanvasTopBar
                     title={currentProject?.title || t("canvas.projectPage.untitledCanvas")}
                     titleDraft={titleDraft}
@@ -4004,7 +4115,9 @@ function InfiniteCanvasPage() {
                     onProjects={() => navigate("/canvas")}
                     onCreateProject={createAndOpenProject}
                     onDeleteProject={deleteCurrentProject}
-                    onExportProject={exportCurrentProject}
+                    onExportProject={() => exportCurrentProject("projects")}
+                    onExportWorkflow={() => exportCurrentProject("workflow")}
+                    onImportWorkflow={chooseWorkflowFile}
                     onImportImage={() => handleUploadRequest()}
                     onOpenPlugins={() => setPluginManagerOpen(true)}
                     onOpenCleanup={() => setCleanupOpen(true)}
@@ -4013,6 +4126,9 @@ function InfiniteCanvasPage() {
                 />
 
                 <InfiniteCanvas
+                    overlay={<CanvasBottomQuickDock isOpen={quickDockOpen} onOpenChange={changeQuickDockOpen}
+                        selectedNodes={quickDockSources}
+                        onSelectNodeIds={selectQuickDockNodes} onOpenHarnessFromDock={handleOpenHarnessFromDock} onSubmitGenerate={handleQuickDockGenerate} onFocusNodes={handleFocusQuickDockNodes} />}
                     containerRef={containerRef}
                     viewport={viewport}
                     tool={canvasTool}

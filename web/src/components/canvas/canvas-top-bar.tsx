@@ -30,6 +30,8 @@ export function CanvasTopBar({
     onCreateProject,
     onDeleteProject,
     onExportProject,
+    onExportWorkflow,
+    onImportWorkflow,
     onImportImage,
     onOpenPlugins,
     onOpenCleanup,
@@ -50,6 +52,8 @@ export function CanvasTopBar({
     onCreateProject: () => void;
     onDeleteProject: () => void;
     onExportProject: () => void;
+    onExportWorkflow: () => void;
+    onImportWorkflow: () => void;
     onImportImage: () => void;
     onOpenPlugins: () => void;
     onOpenCleanup: () => void;
@@ -94,7 +98,9 @@ export function CanvasTopBar({
                                 { key: "delete", danger: true, icon: <Trash2 className="size-4" />, label: t("canvas.deleteCurrent"), onClick: onDeleteProject },
                                 { type: "divider" },
                                 { key: "import", icon: <Upload className="size-4" />, label: t("canvas.importAsset"), onClick: onImportImage },
-                                { key: "export", icon: <Download className="size-4" />, label: t("canvas.exportCurrent"), onClick: onExportProject },
+                                { key: "export", icon: <Download className="size-4" />, label: "导出当前画布资源（选目录）", onClick: onExportProject },
+                                { key: "export-workflow", icon: <Download className="size-4" />, label: "导出工作流 (.json)", onClick: onExportWorkflow },
+                                { key: "import-workflow", icon: <Upload className="size-4" />, label: "导入工作流 (.json)", onClick: onImportWorkflow },
                                 { type: "divider" },
                                 { key: "undo", disabled: !canUndo, icon: <Undo2 className="size-4" />, label: <MenuLabel text={t("canvas.undo")} shortcut="⌘ Z" />, onClick: onUndo },
                                 { key: "redo", disabled: !canRedo, icon: <Redo2 className="size-4" />, label: <MenuLabel text={t("canvas.redo")} shortcut="⌘ ⇧ Z / ⌘ Y" />, onClick: onRedo },
