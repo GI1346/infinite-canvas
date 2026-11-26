@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Blend, BrainCircuit, Image as ImageIcon, Settings2, Table2, FileText, X } from "lucide-react";
+import { Blend, BrainCircuit, Image as ImageIcon, Settings2, Table2, FileText, Video, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -28,15 +28,19 @@ export function ConnectionCreateMenu({
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
-    const recipe = showCharacterRecipe ? getNodeDefinition(CHARACTER_RECIPE_NODE_TYPE) : undefined;
+    const batch = Boolean(pending.connection.batchPointer);
+    const recipe = showCharacterRecipe && !batch ? getNodeDefinition(CHARACTER_RECIPE_NODE_TYPE) : undefined;
     return (
         <div
-            className="bf-canvas-glass absolute z-[120] w-[300px] rounded-2xl border p-2.5 shadow-2xl backdrop-blur"
+            className={`bf-canvas-glass absolute z-[120] w-[300px] rounded-2xl border p-2.5 shadow-2xl backdrop-blur ${batch ? "bf-spring-pop max-h-[calc(100dvh-16px)] overflow-auto" : ""}`}
             data-canvas-no-zoom
             data-connection-create-menu
+            data-canvas-overlay
+            data-canvas-shortcuts-ignore
             style={{ left: pending.position.x, top: pending.position.y, transform: `scale(${1 / scale})${pending.connection.handleType === "target" ? " translateX(-100%)" : ""}`, transformOrigin: "top left", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}
         >
             <div className="mb-1.5 flex items-center justify-between border-b border-black/[0.06] px-1 pb-2 dark:border-white/[0.08]">
                 <span className="text-sm font-medium" style={{ color: theme.node.muted }}>
@@ -47,11 +51,11 @@ export function ConnectionCreateMenu({
                 </button>
             </div>
             <div className="grid gap-0.5">
-                <ConnectionCreateOption theme={theme} icon={<ImageIcon className="size-4" />} title="生成节点" description="连上提示词/参考图，生成结果直接落在这个节点" onClick={() => onCreate(CanvasNodeType.Image)} />
-                <ConnectionCreateOption theme={theme} icon={<FileText className="size-4" />} title="文本" description="输入和编辑文字" onClick={() => onCreate(CanvasNodeType.Text)} />
+                <ConnectionCreateOption theme={theme} icon={<ImageIcon className="size-4" />} title={batch ? "图片生成" : "生成节点"} description="连上提示词/参考图，生成结果直接落在这个节点" onClick={() => onCreate(CanvasNodeType.Image)} />
+                {batch ? <ConnectionCreateOption theme={theme} icon={<Video className="size-4" />} title="视频生成" description="用提示词和参考素材生成视频" onClick={() => onCreate(CanvasNodeType.Video)} /> : <ConnectionCreateOption theme={theme} icon={<FileText className="size-4" />} title="文本" description="输入和编辑文字" onClick={() => onCreate(CanvasNodeType.Text)} />}
                 <ConnectionCreateOption theme={theme} icon={<Table2 className="size-4" />} title="多维表格" description="图片与文本按输入列逐行组合" onClick={() => onCreate("dxos:table")} />
                 <ConnectionCreateOption theme={theme} icon={<BrainCircuit className="size-4" />} title="LLM 多模态分析" description="分析图片与文本，输出文本或表格" onClick={() => onCreate("dxos:llm")} />
-                <ConnectionCreateOption theme={theme} icon={<Blend className="size-4" />} title="融合节点" description="将局部修改融合回原图" onClick={() => onCreate("blinkflow:fusion")} />
+                {!batch && <ConnectionCreateOption theme={theme} icon={<Blend className="size-4" />} title="融合节点" description="将局部修改融合回原图" onClick={() => onCreate("blinkflow:fusion")} />}
                 {recipe && <ConnectionCreateOption theme={theme} icon={recipe.icon} title={recipe.title} description={recipe.description} onClick={() => onCreate(recipe.type)} />}
             </div>
         </div>

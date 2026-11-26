@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { remapInputImageOrder } from "@/lib/canvas/dxos-table";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 
 export function expandDragNodeIds(selectedIds: ReadonlySet<string>, nodes: CanvasNodeData[]): Set<string> {
@@ -26,6 +27,7 @@ export function cloneDragSelection(nodes: CanvasNodeData[], connections: CanvasC
         if (metadata) {
             if (metadata.groupId) metadata.groupId = idMap.get(metadata.groupId);
             if (metadata.llmOutputNodeId) metadata.llmOutputNodeId = idMap.get(metadata.llmOutputNodeId) || metadata.llmOutputNodeId;
+            if (metadata.table?.inputOrderMap) metadata.table.inputOrderMap = remapInputImageOrder(metadata.table.inputOrderMap, remapMedia);
             metadata.tableInputChannels?.forEach((channel) => { if (channel.mediaNodeIds) channel.mediaNodeIds = channel.mediaNodeIds.map(remapMedia); });
             if (metadata.status === "loading") { metadata.status = "idle"; delete metadata.errorDetails; }
             delete metadata.videoTaskId; delete metadata.videoTaskProvider; delete metadata.tableBatchRun;

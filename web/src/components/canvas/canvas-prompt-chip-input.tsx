@@ -18,6 +18,7 @@ type Props = {
     mentionNodeIds?: string[];
     onChange: (value: string) => void;
     onSubmit?: () => void;
+    submitWithModifier?: boolean;
     onEscape?: () => void;
     className?: string;
     style?: CSSProperties;
@@ -45,7 +46,7 @@ type Token =
 
 // Prompt-panel contentEditable input: @ references embed thumbnail chips instead of plain label text.
 // Serialization converts chips back to reference labels so the generated value matches the former textarea semantics.
-export function CanvasPromptChipInput({ value, references, mentionNodeIds, onChange, onSubmit, onEscape, className, style, placeholder, inputRef, readOnly, ariaLabel, showReferenceTitle, containerClassName, onReferenceSelect, imageHoverPreview, onSelectionChange, getSelection }: Props) {
+export function CanvasPromptChipInput({ value, references, mentionNodeIds, onChange, onSubmit, submitWithModifier = false, onEscape, className, style, placeholder, inputRef, readOnly, ariaLabel, showReferenceTitle, containerClassName, onReferenceSelect, imageHoverPreview, onSelectionChange, getSelection }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -258,7 +259,10 @@ export function CanvasPromptChipInput({ value, references, mentionNodeIds, onCha
                 }}
                 onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                     event.stopPropagation();
-                    if (isImeComposing(event)) return;
+                    if (composingRef.current || isImeComposing(event)) return;
+                    if (submitWithModifier && onSubmit && event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                        event.preventDefault(); onSubmit(); return;
+                    }
                     if (event.key === "Escape") {
                         event.preventDefault();
                         if (mention) closeMention(); else onEscape?.();
@@ -287,7 +291,7 @@ export function CanvasPromptChipInput({ value, references, mentionNodeIds, onCha
                         requestAnimationFrame(syncFromEditor);
                         return;
                     }
-                    if (isPlainEnterKey(event) && onSubmit) {
+                    if (!submitWithModifier && isPlainEnterKey(event) && onSubmit) {
                         event.preventDefault();
                         onSubmit();
                         return;

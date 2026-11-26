@@ -64,10 +64,15 @@ export function connectionDragNodeIds(handle: ConnectionHandle) {
     return handle.handleType === "source" && handle.sourceNodeIds?.length ? handle.sourceNodeIds : [handle.nodeId];
 }
 
-export function ActiveConnectionPath({ node, handle, mouseWorld, target }: { node?: CanvasNodeData; handle: ConnectionHandle; mouseWorld: Position; target?: CanvasNodeData }) {
+export function ActiveConnectionPath({ node, handle, mouseWorld, target, batchSnap }: { node?: CanvasNodeData; handle: ConnectionHandle; mouseWorld: Position; target?: CanvasNodeData; batchSnap?: Position }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     if (!node) return null;
 
+    if (handle.batchPointer) {
+        const x = node.position.x + node.width, y = node.position.y + node.height / 2;
+        const end = batchSnap || mouseWorld, bend = Math.max(Math.abs(end.x - x) * 0.5, 50);
+        return <path data-connection-preview={node.id} d={curvePath([{ x, y }, { x: x + bend, y }, { x: end.x - bend, y: end.y }, end])} stroke="#37d39b" strokeWidth={2} strokeDasharray={batchSnap ? undefined : "6 4"} vectorEffect="non-scaling-stroke" fill="none" />;
+    }
     const startX = handle.handleType === "source" ? node.position.x + node.width : mouseWorld.x;
     const startY = handle.handleType === "source" ? node.position.y + node.height / 2 : mouseWorld.y;
     const ownTarget = node.type === CHARACTER_RECIPE_NODE_TYPE ? recipeTargetAnchor(node, handle.portId) : node.type === LOCAL_FUSION_NODE_TYPE ? fusionTargetAnchor(node, handle.portId) : { x: node.position.x, y: node.position.y + node.height / 2 };

@@ -1,4 +1,3 @@
-import { presetFragments } from "@/lib/canvas/canvas-image-presets";
 import { createGenerationBranch } from "@/lib/canvas/canvas-generation-branch";
 import { migrateConfigNodes } from "@/lib/canvas/canvas-node-migration";
 import { shouldShowNodePanel, showsGenerationPanel } from "@/lib/canvas/canvas-node-panel-visibility";
@@ -56,7 +55,7 @@ import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "@/compon
 import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import { CanvasGroupColorToolbar, CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "@/components/canvas/canvas-node-hover-toolbar";
 import { collectDownloadImages } from "@/lib/canvas/canvas-batch-download";
-import { CanvasSelectionToolbar } from "@/components/canvas/canvas-selection-toolbar";
+import { CanvasSelectionToolbar, SELECTION_PAD } from "@/components/canvas/canvas-selection-toolbar";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Minimap } from "@/components/canvas/canvas-mini-map";
 import { CanvasNode } from "@/components/canvas/canvas-node";
@@ -76,7 +75,7 @@ import { buildNodeMentionReferences, getGroupResourceNodes, isCanvasReferenceNod
 import { parseAndImportWorkflowJson } from "@/lib/canvas/workflow-json";
 import { CanvasExportDialog, type ExportRequest } from "@/components/canvas/canvas-export-dialog";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
-import { applyGroupSelection, applyUngroupSelection, canGroupSelectedNodes, canUngroupSelectedNodes, collectGroupMemberNodes, findContainingGroupId, findGroupDropTarget, focusViewportForNode, getConnectionTargetAnchor, getGroupWrapRect, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
+import { nodeBounds, applyGroupSelection, applyUngroupSelection, canGroupSelectedNodes, canUngroupSelectedNodes, collectGroupMemberNodes, findContainingGroupId, findGroupDropTarget, focusViewportForNode, getConnectionTargetAnchor, getGroupWrapRect, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
     buildAngleLabel,
@@ -236,6 +235,7 @@ function isQuickDockSource(node: CanvasNodeData) {
 const EMPTY_CANVAS_NODES: CanvasNodeData[] = [];
 const EMPTY_CANVAS_CONNECTIONS: CanvasConnection[] = [];
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
+const batchWireMessage = { key: "canvas-batch-wire", className: "!pointer-events-none [&_*]:!pointer-events-none" };
 const CONNECTION_NODE_HIT_PADDING = 32;
 const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
@@ -302,6 +302,7 @@ function InfiniteCanvasPage() {
     const rafRef = useRef<number | null>(null);
     const dragPointerRef = useRef({ x: 0, y: 0 });
     const nodeDraggingRef = useRef(false);
+    const selectionBoundsRef = useRef<HTMLDivElement>(null);
     const dragPaintRef = useRef<{ nodes: HTMLElement[]; edges: Array<{ connection: CanvasConnection; paths: SVGPathElement[] }>; groupId: string | null }>({ nodes: [], edges: [], groupId: null });
     const dragRef = useRef<{
         isDraggingNode: boolean;
@@ -367,6 +368,7 @@ function InfiniteCanvasPage() {
     const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
     const [connectingParams, setConnectingParams] = useState<ConnectionHandle | null>(null);
     const [connectionTargetNodeId, setConnectionTargetNodeId] = useState<string | null>(null);
+    const [batchSnap, setBatchSnap] = useState<Position>();
     const [pendingConnectionCreate, setPendingConnectionCreate] = useState<PendingConnectionCreate | null>(null);
     const [mouseWorld, setMouseWorld] = useState<Position>({ x: 0, y: 0 });
     const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
@@ -464,6 +466,20 @@ function InfiniteCanvasPage() {
         }),
         [activeChatId, backgroundMode, chatSessions, showImageInfo],
     );
+
+    const commitGraphGesture = useCallback((project: Pick<CanvasHistoryEntry, "nodes" | "connections">, nextNodes: CanvasNodeData[], nextConnections: CanvasConnection[]) => {
+        const before = { ...createHistoryEntry(), nodes: project.nodes, connections: project.connections };
+        const after = { ...before, nodes: nextNodes, connections: nextConnections };
+        const last = lastHistoryRef.current;
+        const uncommitted = last && Object.keys(before).some((key) => last[key as keyof CanvasHistoryEntry] !== before[key as keyof CanvasHistoryEntry]);
+        if (historyCommitTimerRef.current) { clearTimeout(historyCommitTimerRef.current); historyCommitTimerRef.current = null; }
+        historyRef.current = { past: [...historyRef.current.past, ...(uncommitted ? [last] : []), before].slice(-50), future: [] };
+        lastHistoryRef.current = after;
+        nodesRef.current = nextNodes;
+        connectionsRef.current = nextConnections;
+        useCanvasStore.getState().updateProject(projectId, { nodes: nextNodes, connections: nextConnections });
+        setHistoryState({ canUndo: true, canRedo: false });
+    }, [createHistoryEntry, projectId]);
 
     const commitConnectionCut = useCallback((ids: Set<string>) => {
         const result = connectionCutHistory(createHistoryEntry(), lastHistoryRef.current, historyRef.current.past, ids);
@@ -764,6 +780,8 @@ function InfiniteCanvasPage() {
             return { ...node, position: { x: initial.x + dx, y: initial.y + dy } };
         });
         const byId = new Map(nodesRef.current.map((node) => [node.id, node]));
+        const bounds = selectionBoundsRef.current;
+        if (bounds) bounds.style.transform = `translate3d(${dx * viewportRef.current.k}px, ${dy * viewportRef.current.k}px, 0)`;
         for (const element of dragPaintRef.current.nodes) {
             const node = byId.get(element.dataset.nodeId!);
             if (node && element.hasAttribute("data-text-node")) { element.style.left = `${node.position.x}px`; element.style.top = `${node.position.y}px`; }
@@ -795,7 +813,7 @@ function InfiniteCanvasPage() {
             });
             // A generation result or new connection can commit during a drag; preserve its content and repaint at the live pointer before the browser paints.
             paintNodeDrag();
-        }
+        } else if (selectionBoundsRef.current) selectionBoundsRef.current.style.transform = "";
     }, [nodes, connections, selectedNodeIds, viewport, connectingParams, connectionTargetNodeId, pendingConnectionCreate, isNodeDragging, paintNodeDrag]);
 
     useLayoutEffect(() => {
@@ -841,6 +859,7 @@ function InfiniteCanvasPage() {
         if (!next) {
             connectionTargetNodeIdRef.current = null;
             setConnectionTargetNodeId(null);
+            setBatchSnap(undefined);
         }
     }, []);
 
@@ -864,6 +883,7 @@ function InfiniteCanvasPage() {
             const firstSlot = recipeTarget && recipeConnectionPort(recipeTarget, current, world, pointedElement);
             const linked = recipeTarget && recipeLinkedNodes(recipeTarget.id, nodesRef.current, connectionsRef.current);
             const recipePorts = firstSlot ? [firstSlot, ...recipeSlots.filter((slot) => firstSlot !== slot && !linked?.[slot])] : [];
+            if (current.batchPointer && recipeTarget && sourceIds.length > recipePorts.length) { message.warning({ ...batchWireMessage, content: "角色配方可用输入槽不足，无法接入全部节点" }); return; }
             const additions = sourceIds.flatMap((nodeId): CanvasConnection[] => {
                 const connection = normalizeConnection(nodeId, targetNodeId, nodesRef.current, current.handleType);
                 if (!connection) return [];
@@ -876,6 +896,17 @@ function InfiniteCanvasPage() {
                 message.warning(t("canvas.projectPage.configConnection"));
                 return;
             }
+            if (current.batchPointer) {
+                const project = useCanvasStore.getState().openProject(projectId);
+                if (!project) return;
+                const added = additions.filter((next) => !project.connections.some((edge) => edge.fromNodeId === next.fromNodeId && edge.toNodeId === next.toNodeId && edge.toPort === next.toPort));
+                if (!added.length) { message.info({ ...batchWireMessage, content: "这些连线已经存在" }); return; }
+                const retained = recipeTarget ? project.connections.filter((edge) => !added.some((next) => edge.toNodeId === recipeTarget.id && edge.toPort === next.toPort)) : project.connections;
+                commitGraphGesture(project, project.nodes, [...retained, ...added]);
+                message.success({ ...batchWireMessage, content: `已批量接入 ${added.length} 条连线` });
+                setContextMenu(null);
+                return;
+            }
             setConnections((prev) => {
                 const added = additions.filter((next) => !prev.some((conn) => conn.fromNodeId === next.fromNodeId && conn.toNodeId === next.toNodeId && conn.toPort === next.toPort));
                 const retained = recipeTarget ? prev.filter((edge) => !added.some((next) => edge.toNodeId === recipeTarget.id && edge.toPort === next.toPort)) : prev;
@@ -883,7 +914,7 @@ function InfiniteCanvasPage() {
             });
             setContextMenu(null);
         },
-        [message, screenToCanvas, t],
+        [commitGraphGesture, message, projectId, screenToCanvas, t],
     );
 
     const createConnectedNode = useCallback(
@@ -904,19 +935,27 @@ function InfiniteCanvasPage() {
                 message.warning(t("canvas.projectPage.configConnection"));
                 return;
             }
-            setNodes((prev) => [...prev, newNode]);
             const targetRecipe = pending.connection.handleType === "target" && graph.find((item) => item.id === pending.connection.nodeId)?.type === CHARACTER_RECIPE_NODE_TYPE;
-            setConnections((prev) => [...(targetRecipe ? prev.filter((edge) => !additions.some((next) => edge.toNodeId === next.toNodeId && edge.toPort === next.toPort)) : prev), ...additions]);
+            if (pending.connection.batchPointer) {
+                const project = useCanvasStore.getState().openProject(projectId);
+                if (!project) return;
+                commitGraphGesture(project, [...project.nodes, newNode], [...project.connections, ...additions]);
+                message.success({ ...batchWireMessage, content: `已批量接入 ${additions.length} 条连线` });
+            } else {
+                setNodes((prev) => [...prev, newNode]);
+                setConnections((prev) => [...(targetRecipe ? prev.filter((edge) => !additions.some((next) => edge.toNodeId === next.toNodeId && edge.toPort === next.toPort)) : prev), ...additions]);
+            }
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
             if (getNodeDefinition(type)?.Panel || type === CanvasNodeType.Image) setDialogNodeId(newNode.id);
             setPendingConnectionCreate(null);
             setConnecting(null);
         },
-        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message, setConnecting, t],
+        [commitGraphGesture, effectiveConfig, message, projectId, setConnecting, t],
     );
 
     const cancelPendingConnectionCreate = useCallback(() => {
+        pendingConnectionCreateRef.current = null;
         setPendingConnectionCreate(null);
         setConnecting(null);
     }, [setConnecting]);
@@ -931,6 +970,7 @@ function InfiniteCanvasPage() {
             let isNearNode = false;
             let bestNodeId: string | null = null;
             let bestPriority = Number.POSITIVE_INFINITY;
+            const pointedHandleId = current.batchPointer ? document.elementFromPoint(clientX, clientY)?.closest("[data-node-handle]")?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId : undefined;
 
             [...nodesRef.current]
                 .reverse()
@@ -949,9 +989,10 @@ function InfiniteCanvasPage() {
 
                     if (!hitsHandle && !hitsInside && !hitsExpanded) return;
                     isNearNode = true;
-                    if (sourceIds.includes(node.id) || !sourceIds.some((sourceId) => normalizeConnection(sourceId, node.id, nodesRef.current, current.handleType))) return;
+                    const compatible = (id: string) => Boolean(normalizeConnection(id, node.id, nodesRef.current, current.handleType));
+                    if (sourceIds.includes(node.id) || (current.batchPointer ? !sourceIds.every(compatible) : !sourceIds.some(compatible))) return;
 
-                    const priority = hitsInside ? 0 : hitsHandle ? 1 : 2;
+                    const priority = node.id === pointedHandleId ? -1 : current.batchPointer && hitsHandle ? 1 + (dx * dx + dy * dy) / (handleRadius * handleRadius) : hitsInside ? (current.batchPointer ? 3 : 0) : hitsHandle ? 1 : (current.batchPointer ? 4 : 2);
                     if (priority < bestPriority) {
                         bestNodeId = node.id;
                         bestPriority = priority;
@@ -962,6 +1003,17 @@ function InfiniteCanvasPage() {
         },
         [screenToCanvas],
     );
+
+    const batchWireTarget = useCallback((current: ConnectionHandle, clientX: number, clientY: number) => {
+        const position = screenToCanvas(clientX, clientY);
+        const drop = getConnectionDropTarget(clientX, clientY, current);
+        const target = nodesRef.current.find(({ id }) => id === drop.nodeId);
+        const source = nodesRef.current.find(({ id }) => id === current.nodeId);
+        const pointed = document.elementFromPoint(clientX, clientY);
+        const toPort = target && (tableConnectionPort(target, current, position, pointed) || (target.type === CHARACTER_RECIPE_NODE_TYPE ? recipeConnectionPort(target, current, position, pointed) : fusionConnectionPort(target, current, position, pointed)));
+        const snapped = target && source ? connectionCurve({ id: "", fromNodeId: source.id, toNodeId: target.id, toPort }, source, target)[3] : undefined;
+        return { ...drop, position, snapped, pointed };
+    }, [getConnectionDropTarget, screenToCanvas]);
 
     const cullLeft = Math.floor(-viewport.x / viewport.k / 512) * 512;
     const cullTop = Math.floor(-viewport.y / viewport.k / 512) * 512;
@@ -1566,16 +1618,39 @@ function InfiniteCanvasPage() {
     }, [message, projectId, t]);
     const chooseWorkflowFile = useCallback(() => workflowInputRef.current?.click(), []);
 
+    const plainDragClickRef = useRef<string | null>(null);
+    const startSelectionDrag = useCallback((clientX: number, clientY: number, selected: Set<string>, clickedId: string | null, copyRequested: boolean) => {
+        if (focusAnimRef.current !== null) cancelAnimationFrame(focusAnimRef.current);
+        focusAnimRef.current = null;
+        plainDragClickRef.current = clickedId;
+        const current = nodesRef.current, dragIds = expandDragNodeIds(selected, current);
+        const initialSelectedNodes = new Map(current.filter(({ id }) => dragIds.has(id)).map((node) => [node.id, { ...node.position }]));
+        dragRef.current = { isDraggingNode: true, hasMoved: false, startX: clientX, startY: clientY, initialSelectedNodes, movedIds: new Set(initialSelectedNodes.keys()), copyRequested, originalSelection: new Set(selected), beforeCopy: null };
+        historyPausedRef.current = true;
+        nodeDraggingRef.current = true;
+        setIsNodeDragging(true);
+    }, []);
+
     const handleCanvasMouseDown = useCallback(
         (event: ReactPointerEvent<HTMLDivElement>) => {
             setContextMenu(null);
             setNodeCreatePosition(null);
             setToolbarNodeId(null);
             setDialogNodeId(null);
-            if (pendingConnectionCreateRef.current) cancelPendingConnectionCreate();
+            if (pendingConnectionCreateRef.current) { cancelPendingConnectionCreate(); return; }
             if (event.button !== 0) return;
 
             const world = screenToCanvas(event.clientX, event.clientY);
+            const selected = selectedNodeIdsRef.current;
+            if (selected.size > 1 && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+                const bounds = nodeBounds(nodesRef.current.filter(({ id }) => selected.has(id)));
+                const pad = SELECTION_PAD / viewportRef.current.k;
+                if (world.x >= bounds.left - pad && world.x <= bounds.right + pad && world.y >= bounds.top - pad && world.y <= bounds.bottom + pad) {
+                    setSelectedConnectionId(null);
+                    startSelectionDrag(event.clientX, event.clientY, selected, null, event.altKey);
+                    return;
+                }
+            }
             const additive = event.shiftKey || event.ctrlKey || event.metaKey;
             const nextSelectionBox = {
                 startWorldX: world.x,
@@ -1593,7 +1668,7 @@ function InfiniteCanvasPage() {
 
             setSelectedConnectionId(null);
         },
-        [cancelPendingConnectionCreate, screenToCanvas],
+        [cancelPendingConnectionCreate, screenToCanvas, startSelectionDrag],
     );
 
     // Selection-only logic shared by the bubbling drag entry point and outer capture handler.
@@ -1620,7 +1695,6 @@ function InfiniteCanvasPage() {
     // It only selects; body onMouseDown still starts dragging, so text selection inside editors does not drag the node.
     // Cache the capture result for the following bubbling drag handler to avoid applying shift-selection twice.
     const pendingSelectionRef = useRef<Set<string> | null>(null);
-    const plainDragClickRef = useRef<string | null>(null);
     const handleNodeSelectCapture = useCallback(
         (event: ReactMouseEvent, nodeId: string) => {
             if (event.button !== 0) return;
@@ -1637,30 +1711,10 @@ function InfiniteCanvasPage() {
     const handleNodeMouseDown = useCallback((event: ReactMouseEvent, nodeId: string) => {
         if (event.button !== 0) return;
         event.stopPropagation();
-        if (focusAnimRef.current !== null) cancelAnimationFrame(focusAnimRef.current);
-        focusAnimRef.current = null;
-        // Capture already selected the node; this only starts dragging, with a fallback selection if capture did not run.
-        const currentNodes = nodesRef.current;
         const nextSelected = pendingSelectionRef.current ?? selectNodeByEvent(event, nodeId).nextSelected;
         pendingSelectionRef.current = null;
-        plainDragClickRef.current = event.shiftKey || event.ctrlKey || event.metaKey ? null : nodeId;
-        const dragIds = expandDragNodeIds(nextSelected, currentNodes);
-        const initialSelectedNodes = new Map(currentNodes.filter((node) => dragIds.has(node.id)).map((node): [string, { x: number; y: number }] => [node.id, { x: node.position.x, y: node.position.y }]));
-        dragRef.current = {
-            isDraggingNode: true,
-            hasMoved: false,
-            startX: event.clientX,
-            startY: event.clientY,
-            initialSelectedNodes,
-            movedIds: new Set(initialSelectedNodes.keys()),
-            copyRequested: event.altKey,
-            originalSelection: new Set(nextSelected),
-            beforeCopy: null,
-        };
-        historyPausedRef.current = true;
-        nodeDraggingRef.current = true;
-        setIsNodeDragging(true);
-    }, []);
+        startSelectionDrag(event.clientX, event.clientY, nextSelected, event.shiftKey || event.ctrlKey || event.metaKey ? null : nodeId, event.altKey);
+    }, [selectNodeByEvent, startSelectionDrag]);
 
     // Latch Alt at mouse-down, but create nothing until the existing drag threshold is crossed.
     const prepareNodeDrag = useCallback((clientX: number, clientY: number) => {
@@ -1724,8 +1778,9 @@ function InfiniteCanvasPage() {
                 if (node.metadata?.groupId === groupId) return node;
                 return { ...node, metadata: { ...node.metadata, groupId } };
             });
-            nodesRef.current = settled;
-            setNodes(settled);
+            const project = drag.originalSelection.size > 1 && !drag.beforeCopy ? useCanvasStore.getState().openProject(projectId) : undefined;
+            if (project) commitGraphGesture(project, settled, project.connections);
+            else { nodesRef.current = settled; setNodes(settled); }
             if (drag.beforeCopy) {
                 const current = createHistoryEntry(), original = drag.beforeCopy, last = lastHistoryRef.current;
                 const remaining = current.nodes.filter((node) => !movedIds.has(node.id));
@@ -1742,7 +1797,10 @@ function InfiniteCanvasPage() {
             }
         }
 
-        if (canceled && drag.hasMoved && !drag.beforeCopy) setNodes(nodesRef.current);
+        if (canceled && drag.hasMoved && !drag.beforeCopy) {
+            nodesRef.current = nodesRef.current.map((node) => initialPositions.has(node.id) ? { ...node, position: initialPositions.get(node.id)! } : node);
+            setNodes(nodesRef.current);
+        }
         dragPaintRef.current = { nodes: [], edges: [], groupId: null };
         dragRef.current.isDraggingNode = false;
         dragRef.current.hasMoved = false;
@@ -1766,7 +1824,7 @@ function InfiniteCanvasPage() {
                 }
             }
         }
-    }, [createHistoryEntry, prepareNodeDrag]);
+    }, [commitGraphGesture, createHistoryEntry, prepareNodeDrag, projectId]);
 
     const handleGlobalMouseMove = useCallback(
         (event: MouseEvent) => {
@@ -1789,7 +1847,7 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            if (connectingParamsRef.current && !pendingConnectionCreateRef.current) {
+            if (connectingParamsRef.current && !connectingParamsRef.current.batchPointer && !pendingConnectionCreateRef.current) {
                 const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, connectingParamsRef.current);
                 connectionTargetNodeIdRef.current = dropTarget.nodeId;
                 setConnectionTargetNodeId(dropTarget.nodeId);
@@ -1801,6 +1859,16 @@ function InfiniteCanvasPage() {
 
     const handleGlobalPointerMove = useCallback(
         (event: PointerEvent) => {
+            if (dragRef.current.isDraggingNode) { handleGlobalMouseMove(event); return; }
+            const wiring = connectingParamsRef.current;
+            if (wiring?.batchPointer && wiring.batchPointer.id === event.pointerId && !pendingConnectionCreateRef.current) {
+                const hit = batchWireTarget(wiring, event.clientX, event.clientY);
+                setMouseWorld(hit.position);
+                setBatchSnap(hit.snapped);
+                connectionTargetNodeIdRef.current = hit.nodeId;
+                setConnectionTargetNodeId(hit.nodeId);
+                return;
+            }
             const currentSelection = selectionBoxRef.current;
             if (!currentSelection) return;
 
@@ -1829,7 +1897,7 @@ function InfiniteCanvasPage() {
             setSelectionBox(nextSelectionBox);
             setSelectedNodeIds(nextSelected);
         },
-        [screenToCanvas],
+        [batchWireTarget, handleGlobalMouseMove, screenToCanvas],
     );
 
     const handleGlobalMouseUp = useCallback(
@@ -1842,7 +1910,7 @@ function InfiniteCanvasPage() {
             if (pendingConnectionCreateRef.current) return;
 
             const currentConnection = connectingParamsRef.current;
-            if (currentConnection) {
+            if (currentConnection && !currentConnection.batchPointer) {
                 const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, currentConnection);
                 if (dropTarget.nodeId) {
                     connectNodes(currentConnection, dropTarget.nodeId, event.clientX, event.clientY);
@@ -1860,9 +1928,35 @@ function InfiniteCanvasPage() {
     );
 
     useEffect(() => {
-        const handlePointerUp = (event: PointerEvent) => finishNodeDrag(event.clientX, event.clientY);
-        const cancelNodeDrag = () => finishNodeDrag();
+        const handlePointerUp = (event: PointerEvent) => {
+            finishNodeDrag(event.clientX, event.clientY);
+            if (selectionBoxRef.current) {
+                selectionBoxRef.current = null;
+                setSelectionBox(null);
+            }
+            const current = connectingParamsRef.current, gesture = current?.batchPointer;
+            if (!current || !gesture || event.pointerId !== gesture.id || pendingConnectionCreateRef.current) return;
+            if (Math.hypot(event.clientX - gesture.start.x, event.clientY - gesture.start.y) < 12) { cancelPendingConnectionCreate(); return; }
+            const hit = batchWireTarget(current, event.clientX, event.clientY);
+            if (hit.nodeId) {
+                connectNodes(current, hit.nodeId, event.clientX, event.clientY);
+                setConnecting(null);
+            } else if (!hit.isNearNode && hit.pointed && containerRef.current?.contains(hit.pointed) && !hit.pointed.closest("[data-canvas-overlay],[data-canvas-no-zoom],[data-connection-id]")) {
+                const pending = { connection: current, position: hit.position };
+                setBatchSnap(undefined);
+                setMouseWorld(hit.position);
+                pendingConnectionCreateRef.current = pending;
+                setPendingConnectionCreate(pending);
+            } else cancelPendingConnectionCreate();
+        };
+        const cancelNodeDrag = () => {
+            finishNodeDrag();
+            if (connectingParamsRef.current?.batchPointer) cancelPendingConnectionCreate();
+        };
         const cancelCopyOnEscape = (event: KeyboardEvent) => {
+            if (event.key === "Escape" && connectingParamsRef.current?.batchPointer) {
+                event.preventDefault(); event.stopImmediatePropagation(); cancelPendingConnectionCreate(); return;
+            }
             if (!dragRef.current.isDraggingNode || !dragRef.current.copyRequested) return;
             const key = event.key.toLowerCase();
             const historyShortcut = (event.ctrlKey || event.metaKey) && (key === "z" || key === "y");
@@ -1885,7 +1979,7 @@ function InfiniteCanvasPage() {
             window.removeEventListener("keydown", cancelCopyOnEscape, true);
             window.removeEventListener("pointermove", handleGlobalPointerMove);
         };
-    }, [finishNodeDrag, handleGlobalMouseMove, handleGlobalMouseUp, handleGlobalPointerMove]);
+    }, [batchWireTarget, cancelPendingConnectionCreate, connectNodes, finishNodeDrag, handleGlobalMouseMove, handleGlobalMouseUp, handleGlobalPointerMove, setConnecting]);
 
     const createImageFileNode = useCallback(async (file: File, position: Position) => {
         const image = await uploadImage(file);
@@ -2039,6 +2133,17 @@ function InfiniteCanvasPage() {
     };
 
     useEffect(() => {
+        // Capture only grouping so toolbar controls cannot swallow it; leave other shortcuts scoped as before.
+        const handleGroupKeyDown = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "g") return;
+            const isTextInput = (target: EventTarget | null) => target instanceof Element &&
+                (target.matches("input,textarea,select") || (target instanceof HTMLElement ? target : target.parentElement)?.isContentEditable);
+            if (isTextInput(event.target) || isTextInput(document.activeElement)) return;
+            const selected = selectedNodeIdsRef.current;
+            if (selected.size < 2) return;
+            event.preventDefault();
+            if (!dragRef.current.isDraggingNode && canGroupSelectedNodes(selected, nodesRef.current)) groupSelection();
+        };
         const handleKeyDown = (event: KeyboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
             if (event.defaultPrevented) return;
@@ -2153,17 +2258,10 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            if (isModifierShortcut && !event.altKey && key === "g") {
-                if (event.shiftKey) {
-                    if (canUngroupSelectedNodes(selectedNodeIdsRef.current, nodesRef.current)) {
-                        event.preventDefault();
-                        ungroupSelection();
-                    }
-                    return;
-                }
-                if (canGroupSelectedNodes(selectedNodeIdsRef.current, nodesRef.current)) {
+            if (isModifierShortcut && !event.altKey && event.shiftKey && key === "g") {
+                if (canUngroupSelectedNodes(selectedNodeIdsRef.current, nodesRef.current)) {
                     event.preventDefault();
-                    groupSelection();
+                    ungroupSelection();
                 }
                 return;
             }
@@ -2258,15 +2356,34 @@ function InfiniteCanvasPage() {
                 message.success(t("canvas.projectPage.clipboardTextAdded"));
             }
         };
+        window.addEventListener("keydown", handleGroupKeyDown, true);
         window.addEventListener("keydown", handleKeyDown);
         window.addEventListener("copy", handleCopy);
         window.addEventListener("paste", handlePaste);
         return () => {
+            window.removeEventListener("keydown", handleGroupKeyDown, true);
             window.removeEventListener("keydown", handleKeyDown);
             window.removeEventListener("copy", handleCopy);
             window.removeEventListener("paste", handlePaste);
         };
     }, [copySelectedNodes, deleteConnection, deleteNodes, duplicateNode, groupSelection, pasteCopiedNodes, createImageFileNode, createImageFromClipboardSource, createDroppedImageGrid, createTextNodeFromClipboard, getCanvasCenter, message, t, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
+
+    const batchSources = useMemo(() => [...selectedNodeIds].filter((id) => {
+        const node = nodeById.get(id);
+        return node && node.type !== CanvasNodeType.Config && (getNodeDefinition(node.type)?.hasSourceHandle ?? true);
+    }), [nodeById, selectedNodeIds]);
+    const startBatchWire = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+        if (event.button !== 0 || batchSources.length < 2) return;
+        event.preventDefault(); event.stopPropagation();
+        if (focusAnimRef.current !== null) cancelAnimationFrame(focusAnimRef.current);
+        focusAnimRef.current = null;
+        cancelPendingConnectionCreate();
+        setContextMenu(null);
+        setNodeCreatePosition(null);
+        setSelectedConnectionId(null);
+        setMouseWorld(screenToCanvas(event.clientX, event.clientY));
+        setConnecting({ nodeId: batchSources[0], sourceNodeIds: batchSources, handleType: "source", batchPointer: { id: event.pointerId, start: { x: event.clientX, y: event.clientY } } });
+    }, [batchSources, cancelPendingConnectionCreate, screenToCanvas, setConnecting]);
 
     const handleConnectStart = useCallback(
         (event: ReactMouseEvent, nodeId: string, handleType: "source" | "target", portId?: string) => {
@@ -3092,9 +3209,6 @@ function InfiniteCanvasPage() {
             if (mode === "image" && useGenerationRunnerStore.getState().isNodeRunning(project.id, nodeId)) return;
             let sourceNode = nodesRef.current.find((node) => node.id === nodeId);
             const composerContent = prompt;
-            // 「相机 / 配色 / 风格」的参数在这里注入真正的提示词，不污染输入框
-            const presetText = presetFragments(sourceNode?.metadata).join("，");
-            if (presetText) prompt = [presetText, prompt].filter(Boolean).join("，");
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
@@ -3111,9 +3225,11 @@ function InfiniteCanvasPage() {
                 setConnections(connectionsRef.current);
                 nodeId = branch.node.id;
                 sourceNode = branch.node;
-                setSelectedNodeIds(new Set([nodeId]));
-                setSelectedConnectionId(null);
-                setDialogNodeId(nodeId);
+                if (!keepSelection) {
+                    setSelectedNodeIds(new Set([nodeId]));
+                    setSelectedConnectionId(null);
+                    setDialogNodeId(nodeId);
+                }
             }
 
             // useBuiltinPanel.writeBackToSelf reuses built-in generation while writing the result back to the plugin node.
@@ -3374,6 +3490,7 @@ function InfiniteCanvasPage() {
                         height: reuseVideoNode ? sourceNode!.height : spec.height,
                         metadata: {
                             prompt: effectivePrompt,
+                            composerContent,
                             status: NODE_STATUS_LOADING,
                             model: generationConfig.model,
                             size: generationConfig.size,
@@ -4041,9 +4158,9 @@ function InfiniteCanvasPage() {
                 onStartReferenceSelection={startNodeReferenceSelection}
                 onConfigChange={handleConfigNodeChange}
                 onStop={confirmStopGeneration}
-                onGenerate={(nodeId) => {
+                onGenerate={(nodeId, fromExpanded) => {
                     const target = nodesRef.current.find((item) => item.id === nodeId);
-                    void handleGenerateNode(nodeId, "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
+                    void handleGenerateNode(nodeId, "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "", undefined, fromExpanded);
                 }}
             />
         ),
@@ -4078,7 +4195,8 @@ function InfiniteCanvasPage() {
                     connectedNodes={connectedNodesByNodeId.get(panelNode.id) || []}
                     onPromptChange={handleNodePromptChange}
                     onConfigChange={handleConfigNodeChange}
-                    onGenerate={handleGenerateNode}
+                    onGenerate={(nodeId, mode, prompt, fromExpanded) => void handleGenerateNode(nodeId, mode, prompt, undefined, fromExpanded)}
+                    onAddImageReference={addImageReference}
                     onStop={confirmStopGeneration}
                     onDisconnectReference={disconnectNodeReference}
                     onStartReferenceSelection={startNodeReferenceSelection}
@@ -4170,7 +4288,7 @@ function InfiniteCanvasPage() {
                                 onContextMenu={handleConnectionContextMenu}
                             />
                         ))}
-                        {connectingParams ? connectionDragNodeIds(connectingParams).map((nodeId) => <ActiveConnectionPath key={nodeId} node={nodeById.get(nodeId)} handle={connectingParams} mouseWorld={mouseWorld} target={connectionTargetNodeId ? nodeById.get(connectionTargetNodeId) : undefined} />) : null}
+                        {connectingParams ? connectionDragNodeIds(connectingParams).map((nodeId) => <ActiveConnectionPath key={nodeId} node={nodeById.get(nodeId)} handle={connectingParams} mouseWorld={mouseWorld} target={connectionTargetNodeId ? nodeById.get(connectionTargetNodeId) : undefined} batchSnap={batchSnap} />) : null}
                         <ConnectionCutEffects trail={connectionCutter.trail} severed={connectionCutter.severed} scale={viewport.k} />
                     </svg>
 
@@ -4215,6 +4333,7 @@ function InfiniteCanvasPage() {
                         />
                     ))}
 
+                    {connectingParams?.batchPointer && batchSnap && <svg className="pointer-events-none absolute left-0 top-0 z-[55] h-0 w-0 overflow-visible" aria-hidden="true"><circle data-batch-snap cx={batchSnap.x} cy={batchSnap.y} r={10 / viewport.k} fill="none" stroke="#37d39b" strokeWidth={2.5} vectorEffect="non-scaling-stroke" /></svg>}
                     {selectionBox ? (
                         <svg
                             className="pointer-events-none absolute z-[100] overflow-visible"
@@ -4228,7 +4347,7 @@ function InfiniteCanvasPage() {
                             <rect width="100%" height="100%" fill={theme.canvas.selectionFill} stroke={theme.canvas.selectionStroke} strokeOpacity={0.55} strokeWidth={1 / viewport.k} strokeDasharray={`${6 / viewport.k} ${4 / viewport.k}`} />
                         </svg>
                     ) : null}
-                    {pendingConnectionCreate ? <ConnectionCreateMenu pending={pendingConnectionCreate} scale={viewport.k} showCharacterRecipe={pendingConnectionCreate.connection.handleType === "source" && connectionDragNodeIds(pendingConnectionCreate.connection).some((id) => nodeById.get(id)?.type === CanvasNodeType.Image)} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
+                    {pendingConnectionCreate && !pendingConnectionCreate.connection.batchPointer ? <ConnectionCreateMenu pending={pendingConnectionCreate} scale={viewport.k} showCharacterRecipe={pendingConnectionCreate.connection.handleType === "source" && connectionDragNodeIds(pendingConnectionCreate.connection).some((id) => nodeById.get(id)?.type === CanvasNodeType.Image)} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
                     {nodeCreatePosition ? (
                         <NodeCreateMenu
                             position={nodeCreatePosition}
@@ -4241,6 +4360,10 @@ function InfiniteCanvasPage() {
                         />
                     ) : null}
                 </InfiniteCanvas>
+                {pendingConnectionCreate?.connection.batchPointer && <ConnectionCreateMenu pending={{ ...pendingConnectionCreate, position: {
+                    x: Math.max(8, Math.min(size.width - 308, viewport.x + pendingConnectionCreate.position.x * viewport.k)),
+                    y: Math.max(8, Math.min(size.height - 266, viewport.y + pendingConnectionCreate.position.y * viewport.k)),
+                } }} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} />}
 
                 {referencePickerNodeId ? <button type="button" className="absolute left-1/2 top-4 z-[90] -translate-x-1/2 rounded-full border px-4 py-2 text-sm font-medium shadow-lg backdrop-blur" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }} onClick={exitNodeReferenceSelection}>{t("canvas.references.selectingHint")}</button> : null}
 
@@ -4285,7 +4408,10 @@ function InfiniteCanvasPage() {
                     <CanvasSelectionToolbar
                         nodes={selectedNodes}
                         viewport={viewport}
-                        showToolbar={!isNodeDragging && !isNodeResizing}
+                        showToolbar={!isNodeDragging && !isNodeResizing && !connectingParams && !referencePickerNodeId}
+                        boundsRef={selectionBoundsRef}
+                        wireSources={batchSources.length}
+                        onStartBatchWire={startBatchWire}
                         canGroup={canGroupSelection}
                         canUngroup={canUngroupSelection}
                         onGroup={groupSelection}

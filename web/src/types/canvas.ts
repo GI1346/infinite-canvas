@@ -67,11 +67,6 @@ export type CanvasNodeMetadata = {
     cropContext?: CanvasCropContext;
     fusionColorMatch?: boolean;
     llmOutputMode?: "text" | "list";
-    /** 「相机 / 配色 / 风格」选择器的当前选择，生成时注入提示词。 */
-    presetCamera?: Record<string, string>;
-    presetPalette?: string;
-    presetStyle?: string;
-    presetCustomPalettes?: { value: string; name: string; colors: string[]; prompt: string }[];
     llmChannelId?: string;
     llmOutputNodeId?: string;
     llmSummary?: string;
@@ -198,6 +193,7 @@ export type ConnectionHandle = {
     portId?: string;
     // Snapshot the selected outputs at drag start; later selection changes must not change this connection.
     sourceNodeIds?: string[];
+    batchPointer?: { id: number; start: Position };
 };
 
 export type SelectionBox = {

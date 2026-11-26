@@ -803,3 +803,19 @@ html.dark {
   .bf-nav-indicator { transition: transform 0.38s var(--bf-spring), opacity 0.2s ease; }
 }
 .bf-spring-search { max-width: 100%; }
+
+/* Pointer drag feedback for the table column; the preview itself is outside the canvas transform. */
+body[data-table-column-drag] * { cursor: grabbing !important; }
+[data-table-column-insertion]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 3px;
+  height: 2px;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 999px;
+  background: var(--table-insertion-color);
+  box-shadow: 0 0 5px var(--table-insertion-color);
+}
+[data-table-column-insertion="before"]::after { top: 0; }
+[data-table-column-insertion="after"]::after { bottom: 0; }

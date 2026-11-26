@@ -12,6 +12,8 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 import { stopWorkflowControlDrag } from "./workflow-node-interactions";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
+import { composerInputSurface, expandedComposerInputSurface } from "./canvas-generation-editor-modal";
+import { isImeComposing } from "@/lib/keyboard-event";
 import type { CanvasNodeData } from "@/types/canvas";
 import type { GalleryImage } from "@/pages/gallery/gallery-data";
 import { CanvasReferenceImagePicker } from "./canvas-reference-image-picker";
@@ -173,11 +175,11 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                 </div>
                 <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
             </div>}
-            {!compact && <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onReorder={onReorderReferences} fontSize={fontSize} />}
+            {!embedded && <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onReorder={onReorderReferences} fontSize={fontSize} />}
             {embedded && <div data-config-text-inputs className={compact ? "flex max-h-8 shrink-0 flex-wrap gap-1 overflow-y-auto empty:hidden" : "mb-1.5 flex shrink-0 flex-wrap gap-1.5"}>{inputs.flatMap((input) => (input.type === "group" ? input.children : [input]).flatMap((child) => child.type === "text" ? [{ child, sourceId: input.nodeId }] : [])).map(({ child, sourceId }) =>
-                <span key={sourceId + ":" + child.nodeId} title={child.text || child.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}><FileText size={fontSize || 12} /><span className="truncate">{child.title || "文本提示词"}</span>{compact && onDisconnectReference && <button type="button" aria-label={`移除引用 ${child.title || "文本"}`} className="shrink-0 opacity-70 hover:opacity-100" onClick={() => onDisconnectReference(sourceId, nodeId)}><X size={12} /></button>}</span>
+                <span key={sourceId + ":" + child.nodeId} title={child.text || child.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}><FileText size={fontSize || 12} /><span className="truncate">{child.title || "文本提示词"}</span>{onDisconnectReference && <button type="button" aria-label={`移除引用 ${child.title || "文本"}`} className="shrink-0 opacity-70 hover:opacity-100" onClick={() => onDisconnectReference(sourceId, nodeId)}><X size={12} /></button>}</span>
             )}</div>}
-            <div data-config-composer className={compact ? "relative z-10 min-h-[72px] max-h-[120px] shrink-0 overflow-hidden rounded-2xl border bg-black/[0.025] focus-within:!border-[#0ea977]/60 focus-within:ring-2 focus-within:ring-[#0ea977]/15 dark:bg-white/[0.04]" : embedded ? "relative min-h-0 flex-1 shrink-0 rounded-xl border border-black/[0.06] bg-black/[0.025] transition-colors focus-within:border-[#0ea977] dark:border-white/[0.08] dark:bg-white/[0.04]" : "relative rounded-lg"}>
+            <div data-config-composer className={embedded ? `relative z-10 overflow-hidden ${expanded ? expandedComposerInputSurface : composerInputSurface} ${compact ? "min-h-[72px] max-h-[120px] shrink-0" : "min-h-0 flex-1"}` : "relative rounded-lg"}>
                 {!value.trim() ? <div className="pointer-events-none absolute left-2.5 top-1.5 z-10 text-xs leading-5" style={{ color: theme.node.placeholder, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.composer.placeholder")}</div> : null}
                 <div
                     ref={editorRef}
@@ -186,7 +188,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                     aria-multiline="true"
                     contentEditable
                     suppressContentEditableWarning
-                    className={embedded ? `thin-scrollbar relative z-10 w-full overflow-y-auto overflow-x-hidden overscroll-contain whitespace-pre-wrap break-words px-2.5 py-2 outline-none ${expanded ? "h-full min-h-[240px] text-base leading-7" : compact ? "min-h-[72px] max-h-[118px] text-sm leading-5" : "max-h-[132px] min-h-[76px] text-sm leading-6"}` : "thin-scrollbar min-h-16 max-h-48 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-2 py-1.5 text-xs leading-5 outline-none"}
+                    className={embedded ? `thin-scrollbar relative z-10 w-full overflow-y-auto overflow-x-hidden overscroll-contain whitespace-pre-wrap break-words px-2.5 py-2 outline-none ${expanded ? "h-full min-h-0 text-base leading-7" : compact ? "min-h-[72px] max-h-[118px] text-sm leading-5" : "max-h-[132px] min-h-[76px] text-sm leading-6"}` : "thin-scrollbar min-h-16 max-h-48 w-full overflow-y-auto overscroll-contain whitespace-pre-wrap break-words px-2 py-1.5 text-xs leading-5 outline-none"}
                     style={{ color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}
                     onInput={() => {
                         if (!composingRef.current) syncFromEditor();
@@ -202,6 +204,12 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                     onPointerUp={rememberCaret}
                     onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                         event.stopPropagation();
+                        if (composingRef.current || isImeComposing(event)) return;
+                        if (event.key === "Escape" && expanded) {
+                            event.preventDefault();
+                            if (mention) closeMention(); else onClose();
+                            return;
+                        }
                         // 回车保留换行；Ctrl/Cmd + Enter 直接运行当前节点。
                         if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && onRun && !composingRef.current) {
                             event.preventDefault();

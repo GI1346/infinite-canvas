@@ -3,7 +3,9 @@ import { CanvasNodeType, type CanvasNodeData, type CanvasConnection } from "@/ty
 export const TABLE_TYPE = "dxos:table";
 export const CONCURRENT_TYPE = "dxos:concurrent";
 export const runningTableBatches = new Set<string>();
-export type DxTable = { kind: "table"; version: 1; columns: string[]; rows: string[][]; selectedRows: number[]; mergedGroups: number[][]; inputTexts?: Record<string, Record<string, string>> };
+export type DxCellImage = { id: string; title: string; storageKey: string; url: string };
+export type DxCellImages = { images: DxCellImage[]; linkedIndex?: number };
+export type DxTable = { kind: "table"; version: 1; columns: string[]; rows: string[][]; selectedRows: number[]; mergedGroups: number[][]; inputTexts?: Record<string, Record<string, string>>; inputImages?: Record<string, Record<number, DxCellImages>>; inputOrderMap?: Record<string, string[]> };
 export type DxInputChannel = { id: string; mode?: "sequence" | "shared"; imagesOnly?: boolean; mediaNodeIds?: string[] };
 export type DxInputItem = { type: "media"; nodeId: string; url: string; storageKey?: string; mediaType: string; title: string } | { type: "text"; text: string };
 export type DxRow = { rowNumber: number; media: Extract<DxInputItem, { type: "media" }>[]; text: string };
@@ -44,15 +46,79 @@ export function itemAt(items: DxInputItem[], channel: DxInputChannel, row: numbe
 export function inputTextAt(table: DxTable, channelId: string, row: number, input: DxInputItem | null) {
     return table.inputTexts?.[channelId]?.[row] ?? (input?.type === "text" ? input.text : "");
 }
+export function reorderArray<T>(list: T[], fromIndex: number, toIndex: number): T[] {
+    if (fromIndex === toIndex || !Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 0 || toIndex < 0 || fromIndex >= list.length || toIndex >= list.length) return list;
+    const next = list.slice();
+    next.splice(toIndex, 0, next.splice(fromIndex, 1)[0]);
+    return next;
+}
+
+export type DxCellImageItem = DxRow["media"][number] & { localId?: string };
+export function cellImageItems(table: DxTable, channelId: string, row: number, input: DxInputItem | null): DxCellImageItem[] {
+    const cell = table.inputImages?.[channelId]?.[row];
+    const images: DxCellImageItem[] = (cell?.images || []).map((image) => ({ type: "media", mediaType: "image", nodeId: "table-image:" + image.id, localId: image.id, title: image.title, storageKey: image.storageKey, url: image.url }));
+    if (input?.type === "media" && input.mediaType === "image") images.splice(cell?.linkedIndex ?? 0, 0, input);
+    return images;
+}
+
+export function remapInputImageOrder(order: DxTable["inputOrderMap"], remap: (id: string) => string) {
+    if (!order || typeof order !== "object") return undefined;
+    return Object.fromEntries(Object.entries(order).filter(([, ids]) => Array.isArray(ids)).map(([channel, ids]) => [channel, ids.filter((id) => typeof id === "string").map(remap)]));
+}
+
+export function mergeInputImageOrder<T extends { nodeId: string }>(items: T[], saved: readonly string[] = []): T[] {
+    if (!saved.length) return items;
+    const remaining = new Map(items.map((item) => [item.nodeId, item]));
+    const ordered: T[] = [];
+    for (const id of saved) {
+        const item = remaining.get(id);
+        if (item) { ordered.push(item); remaining.delete(id); }
+    }
+    return [...ordered, ...remaining.values()];
+}
+
+// An image slot follows its input row. Shared repeats point at the same slot;
+// text, non-image inputs and the other columns keep their original rows.
+export function tableInputColumn(data: DxTable, channel: DxInputChannel, items: DxInputItem[], count: number) {
+    const mode = channel.mode || (items.length > 1 ? "sequence" : "shared");
+    const slots = new Map<string, { index: number; image: DxCellImageItem }>();
+    const rows = Array.from({ length: Math.max(count, items.length) }, (_, row) => {
+        const input = itemAt(items, { ...channel, mode }, row);
+        const positions = cellImageItems(data, channel.id, row, input).map((image) => {
+            const existing = slots.get(image.nodeId);
+            if (existing) return existing.index;
+            const index = slots.size;
+            slots.set(image.nodeId, { index, image });
+            return index;
+        });
+        return { input, positions };
+    });
+    const ordered = mergeInputImageOrder(Array.from(slots.values(), ({ image }) => image), data.inputOrderMap?.[channel.id]);
+    const shown = new Set<string>();
+    const visibleRows = rows.slice(0, count).map(({ input, positions }) => ({ input, images: positions.map((index) => ordered[index]), orderSlots: positions.filter((index) => {
+        const id = ordered[index].nodeId;
+        if (shown.has(id)) return false;
+        shown.add(id);
+        return true;
+    }) }));
+    return { rows: visibleRows, ids: ordered.map(({ nodeId }) => nodeId) };
+}
+
+export function tableRowCount(node: CanvasNodeData, data: DxTable, lengths: number[]) {
+    return node.metadata?.tableRowsFromData ? data.rows.length : Math.max(data.rows.length, ...lengths);
+}
+
 export function tableRows(table: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]): DxRow[] {
     const data = readTable(table), channels = channelsFor(table).map((channel) => ({ channel, items: channelItems(table, channel.id, nodes, connections) }));
-    const count = table.metadata?.tableRowsFromData ? data.rows.length : Math.max(data.rows.length, ...channels.map((c) => c.items.length));
+    const count = tableRowCount(table, data, channels.map(({ items }) => items.length));
+    const columns = channels.map(({ channel, items }) => ({ id: channel.id, ...tableInputColumn(data, channel, items, count) }));
     return Array.from({ length: count }, (_, index) => {
         const media: DxRow["media"] = [], texts: string[] = [];
-        channels.forEach(({ channel, items }) => {
-            const input = itemAt(items, { ...channel, mode: channel.mode || (items.length > 1 ? "sequence" : "shared") }, index);
-            if (input?.type === "media" && !media.some((i) => i.nodeId === input.nodeId)) media.push(input);
-            const text = inputTextAt(data, channel.id, index, input).trim();
+        columns.forEach(({ id, rows }) => {
+            const { input, images } = rows[index];
+            const cellMedia = input?.type === "media" && input.mediaType !== "image" ? [input, ...images] : images;
+            for (const item of cellMedia) if (!media.some((i) => i.nodeId === item.nodeId)) media.push(item);
+            const text = inputTextAt(data, id, index, input).trim();
             if (text) texts.push(text);
         });
         (data.rows[index] || []).forEach((value) => { if (value.trim()) texts.push(value.trim()); });
@@ -69,7 +135,10 @@ export function generationRows(node: CanvasNodeData, nodes: CanvasNodeData[], co
     }).filter((row) => row.media.length || row.text.trim());
 }
 export function selectedGenerationRows(node: CanvasNodeData, rows: DxRow[]) { return rows.filter((row) => node.metadata?.tableBatchManualSelection ? node.metadata.tableBatchSelectedRows?.includes(row.rowNumber) : row.rowNumber >= (node.metadata?.tableBatchStartRow || 1)); }
-export function deleteTableRow(table: DxTable, index: number): DxTable { return { ...table, inputTexts: table.inputTexts && Object.fromEntries(Object.entries(table.inputTexts).map(([id, rows]) => [id, Object.fromEntries(Object.entries(rows).filter(([row]) => Number(row) !== index).map(([row, text]) => [Number(row) > index ? Number(row) - 1 : row, text]))])), rows: table.rows.filter((_, i) => i !== index), selectedRows: table.selectedRows.filter((i) => i !== index).map((i) => i > index ? i - 1 : i), mergedGroups: table.mergedGroups.map((g) => g.filter((i) => i !== index).map((i) => i > index ? i - 1 : i)).filter((g) => g.length > 1) }; }
+function removeRowFromInputs<T>(inputs: Record<string, Record<number, T>> | undefined, index: number) {
+    return inputs && Object.fromEntries(Object.entries(inputs).map(([id, rows]) => [id, Object.fromEntries(Object.entries(rows).filter(([row]) => Number(row) !== index).map(([row, value]) => [Number(row) > index ? Number(row) - 1 : row, value]))]));
+}
+export function deleteTableRow(table: DxTable, index: number) { return { ...table, inputTexts: removeRowFromInputs(table.inputTexts, index), inputImages: removeRowFromInputs(table.inputImages, index), rows: table.rows.filter((_, i) => i !== index), selectedRows: table.selectedRows.filter((i) => i !== index).map((i) => i > index ? i - 1 : i), mergedGroups: table.mergedGroups.map((g) => g.filter((i) => i !== index).map((i) => i > index ? i - 1 : i)).filter((g) => g.length > 1) }; }
 export async function runRowPool<T>(rows: T[], concurrency: number, signal: AbortSignal, work: (row: T) => Promise<void>) {
     let cursor = 0;
     const errors: unknown[] = [];

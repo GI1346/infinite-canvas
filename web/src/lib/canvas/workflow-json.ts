@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { remapInputImageOrder } from "@/lib/canvas/dxos-table";
 import { blobDataUrl, exportName, uniqueExportName, type ExportFolder } from "@/lib/export-fs";
 import { deleteStoredImages, fetchImageBlob, getImageBlob, resolveImageUrl, setImageBlob } from "@/services/image-storage";
 import { deleteStoredMedia, getMediaBlob, resolveMediaUrl, setMediaBlob } from "@/services/file-storage";
@@ -203,6 +204,10 @@ export async function parseAndImportWorkflowJson(jsonText: string, currentViewpo
         const dx = currentViewportCenter.x - (bounds.left + bounds.right) / 2, dy = currentViewportCenter.y - (bounds.top + bounds.bottom) / 2;
         const byKey = new Map([...stored.values()].map((asset) => [asset.key, asset]));
         const oldIds = [...ids.keys()].sort((a, b) => b.length - a.length);
+        const remapMedia = (value: string) => {
+            const old = oldIds.find((id) => value === id || value.startsWith(`${id}:`));
+            return old ? ids.get(old)! + value.slice(old.length) : value;
+        };
         const nodeFields = new Set(["groupId", "sourceNodeId", "generationOriginId", "llmOutputNodeId", "referenceNodeOrder", "outputIds"]);
         const nodes = await Promise.all(data.nodes.map(async (node) => {
             const remembered: Record<string, string> = {};
@@ -214,13 +219,11 @@ export async function parseAndImportWorkflowJson(jsonText: string, currentViewpo
                     return asset.url;
                 }
                 if (field && nodeFields.has(field)) return ids.get(value) ?? "";
-                if (field === "mediaNodeIds") {
-                    const old = oldIds.find((id) => value === id || value.startsWith(`${id}:`));
-                    return old ? ids.get(old)! + value.slice(old.length) : value;
-                }
+                if (field === "mediaNodeIds") return remapMedia(value);
                 return field === "composerContent" ? value.replace(/@\[node:([^\]]+)\]/g, (token, id) => ids.has(id) ? `@[node:${ids.get(id)}]` : token) : value;
             }) as CanvasNodeData["metadata"];
             if (metadata) {
+                if (metadata.table && node.metadata?.table?.inputOrderMap) metadata.table.inputOrderMap = remapInputImageOrder(node.metadata.table.inputOrderMap, remapMedia);
                 const attach = (item: { content?: string; storageKey?: string; mimeType?: string; bytes?: number }) => {
                     const key = remembered[item.content || ""] ?? item.storageKey;
                     if (!key) return;

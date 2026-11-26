@@ -35,7 +35,7 @@ export function CanvasReferenceImagePicker({ initialTab, onSelect, onClose }: { 
         catch (error) { setFailure(error instanceof Error ? error.message : "图片无法读取，未添加引用。请重试。"); }
         finally { setPendingId(null); }
     };
-    return <Modal open centered footer={null} width="min(1080px, 94vw)" onCancel={onClose} destroyOnHidden
+    return <Modal open centered zIndex={1120} footer={null} width="min(1080px, 94vw)" onCancel={onClose} destroyOnHidden
         title={<div className="flex items-center gap-3"><Images size={20} style={{ color: theme.toolbar.activeText }} /><div><div className="text-base font-semibold">选择素材</div><p className="mt-1 text-xs font-normal" style={{ color: theme.node.muted }}>点击图片，连接到当前生成配置并插入引用</p></div></div>}
         styles={{ container: { background: theme.node.panel, color: theme.node.text, borderRadius: 24 }, header: { background: "transparent", color: theme.node.text }, body: { paddingTop: 12 } }}
         modalRender={(modal) => <div data-config-image-picker data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}>

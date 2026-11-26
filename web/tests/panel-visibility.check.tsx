@@ -46,11 +46,20 @@ async function main() {
         assert.equal(showsGenerationPanel(node("result3", "image", { content: "blob:x", prompt: "猫" })), true);
     });
 
-    await test("文本、表格、并发、视频、音频节点都不弹", () => {
-        for (const type of ["text", "dxos:table", "dxos:concurrent", "video", "audio"]) {
+    await test("文本、表格、并发、音频节点都不弹", () => {
+        for (const type of ["text", "dxos:table", "dxos:concurrent", "audio"]) {
             assert.equal(showsGenerationPanel(node(type, type)), false, type);
             assert.equal(shouldShowNodePanel(node(type, type), state()), false, type);
         }
+    });
+
+    await test("视频配置只随单选的生成节点展开，普通上传的视频不打开配置", () => {
+        const empty = node("pending", "video"), upload = node("upload-video", "video", { content: "blob:video" });
+        const result = node("result-video", "video", { content: "blob:result", model: "fixture::video" });
+        assert.equal(shouldShowNodePanel(empty, state()), true);
+        assert.equal(shouldShowNodePanel(upload, state()), false);
+        assert.equal(shouldShowNodePanel(result, state()), true);
+        assert.equal(shouldShowNodePanel(result, state({ selectedCount: 2 })), false);
     });
 
     await test("单选生成节点展开，多选立即收起", () => {

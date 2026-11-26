@@ -1,5 +1,6 @@
 import { imageQualityForModel } from "@/lib/image-quality";
 import { hydrateWorkflowAssetUrls } from "@/lib/canvas/workflow-json";
+import type { DxTable } from "@/lib/canvas/dxos-table";
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import i18n from "@/i18n";
 import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
@@ -45,10 +46,24 @@ export async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
     return references.every(Boolean) ? (references as ReferenceImage[]) : null;
 }
 
+export async function hydrateTableInputImages(table: DxTable): Promise<DxTable> {
+    if (!table.inputImages) return table;
+    const channels = await Promise.all(Object.entries(table.inputImages).map(async ([channel, rows]) => {
+        const cells = await Promise.all(Object.entries(rows).map(async ([row, cell]) => {
+            const images = await Promise.all(cell.images.map(async (image) => ({ ...image, url: await resolveImageUrl(image.storageKey, image.url) })));
+            return [row, { ...cell, images }] as const;
+        }));
+        return [channel, Object.fromEntries(cells)] as const;
+    }));
+    return { ...table, inputImages: Object.fromEntries(channels) };
+}
+
 export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (source) => {
             const node = source.metadata?.workflowAssetUrls ? await hydrateWorkflowAssetUrls(source) : source;
+            const table = node.metadata?.table;
+            if (table?.inputImages) return { ...node, metadata: { ...node.metadata, table: await hydrateTableInputImages(table) } };
             const metadata = node.metadata;
             const content = metadata?.content;
             if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && metadata?.storageKey) return { ...node, metadata: { ...metadata, content: await resolveMediaUrl(metadata.storageKey, content) } };

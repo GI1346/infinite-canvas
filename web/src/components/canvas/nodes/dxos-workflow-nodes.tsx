@@ -2,16 +2,20 @@ import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
 import { isWorkflowNodeRunning, runWorkflowNode, stopWorkflowNode } from "@/lib/canvas/canvas-workflow-runner";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { Layers, Table2, Zap } from "lucide-react";
+import { Modal } from "antd";
+import { TableCellImages } from "./dxos-table-cell-images";
+import { useTableColumnImageDrag } from "./use-table-column-image-drag";
+import { hydrateTableInputImages } from "@/lib/canvas/canvas-generation-helpers";
 import { nanoid } from "nanoid";
 import type { CanvasNodeContext, CanvasNodeDefinition } from "@/types/canvas-plugin";
 
 import { stopWorkflowControlDrag } from "@/components/canvas/workflow-node-interactions";
-import { TABLE_TYPE, CONCURRENT_TYPE, channelsFor, channelItems, itemAt, inputTextAt, emptyTable, readTable, tableRows, generationRows, selectedGenerationRows, deleteTableRow, type DxTable, type DxInputItem } from "@/lib/canvas/dxos-table";
+import { TABLE_TYPE, CONCURRENT_TYPE, channelsFor, channelItems, inputTextAt, emptyTable, readTable, tableRowCount, tableInputColumn, generationRows, selectedGenerationRows, deleteTableRow, cellImageItems, type DxCellImages, type DxCellImageItem, type DxTable, type DxInputItem } from "@/lib/canvas/dxos-table";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions } from "@/lib/media-size";
 import { workflowDisplayMetadata } from "@/lib/canvas/workflow-display-size";
 import { resolveModelForCapability, useEffectiveConfig } from "@/stores/use-config-store";
 import { generationTaskKey, useGenerationRunnerStore } from "@/stores/canvas/use-generation-runner-store";
-import { ensureImagePreview, getImagePreviewRevision, previewUrlFor, subscribeImagePreviews } from "@/services/image-storage";
+import { ensureImagePreview, getImagePreviewRevision, previewUrlFor, subscribeImagePreviews, uploadImage, resolveImageUrl } from "@/services/image-storage";
 
 const button = "rounded-lg bg-black/[0.04] px-2.5 py-1 text-sm transition hover:bg-[#0ea977]/[0.12] dark:bg-white/[0.06] dark:hover:bg-[#37d39b]/[0.16] disabled:opacity-40";
 /** 实心翡翠绿主按钮（画布内按缩放比例用 text-sm 保持与其他控件同尺寸）。 */
@@ -48,11 +52,15 @@ function saveJson(value: unknown) {
 function TableContent({ ctx }: { ctx: CanvasNodeContext }) {
     const { node, theme } = ctx, table = readTable(node), channels = channelsFor(node);
     const [error, setError] = useState("");
+    const [imagePreview, setImagePreview] = useState<{ url: string; title: string }>();
     const graph = useWorkflowGraph(ctx);
     const sources = useMemo(() => channelsFor(node).map((channel) => ({ channel, items: channelItems(node, channel.id, graph.nodes, graph.connections) })), [node, graph]);
-    const previews = useMemo(() => sources.flatMap((source) => source.items), [sources]);
+    const previews = useMemo(() => [...sources.flatMap((source) => source.items), ...Object.entries(table.inputImages || {}).flatMap(([channelId, rows]) => Object.keys(rows).flatMap((row) => cellImageItems(table, channelId, Number(row), null)))], [sources, table]);
     useInputPreviews(previews);
-    const count = tableRows(node, graph.nodes, graph.connections).length;
+    const count = tableRowCount(node, table, sources.map(({ items }) => items.length));
+    const inputColumns = useMemo(() => sources.map(({ channel, items }) => tableInputColumn(table, channel, items, count)), [sources, table, count]);
+    const sortableColumns = inputColumns.map(({ rows }) => rows.filter(({ orderSlots }) => orderSlots.length > 0).length > 1);
+    const drag = useTableColumnImageDrag();
     const cell: CSSProperties = { border: `1px solid ${theme.node.stroke}`, minWidth: 240, padding: 12, verticalAlign: "top" };
     const input: CSSProperties = { width: "100%", background: "transparent", color: theme.node.text, outline: "none", fontSize: "inherit", lineHeight: "inherit" };
     const textCell = "flex h-full min-h-[100px] flex-col";
@@ -63,12 +71,78 @@ function TableContent({ ctx }: { ctx: CanvasNodeContext }) {
         rows[row][col] = text; update({ ...table, rows });
     };
     const setInputText = (channelId: string, row: number, text: string) => update({ ...table, inputTexts: { ...table.inputTexts, [channelId]: { ...table.inputTexts?.[channelId], [row]: text } } });
+    const updateImages = (current: DxTable, channelId: string, row: number, cell: DxCellImages) => update({
+        ...current, inputImages: { ...current.inputImages, [channelId]: { ...current.inputImages?.[channelId], [row]: cell } },
+    });
+    const addCellImages = async (channelId: string, row: number, files: File[]) => {
+        const project = ctx.getProjectId?.(), originalRows = table.rows;
+        try {
+            const added = [];
+            for (const file of files) {
+                if (!file.type.startsWith("image/")) continue;
+                const image = await uploadImage(file);
+                if (image.storageKey) added.push({ id: nanoid(), title: file.name, storageKey: image.storageKey, url: image.url });
+            }
+            const latest = ctx.getNode(node.id);
+            if (!added.length || !latest || ctx.getProjectId?.() !== project || !channelsFor(latest).some((channel) => channel.id === channelId)) return;
+            const current = readTable(latest);
+            if (latest.metadata?.table && originalRows !== current.rows) { setError("表格行已修改，请重新添加图片"); return; }
+            const previous = current.inputImages?.[channelId]?.[row];
+            const nextCell = { ...previous, images: [...(previous?.images ?? []), ...added] };
+            let inputOrderMap = current.inputOrderMap;
+            if (inputOrderMap?.[channelId]) {
+                // A deliberate upload into a specific cell stays there, even when the column has a saved order.
+                const channel = channelsFor(latest).find(({ id }) => id === channelId)!;
+                const items = channelItems(latest, channelId, ctx.getNodes(), ctx.getConnections());
+                const rowCount = Math.max(count, row + 1);
+                const ids = tableInputColumn(current, channel, items, rowCount).ids;
+                const inputImages = { ...current.inputImages, [channelId]: { ...current.inputImages?.[channelId], [row]: nextCell } };
+                const rawOrder = tableInputColumn({ ...current, inputOrderMap: undefined, inputImages }, channel, items, rowCount).ids;
+                added.forEach(({ id }) => {
+                    const imageId = "table-image:" + id, slot = rawOrder.indexOf(imageId);
+                    if (slot >= 0) ids.splice(slot, 0, imageId);
+                });
+                inputOrderMap = { ...inputOrderMap, [channelId]: ids };
+            }
+            updateImages({ ...current, inputOrderMap }, channelId, row, nextCell);
+            setError("");
+        } catch (reason) { setError(reason instanceof Error ? reason.message : "无法添加图片"); }
+    };
+    const removeCellImage = (channelId: string, id: string) => {
+        const latest = ctx.getNode(node.id);
+        if (!latest) return;
+        const current = readTable(latest), rows = current.inputImages?.[channelId];
+        if (!rows) return;
+        const source = Object.entries(rows).find(([, cell]) => cell.images.some((image) => image.id === id));
+        if (!source) return;
+        const [row, cell] = source, index = cell.images.findIndex((image) => image.id === id);
+        const linkedIndex = cell.linkedIndex === undefined ? undefined : cell.linkedIndex - Number(index < cell.linkedIndex);
+        const inputOrderMap = current.inputOrderMap?.[channelId] ? { ...current.inputOrderMap, [channelId]: current.inputOrderMap[channelId].filter((key) => key !== "table-image:" + id) } : current.inputOrderMap;
+        updateImages({ ...current, inputOrderMap }, channelId, Number(row), { linkedIndex, images: cell.images.filter((image) => image.id !== id) });
+    };
+    const commitImageOrder = (channelId: string, shown: string[], ordered: string[]) => {
+        const latest = ctx.getNode(node.id);
+        if (!latest) return;
+        const current = readTable(latest), channels = channelsFor(latest);
+        const inputs = channels.map((channel) => channelItems(latest, channel.id, ctx.getNodes(), ctx.getConnections()));
+        const index = channels.findIndex(({ id }) => id === channelId);
+        if (index < 0) return;
+        const ids = tableInputColumn(current, channels[index], inputs[index], tableRowCount(latest, current, inputs.map((items) => items.length))).ids;
+        if (ids.length !== shown.length || ids.some((id, position) => id !== shown[position])) return;
+        update({ ...current, inputOrderMap: { ...current.inputOrderMap, [channelId]: ordered } });
+    };
+    const previewImage = async (image: DxCellImageItem) => {
+        try { setImagePreview({ url: await resolveImageUrl(image.storageKey, image.url), title: image.title }); }
+        catch { setError("无法读取原图"); }
+    };
     const importTable = async (file: File) => {
         try {
             const t = JSON.parse(await file.text()) as DxTable;
             if (t.kind !== "table" || t.version !== 1 || !Array.isArray(t.columns) || !t.columns.every((c) => typeof c === "string") || !Array.isArray(t.rows) || !t.rows.every((r) => Array.isArray(r) && r.length === t.columns.length && r.every((v) => typeof v === "string"))) throw new Error("需要 table/version 1 的列与字符串单元格数据");
             if (t.inputTexts && (typeof t.inputTexts !== "object" || Object.values(t.inputTexts).some((rows) => !rows || typeof rows !== "object" || Object.entries(rows).some(([row, value]) => !/^\d+$/.test(row) || typeof value !== "string")))) throw new Error("输入列需要有效的逐行文本数据");
-            update({ ...t, selectedRows: Array.isArray(t.selectedRows) ? t.selectedRows : [], mergedGroups: Array.isArray(t.mergedGroups) ? t.mergedGroups : [] }); setError("");
+            if (t.inputImages && (typeof t.inputImages !== "object" || Object.values(t.inputImages).some((cells) => !cells || typeof cells !== "object" || Object.entries(cells).some(([row, cell]) => !/^\d+$/.test(row) || !Array.isArray(cell?.images) || cell.images.some((image) => typeof image?.id !== "string" || typeof image.storageKey !== "string" || !image.storageKey.startsWith("image:") || typeof image.title !== "string" || typeof image.url !== "string") || (cell.linkedIndex !== undefined && (!Number.isInteger(cell.linkedIndex) || cell.linkedIndex < 0)))))) throw new Error("输入列需要有效的逐行图片数据");
+            if (t.inputOrderMap && (typeof t.inputOrderMap !== "object" || Array.isArray(t.inputOrderMap) || Object.values(t.inputOrderMap).some((order) => !Array.isArray(order) || order.some((id) => typeof id !== "string")))) throw new Error("输入列需要有效的图片排序数据");
+            update({ ...await hydrateTableInputImages(t), selectedRows: Array.isArray(t.selectedRows) ? t.selectedRows : [], mergedGroups: Array.isArray(t.mergedGroups) ? t.mergedGroups : [] }); setError("");
         } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     };
     return <div className="flex h-full min-h-0 w-full min-w-0 flex-col p-3 text-sm" style={{ background: theme.node.panel, color: theme.node.text }} onMouseDown={stopWorkflowControlDrag} onPointerDown={stop} onKeyDown={stop}>
@@ -80,19 +154,20 @@ function TableContent({ ctx }: { ctx: CanvasNodeContext }) {
             <label className={`${button} cursor-pointer`}>导入<input type="file" accept=".json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importTable(f); e.target.value = ""; }} /></label>
         </div>
         <div data-node-scroll className="min-h-0 flex-1 overflow-auto overscroll-contain">
-            <table className="w-full border-collapse"><thead><tr className="bg-black/[0.035] dark:bg-white/[0.05]"><th style={{ ...cell, minWidth: 64 }}>行</th>
-                {sources.map(({ channel, items }, index) => <th key={channel.id} style={cell}><div className="flex items-center justify-between">输入 {index + 1}<button title="移除输入及其连线" className={button} disabled={channels.length === 1} onClick={() => { ctx.applyOps([{ type: "delete_connections", ids: ctx.getConnections().filter((c) => c.toNodeId === node.id && (c.toPort || channels[0].id) === channel.id).map((c) => c.id) }]); ctx.updateMetadata({ tableInputChannels: channels.filter((c) => c.id !== channel.id) }); }}>×</button></div><select aria-label={`输入 ${index + 1} 配对方式`} style={input} value={channel.mode || "auto"} onChange={(e) => ctx.updateMetadata({ tableInputChannels: channels.map((c) => c.id === channel.id ? { ...c, mode: e.target.value === "auto" ? undefined : e.target.value as "sequence" | "shared" } : c) })}><option value="auto">自动（{items.length > 1 ? "逐行" : "共享"}）</option><option value="sequence">逐行配对</option><option value="shared">共享 / 重复末项</option></select></th>)}
+            <table ref={drag.tableRef} onPointerDownCapture={drag.resetClick} onClickCapture={drag.clickCapture} className="w-full border-collapse"><thead><tr className="bg-black/[0.035] dark:bg-white/[0.05]"><th style={{ ...cell, minWidth: 64 }}>行</th>
+                {sources.map(({ channel, items }, index) => <th key={channel.id} style={cell}><div className="flex items-center justify-between">输入 {index + 1}<button title="移除输入及其连线" className={button} disabled={channels.length === 1} onClick={() => { ctx.applyOps([{ type: "delete_connections", ids: ctx.getConnections().filter((c) => c.toNodeId === node.id && (c.toPort || channels[0].id) === channel.id).map((c) => c.id) }]); const inputImages = { ...table.inputImages }, inputOrderMap = { ...table.inputOrderMap }; delete inputImages[channel.id]; delete inputOrderMap[channel.id]; ctx.updateMetadata({ tableInputChannels: channels.filter((c) => c.id !== channel.id), table: { ...table, inputImages, inputOrderMap } }); }}>×</button></div><select aria-label={`输入 ${index + 1} 配对方式`} style={input} value={channel.mode || "auto"} onChange={(e) => ctx.updateMetadata({ tableInputChannels: channels.map((c) => c.id === channel.id ? { ...c, mode: e.target.value === "auto" ? undefined : e.target.value as "sequence" | "shared" } : c) })}><option value="auto">自动（{items.length > 1 ? "逐行" : "共享"}）</option><option value="sequence">逐行配对</option><option value="shared">共享 / 重复末项</option></select></th>)}
                 {table.columns.map((name, col) => <th key={col} style={cell}><div className="flex"><input aria-label={`字段 ${col + 1} 名称`} className="min-w-0" style={input} value={name} onChange={(e) => update({ ...table, columns: table.columns.map((c, i) => i === col ? e.target.value : c) })} /><button className={button} title="删除字段" onClick={() => update({ ...table, columns: table.columns.filter((_, i) => i !== col), rows: table.rows.map((r) => r.filter((_, i) => i !== col)) })}>×</button></div></th>)}<th style={{ ...cell, minWidth: 52 }} /></tr></thead>
                 <tbody>{Array.from({ length: count }, (_, row) => <tr key={row} className="transition-colors hover:bg-[#0ea977]/[0.03]"><td style={{ ...cell, minWidth: 64 }}><label><input aria-label={`选择第 ${row + 1} 行`} type="checkbox" className="size-5" checked={table.selectedRows.includes(row)} onChange={(e) => update({ ...table, selectedRows: e.target.checked ? [...table.selectedRows, row] : table.selectedRows.filter((i) => i !== row) })} /> {row + 1}</label></td>
-                    {sources.map(({ channel, items }, column) => {
-                        const item = itemAt(items, { ...channel, mode: channel.mode || (items.length > 1 ? "sequence" : "shared") }, row);
+                    {sources.map(({ channel }, column) => {
+                        const { rows, ids } = inputColumns[column];
+                        const { input: item, images, orderSlots } = rows[row];
                         const media = item?.type === "media" ? item : null;
                         const hasText = !media || table.inputTexts?.[channel.id]?.[row] !== undefined;
-                        return <td key={channel.id} className="h-px align-top" style={cell}>
-                            <div className={hasText ? textCell : undefined}>
-                                {media && <div className="shrink-0">{media.mediaType === "image" ? <img className="max-h-36 max-w-42 rounded object-contain" src={previewUrlFor(media.storageKey) || media.url} alt={media.title} decoding="async" draggable={false} /> : <span>{media.mediaType} · {media.title}</span>}</div>}
-                                {hasText && <textarea aria-label={`第 ${row + 1} 行输入 ${column + 1} 文本`} data-node-scroll className={`${textEditor} ${media ? "min-h-[100px]" : "min-h-0"}`} style={input} value={inputTextAt(table, channel.id, row, item)} placeholder="连接图片组或文本到左侧端口，也可直接输入" onChange={(e) => setInputText(channel.id, row, e.target.value)} />}
-                            </div>
+                        return <td key={channel.id} data-table-input-id={channel.id} data-table-row-index={row} data-table-order-slots={orderSlots.join(",")} className="relative h-px align-top" style={{ ...cell, "--table-insertion-color": theme.accent.base } as CSSProperties}>
+                            <TableCellImages cellKey={`${node.id}:${row}:${channel.id}`} images={images} theme={theme} onPreview={previewImage} className={hasText ? textCell : undefined} onFiles={(files) => void addCellImages(channel.id, row, files)} onRemove={(id) => removeCellImage(channel.id, id)} onImagePointerDown={sortableColumns[column] ? (event, image) => drag.start(event, channel.id, row, ids, image.nodeId, (ordered) => commitImageOrder(channel.id, ids, ordered)) : undefined}>
+                                {media && media.mediaType !== "image" && <div className="shrink-0">{media.mediaType} · {media.title}</div>}
+                                {hasText && <textarea aria-label={`第 ${row + 1} 行输入 ${column + 1} 文本`} data-node-scroll className={`${textEditor} ${media || images.length ? "min-h-[100px]" : "min-h-0"}`} style={input} value={inputTextAt(table, channel.id, row, item)} placeholder="连接图片组或文本到左侧端口，也可直接输入" onChange={(e) => setInputText(channel.id, row, e.target.value)} />}
+                            </TableCellImages>
                         </td>;
                     })}
                     {table.columns.map((_, col) => <td key={col} className="h-px align-top" style={cell}><div className={textCell}><textarea aria-label={`第 ${row + 1} 行第 ${col + 1} 字段`} data-node-scroll className={`${textEditor} min-h-0`} style={input} value={table.rows[row]?.[col] || ""} onChange={(e) => setCell(row, col, e.target.value)} onPaste={(e) => {
@@ -105,6 +180,7 @@ function TableContent({ ctx }: { ctx: CanvasNodeContext }) {
                     }} /></div></td>)}<td style={{ ...cell, minWidth: 52 }}><button title="删除数据行（连线输入由上游控制）" className={button} disabled={row >= table.rows.length} onClick={() => update(deleteTableRow(table, row))}>×</button></td></tr>)}</tbody>
             </table>
         </div>
+        {imagePreview && <Modal open centered footer={null} title={imagePreview.title} onCancel={() => setImagePreview(undefined)} modalRender={(modal) => <div data-table-image-preview data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={stop} onMouseDown={stop}>{modal}</div>}><img src={imagePreview.url} alt={imagePreview.title} className="mx-auto max-h-[70vh] max-w-full object-contain" /></Modal>}
         {error && <p role="alert">{error}</p>}
         <div className="mt-2 flex justify-between gap-2"><button className={button} onClick={() => update({ ...table, rows: [...Array.from({ length: count }, (_, i) => table.rows[i] || table.columns.map(() => "")), table.columns.map(() => "")] })}>＋数据行</button><button className={primaryButton} onClick={() => {
             const id = nanoid(); ctx.applyOps([{ type: "add_node", id, nodeType: CONCURRENT_TYPE, title: "并发生成", position: { x: node.position.x + node.width + 100, y: node.position.y }, metadata: { tableBatchManualSelection: table.selectedRows.length > 0, tableBatchSelectedRows: table.selectedRows.map((i) => i + 1) } }, { type: "connect_nodes", fromNodeId: node.id, toNodeId: id }]);

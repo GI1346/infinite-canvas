@@ -14,7 +14,6 @@ export function createGenerationBranch(source: CanvasNodeData | undefined, nodes
     const origin = nodes.find((item) => item.id === originId) || source;
     const metadata: CanvasNodeMetadata = {
         prompt, composerContent: prompt, status: "idle", generationMode: mode,
-        ...(mode === "image" ? { presetCamera: old.presetCamera, presetPalette: old.presetPalette, presetStyle: old.presetStyle, presetCustomPalettes: old.presetCustomPalettes } : {}),
         model: config.model, reasoningEffort: config.reasoningEffort,
         size: config.size, imageResolution: config.imageResolution, imageAspectRatio: old.imageAspectRatio,
         quality: config.quality, background: config.background, count: Number(config.count),

@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { remapInputImageOrder } from "@/lib/canvas/dxos-table";
 import { hydrateCanvasImages } from "@/lib/canvas/canvas-generation-helpers";
 import { createCanvasNode, imageMetadata } from "@/lib/canvas/canvas-node-factory";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
@@ -22,9 +23,21 @@ export async function cloneWorkflow(workflow: SavedWorkflow, center: Position): 
         if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [ids.get(key) || key, remap(item)]));
         return value;
     };
+    const oldIds = [...ids.keys()].sort((a, b) => b.length - a.length);
+    const remapMedia = (id: string) => {
+        const old = oldIds.find((key) => id === key || id.startsWith(key + ":"));
+        return old ? ids.get(old)! + id.slice(old.length) : id;
+    };
     const minX = Math.min(...workflow.nodes.map((node) => node.position.x)), minY = Math.min(...workflow.nodes.map((node) => node.position.y));
     const maxX = Math.max(...workflow.nodes.map((node) => node.position.x + node.width)), maxY = Math.max(...workflow.nodes.map((node) => node.position.y + node.height));
-    const nodes = await hydrateCanvasImages(workflow.nodes.map((node) => ({ ...node, id: ids.get(node.id)!, position: { x: center.x + node.position.x - (minX + maxX) / 2, y: center.y + node.position.y - (minY + maxY) / 2 }, metadata: remap(node.metadata) as CanvasNodeData["metadata"] })));
+    const nodes = await hydrateCanvasImages(workflow.nodes.map((node) => {
+        const metadata = remap(node.metadata) as CanvasNodeData["metadata"];
+        if (metadata?.table && node.metadata?.table?.inputOrderMap) metadata.table.inputOrderMap = remapInputImageOrder(node.metadata.table.inputOrderMap, remapMedia);
+        node.metadata?.tableInputChannels?.forEach((channel, index) => {
+            if (channel.mediaNodeIds && metadata?.tableInputChannels?.[index]) metadata.tableInputChannels[index].mediaNodeIds = channel.mediaNodeIds.map(remapMedia);
+        });
+        return { ...node, id: ids.get(node.id)!, position: { x: center.x + node.position.x - (minX + maxX) / 2, y: center.y + node.position.y - (minY + maxY) / 2 }, metadata };
+    }));
     const connections = workflow.connections.filter((connection) => ids.has(connection.fromNodeId) && ids.has(connection.toNodeId)).map((connection) => ({ ...connection, id: nanoid(), fromNodeId: ids.get(connection.fromNodeId)!, toNodeId: ids.get(connection.toNodeId)! }));
     return { nodes, connections };
 }

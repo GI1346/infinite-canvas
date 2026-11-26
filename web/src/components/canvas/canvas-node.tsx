@@ -391,6 +391,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 setHovered(false);
             }}
             onMouseDownCapture={(event) => {
+                if (event.target instanceof Element && event.target.closest("[data-table-cell-image],[data-table-image-preview]")) return;
                 if (!referenceSelectionState && (data.type !== CHARACTER_RECIPE_NODE_TYPE || event.currentTarget.contains(event.target as Node))) onSelectCapture?.(event, data.id);
             }}
             onContextMenu={(event) => {
@@ -543,7 +544,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     className="absolute left-1/2 top-full z-[70] overflow-hidden rounded-[20px] border shadow-2xl"
                     style={{
                         width: NODE_PANEL_WIDTH / scale,
-                        height: data.type === CanvasNodeType.Image ? undefined : NODE_PANEL_HEIGHT / scale,
+                        height: data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video ? undefined : NODE_PANEL_HEIGHT / scale,
                         marginTop: 16 / scale,
                         transform: "translateX(-50%)",
                         background: theme.node.panel,
@@ -554,7 +555,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     onMouseDown={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
                 >
-                    <div data-node-panel-content style={{ width: NODE_PANEL_CONTENT_WIDTH, height: data.type === CanvasNodeType.Image ? undefined : NODE_PANEL_CONTENT_HEIGHT, zoom: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH / scale }}>
+                    <div data-node-panel-content style={{ width: NODE_PANEL_CONTENT_WIDTH, height: data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video ? undefined : NODE_PANEL_CONTENT_HEIGHT, zoom: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH / scale }}>
                         {renderPanel(data)}
                     </div>
                 </div>

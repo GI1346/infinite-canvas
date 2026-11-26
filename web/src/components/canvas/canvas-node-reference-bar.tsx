@@ -11,7 +11,7 @@ import { getImagePreviewRevision, previewUrlFor, subscribeImagePreviews } from "
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
-export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDisconnect, onStartSelection, onReorder, fontSize, imageNumbers }: { nodeId: string; nodes: CanvasNodeData[]; connectedNodes: CanvasNodeData[]; onDisconnect?: (fromNodeId: string, toNodeId: string) => void; onStartSelection?: (nodeId: string) => void; onReorder?: (nodeIds: string[]) => void; fontSize?: number; imageNumbers?: ReadonlyMap<string, number> }) {
+export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDisconnect, onStartSelection, onReorder, fontSize, imageNumbers, onlyNonImages = false }: { nodeId: string; nodes: CanvasNodeData[]; connectedNodes: CanvasNodeData[]; onDisconnect?: (fromNodeId: string, toNodeId: string) => void; onStartSelection?: (nodeId: string) => void; onReorder?: (nodeIds: string[]) => void; fontSize?: number; imageNumbers?: ReadonlyMap<string, number>; onlyNonImages?: boolean }) {
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [dragged, setDragged] = useState<string | null>(null);
@@ -30,8 +30,8 @@ export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDiscon
     };
     const filmstrip = imageNumbers !== undefined;
     const referenceById = filmstrip ? new Map(references.map((reference) => [reference.id, reference])) : null;
-    const shown = filmstrip ? Array.from(imageNumbers.keys()).flatMap((id) => referenceById?.get(id) ?? []) : references;
-    if (filmstrip && !shown.length) return null;
+    const shown = filmstrip ? Array.from(imageNumbers.keys()).flatMap((id) => referenceById?.get(id) ?? []) : onlyNonImages ? references.filter(({ node }) => node.type !== CanvasNodeType.Image && getNodeDefinition(node.type)?.resource?.(node)?.kind !== "image") : references;
+    if ((filmstrip || onlyNonImages) && !shown.length) return null;
     return (
         <div className={filmstrip ? "min-w-0" : "mb-1.5"}>
             {!filmstrip && <div className="mb-1 text-[11px] font-medium" style={{ color: theme.node.muted, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.references.title")}</div>}
@@ -43,7 +43,7 @@ export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDiscon
                     onDrop={(event) => { if (dragged && onReorder) { event.preventDefault(); event.stopPropagation(); dropReference(node.id); } }} onDragEnd={(event) => { event.stopPropagation(); setDragged(null); }}>
                     <ReferenceItem node={node} imageNumber={imageNumbers?.get(node.id)} onRemove={() => onDisconnect?.(sourceNodeId, nodeId)} />
                 </div>)}
-                {!filmstrip && <button type="button" className="grid size-12 shrink-0 place-items-center rounded-lg border bg-transparent transition hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title={t("canvas.references.select")} onClick={() => onStartSelection?.(nodeId)}><Plus className="size-4" /></button>}
+                {!filmstrip && onStartSelection && <button type="button" className="grid size-12 shrink-0 place-items-center rounded-lg border bg-transparent transition hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title={t("canvas.references.select")} onClick={() => onStartSelection?.(nodeId)}><Plus className="size-4" /></button>}
             </div>
         </div>
     );

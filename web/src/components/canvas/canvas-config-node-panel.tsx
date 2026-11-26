@@ -1,11 +1,11 @@
 import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, Maximize2, Minimize2, Play, Plus, Square, X } from "lucide-react";
+import { ChevronDown, Minimize2, Play, Square } from "lucide-react";
 import { Popover } from "radix-ui";
-import { ConfigProvider, Modal } from "antd";
+import { ConfigProvider } from "antd";
 import { ModelPicker, useCanvasMenuZoom } from "@/components/model-picker";
 import { resolveModelForCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasGlass, canvasThemes } from "@/lib/canvas-theme";
 import { orderReferenceNodes } from "@/lib/canvas/canvas-resource-references";
 import { useCanvasImageSettingsStore } from "@/stores/canvas/use-canvas-image-settings-store";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, parseAspectRatio } from "@/lib/media-size";
@@ -13,7 +13,8 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { stopWorkflowControlDrag } from "./workflow-node-interactions";
 import { CanvasConfigComposer } from "./canvas-config-composer";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
-import { CanvasStylePicker } from "./canvas-style-picker";
+import { CanvasGenerationEditorModal, GenerationReferenceHeader } from "./canvas-generation-editor-modal";
+import { CanvasReferenceImagePicker } from "./canvas-reference-image-picker";
 import { flattenGenerationInputs, type NodeGenerationInput } from "./canvas-node-generation";
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 import type { GalleryImage } from "@/pages/gallery/gallery-data";
@@ -25,7 +26,7 @@ type Props = {
     connectedNodes: CanvasNodeData[];
     isRunning: boolean;
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeMetadata>) => void;
-    onGenerate: (nodeId: string) => void;
+    onGenerate: (nodeId: string, fromExpanded?: boolean) => void;
     onStop: (nodeId: string) => void;
     onDisconnectReference: (fromNodeId: string, toNodeId: string) => void;
     onStartReferenceSelection: (nodeId: string) => void;
@@ -40,6 +41,7 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
     const global = useEffectiveConfig(), theme = canvasThemes[useThemeStore((state) => state.theme)];
     const providerTheme = useMemo(() => ({ token: { colorPrimary: theme.accent.base, colorPrimaryBg: theme.accent.soft, colorInfo: theme.accent.base } }), [theme]);
     const [expanded, setExpanded] = useState(false), [compressionOpen, setCompressionOpen] = useState(false);
+    const [collapsed, setCollapsed] = useState(false), [exploring, setExploring] = useState(false);
     const meta = node.metadata || {}, value = meta.composerContent ?? meta.prompt ?? "";
     const referenceOrder = meta.referenceNodeOrder;
     const imageNumbers = useMemo(() => {
@@ -57,30 +59,25 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
     };
     const inputStyle = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 10 };
     const reorderReferences = isRunning ? undefined : (referenceNodeOrder: string[]) => patch({ referenceNodeOrder });
-    const editor = (large: boolean) => <CanvasConfigComposer nodeId={node.id} nodes={nodes} inputs={inputs} connectedNodes={connectedNodes} imageNumbers={imageNumbers} value={value} embedded compact={!large} expanded={large} fontSize={large ? 16 : 12} onChange={(composerContent) => patch({ composerContent })} onRun={isRunning || (!value.trim() && !inputs.length) ? undefined : () => onGenerate(node.id)} onClose={() => setExpanded(false)} onDisconnectReference={onDisconnectReference} onAddImageReference={onAddImageReference} onStartReferenceSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection(nodeId); }} onReorderReferences={reorderReferences} />;
+    const close = () => setExpanded(false);
+    const submit = (large: boolean) => {
+        if (isRunning || (!value.trim() && !inputs.length)) return;
+        if (large) close();
+        onGenerate(node.id, large);
+    };
+    const selectReferences = () => { close(); onStartReferenceSelection(node.id); };
+    const editor = (large: boolean) => <CanvasConfigComposer nodeId={node.id} nodes={nodes} inputs={inputs} connectedNodes={connectedNodes} imageNumbers={imageNumbers} value={value} embedded compact={!large} expanded={large} fontSize={large ? 16 : 12} onChange={(composerContent) => patch({ composerContent })} onRun={isRunning || (!value.trim() && !inputs.length) ? undefined : () => submit(large)} onClose={close} onDisconnectReference={onDisconnectReference} onAddImageReference={onAddImageReference} onStartReferenceSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection(nodeId); }} onReorderReferences={reorderReferences} />;
     const badge = { background: theme.accent.soft, color: theme.toolbar.activeText };
-    const camera = meta.presetCamera ?? {};
-    return <ConfigProvider theme={providerTheme}><div data-config-island className="bf-canvas-glass flex w-full flex-col gap-2 rounded-[20px] p-2.5 text-sm" style={{ color: theme.node.text }}>
-        <div data-canvas-no-zoom className="flex min-w-0 items-center gap-1.5" onMouseDown={stopWorkflowControlDrag}>
-            <button type="button" className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border px-1.5 text-[11px] hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title="从画布选择参考节点" onClick={() => onStartReferenceSelection(node.id)}>
-                <Plus className="size-3" />参考图{imageNumbers.size ? <span className="tabular-nums">({imageNumbers.size})</span> : null}
-            </button>
-            {!expanded && <div className="min-w-0 flex-1"><CanvasStylePicker selections={{ camera, palette: meta.presetPalette ?? "", style: meta.presetStyle ?? "" }} onSelect={(next) => patch({ presetCamera: next.camera, presetPalette: next.palette, presetStyle: next.style })} customPalettes={meta.presetCustomPalettes ?? []} onCustomPalettesChange={(list) => patch({ presetCustomPalettes: list })} theme={theme} /></div>}
-            <button type="button" aria-label="放大编辑生成配置" title="放大编辑" className="ml-auto grid size-7 shrink-0 place-items-center rounded-lg hover:opacity-70" onClick={() => setExpanded(true)}><Maximize2 size={14} /></button>
-        </div>
+    const renderPanel = (large: boolean) => <div data-config-island className={`flex w-full min-w-0 flex-col gap-2 rounded-[20px] border p-2.5 text-sm ${large ? "h-[min(72dvh,760px)]" : ""}`}
+        data-expanded={large || undefined} inert={!large && expanded} style={{ ...(large ? { borderColor: theme.glass.border } : { ...canvasGlass(theme), backgroundImage: "none" }), color: theme.node.text }}>
+        <GenerationReferenceHeader theme={theme} count={imageNumbers.size} expanded={large} collapsed={collapsed} onSelect={selectReferences} onAddImage={(image) => onAddImageReference(node.id, image)} onExpand={() => setExpanded(true)} onCollapse={() => setCollapsed((previous) => !previous)} onClose={close} />
+        {(large || !collapsed) && <>
         {imageNumbers.size ? <CanvasNodeReferenceBar imageNumbers={imageNumbers} nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onReorder={reorderReferences} /> : null}
-        <div data-canvas-no-zoom className="min-w-0 space-y-1" onMouseDown={stopWorkflowControlDrag}>
-            <div className="flex flex-wrap gap-1 empty:hidden">{[
-                ...(Object.values(camera).some(Boolean) ? [{ label: "相机", clear: () => patch({ presetCamera: {} }) }] : []),
-                ...(meta.presetPalette ? [{ label: meta.presetPalette, clear: () => patch({ presetPalette: "" }) }] : []),
-                ...(meta.presetStyle ? [{ label: meta.presetStyle, clear: () => patch({ presetStyle: "" }) }] : []),
-            ].map(({ label, clear }, index) => <button key={index} type="button" aria-label={`清除${label}预设`} className="inline-flex max-w-36 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10px]" style={badge} onClick={clear}><span className="truncate">{label}</span><X size={10} className="shrink-0" /></button>)}</div>
-            {!expanded ? editor(false) : <p className="py-4 text-xs opacity-60">正在放大编辑 · 内容实时同步</p>}
-        </div>
+        <div data-canvas-no-zoom className={large ? "min-h-0 min-w-0 flex-1" : "min-w-0"} onMouseDown={stopWorkflowControlDrag}>{editor(large)}</div>
         <div data-canvas-no-zoom className="relative z-20 shrink-0 border-t pt-2" style={{ borderColor: theme.node.stroke }} onMouseDown={stopWorkflowControlDrag}>
-            <div data-config-dock className="flex min-w-0 items-center gap-1.5">
-                <span className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold" style={badge}>探索</span>
-                <div className="min-w-0 flex-1"><ModelPicker className="!h-8 !gap-1 !rounded-xl !px-2 !text-xs" config={config} value={config.model} onChange={(model) => patch({ model, quality: imageQualityForModel(model, config.quality) })} capability="image" groupByChannel="list" onMissingConfig={() => useConfigStore.getState().openConfigDialog(true)} fullWidth /></div>
+            <div data-config-dock className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <button type="button" className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold hover:opacity-75" style={badge} onClick={() => setExploring(true)}>探索</button>
+                <div className="min-w-0 flex-1"><ModelPicker className="!h-8 !gap-1 !rounded-xl !px-2 !text-xs" config={config} value={config.model} onChange={(model) => patch({ model, quality: imageQualityForModel(model, config.quality) })} capability="image" groupByChannel="list" menuZoom={large ? 1 : undefined} onMissingConfig={() => { if (large) close(); useConfigStore.getState().openConfigDialog(true); }} fullWidth /></div>
                 <div className="flex shrink-0 items-center gap-px rounded-xl p-0.5" style={{ background: theme.glass.inset }}>
                     <RatioParameter value={ratio} disabled={isRunning} onChange={(next) => patch({ imageAspectRatio: next, imageResolution: resolution, size: computeMediaSize(resolution, next) })} />
                     <ParameterMenu label="清晰度" ariaLabel="生成配置分辨率" value={resolution === "auto" ? "自动" : resolution.toUpperCase()} disabled={isRunning}>{(close) => <ParameterOptions value={resolution} options={mediaScaleOptions.map((item) => ({ value: item, label: item === "auto" ? "自动" : item.toUpperCase() }))} onChange={(next) => { patch({ imageResolution: next, imageAspectRatio: ratio, size: computeMediaSize(next, ratio) }); close(); }} />}</ParameterMenu>
@@ -88,7 +85,7 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
                     <CountParameter value={Number(config.count)} disabled={isRunning} onChange={(count) => patch({ count })} />
                 </div>
                 <button type="button" aria-label="图片压缩设置" title="图片压缩设置" aria-expanded={compressionOpen} className="relative grid size-8 shrink-0 place-items-center rounded-xl hover:opacity-70" style={compressionOpen ? badge : { color: theme.node.muted }} onClick={() => setCompressionOpen((open) => !open)}><Minimize2 size={15} />{compressionEnabled && <span className="absolute right-1 top-1 size-1.5 rounded-full" style={{ background: theme.accent.base }} />}</button>
-                <button type="button" aria-label={isRunning ? "停止生成" : "生成图片"} title={isRunning ? "停止生成" : "生成图片（Ctrl+Enter）"} disabled={!isRunning && !value.trim() && !inputs.length} onClick={() => isRunning ? onStop(node.id) : onGenerate(node.id)} className="bf-mag-btn flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-xs font-semibold shadow-sm disabled:opacity-40" style={{ background: `linear-gradient(135deg, ${theme.accent.base}, #12896a)`, color: "white" }}>
+                <button type="button" aria-label={isRunning ? "停止生成" : "生成图片"} title={isRunning ? "停止生成" : "生成图片（Ctrl+Enter）"} disabled={!isRunning && !value.trim() && !inputs.length} onClick={() => isRunning ? onStop(node.id) : submit(large)} className="bf-mag-btn flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-xs font-semibold shadow-sm disabled:opacity-40" style={{ background: `linear-gradient(135deg, ${theme.accent.base}, #12896a)`, color: "white" }}>
                     {isRunning ? <><span aria-hidden="true" className="inline-flex gap-0.5"><i className="bf-goo-dot" /><i className="bf-goo-dot" /><i className="bf-goo-dot" /></span>生成中<Square size={9} /></> : <><Play size={13} />生成</>}
                 </button>
             </div>
@@ -101,8 +98,13 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
                 </div></div>
             </div>
         </div>
-        {expanded && <Modal title="生成配置 · 放大编辑" open={expanded} footer={null} centered width="min(1000px, 94vw)" zIndex={1400} onCancel={() => setExpanded(false)} destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}><div className="flex h-[65vh] min-h-0 flex-col text-base">{editor(true)}</div></Modal>}
-    </div></ConfigProvider>;
+        </>}
+    </div>;
+    return <ConfigProvider theme={providerTheme}>
+        {renderPanel(false)}
+        <CanvasGenerationEditorModal open={expanded} onClose={close}>{renderPanel(true)}</CanvasGenerationEditorModal>
+        {exploring && <CanvasReferenceImagePicker initialTab="all" onClose={() => setExploring(false)} onSelect={async (image) => { await onAddImageReference(node.id, image); setExploring(false); }} />}
+    </ConfigProvider>;
 }
 
 function ParameterMenu({ label, ariaLabel, value, disabled, wide, onOpenChange, children }: { label: string; ariaLabel: string; value: string; disabled?: boolean; wide?: boolean; onOpenChange?: (open: boolean) => void; children: (close: () => void) => ReactNode }) {

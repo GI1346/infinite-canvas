@@ -235,7 +235,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, onViewportChange,
         if (!shouldPan && (target?.closest("textarea,[contenteditable]:not([contenteditable='false'])") || (input instanceof HTMLInputElement && !["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden"].includes(input.type)))) return;
         if ((shouldPan || (event.button === 0 && isBackgroundClick)) && document.activeElement instanceof HTMLElement) document.activeElement.blur();
 
-        if (event.button === 0 && event.ctrlKey && event.altKey && !spaceRef.current && !typingSpaceRef.current && !target?.closest("input,textarea,select,button,a,[role='button'],[contenteditable]:not([contenteditable='false']),[data-node-toolbar],[data-node-handle]")) {
+        if (event.button === 0 && event.ctrlKey && event.altKey && !spaceRef.current && !typingSpaceRef.current && !target?.closest("input,textarea,select,button,a,[role='button'],[contenteditable]:not([contenteditable='false']),[data-node-toolbar],[data-node-handle],[data-table-cell-image]")) {
             if (onConnectionCutStart?.(event)) {
                 event.preventDefault(); event.stopPropagation(); suppressClickRef.current = true; cuttingRef.current = true;
                 event.currentTarget.setPointerCapture(event.pointerId); return;
