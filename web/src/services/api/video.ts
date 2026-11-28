@@ -7,7 +7,7 @@ import { clampVideoSeconds, computeVideoSize, inferVideoRatio } from "@/lib/medi
 import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildApiUrl, modelOptionName, resolveModelRequestConfig, withLocalProxy, type AiConfig, type ApiCallFormat } from "@/stores/use-config-store";
-import { createAutoDLVideoTask, createRouterApiVideoTask, createSandVideoTask, pollAutoDLVideoTask, pollRouterApiVideoTask, pollSandVideoTask } from "./relay-adapters";
+import { createAutoDLVideoTask, createRouterApiVideoTask, createS65535VideoTask, createSandVideoTask, pollAutoDLVideoTask, pollRouterApiVideoTask, pollS65535VideoTask, pollSandVideoTask } from "./relay-adapters";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -44,16 +44,24 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
     return waitForVideoGenerationTask(config, await createVideoGenerationTask(config, prompt, references, options), options);
 }
 
+export const VIDEO_TASK_POLL_TIMEOUT_MS = 60 * 60 * 1000;
+
+export function videoTaskPollIntervalMs(elapsedMs: number) {
+    return elapsedMs < 5 * 60 * 1000 ? 2500 : 5000;
+}
+
 export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
-    for (let attempt = 0; attempt < 120; attempt += 1) {
+    const startedAt = Date.now();
+    const deadline = startedAt + VIDEO_TASK_POLL_TIMEOUT_MS;
+    for (;;) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw videoTaskFailed(state.error);
-        if (attempt === 119) throw new Error(apiText("videoTimeout", { provider: "" }));
-        await delay(2500, options?.signal);
+        const now = Date.now();
+        if (now >= deadline) throw new Error(apiText("videoTimeout", { provider: "" }));
+        await delay(Math.min(videoTaskPollIntervalMs(now - startedAt), deadline - now), options?.signal);
     }
-    throw new Error(apiText("videoTimeout", { provider: "" }));
 }
 
 export function isVideoTaskFailed(error: unknown) {
@@ -74,6 +82,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (requestConfig.apiFormat === "sand") return createSandVideoTask(requestConfig, selectedModel, prompt, references, options);
     if (requestConfig.apiFormat === "autodl") return createAutoDLVideoTask(requestConfig, selectedModel, prompt, references, options);
     if (requestConfig.apiFormat === "routerapi") return createRouterApiVideoTask(requestConfig, selectedModel, prompt, references, options);
+    if (requestConfig.apiFormat === "s65535") return createS65535VideoTask(requestConfig, selectedModel, prompt, references, options);
     return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
 }
 
@@ -84,6 +93,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     if (task.provider === "sand") return pollSandVideoTask(requestConfig, task.id, options);
     if (task.provider === "autodl") return pollAutoDLVideoTask(requestConfig, task.id, options);
     if (task.provider === "routerapi") return pollRouterApiVideoTask(requestConfig, task.id, options);
+    if (task.provider === "s65535") return pollS65535VideoTask(requestConfig, task.id, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
 

@@ -405,6 +405,21 @@ export function CanvasVideoNodePanel({
                             >
                                 {() => {
                                     const numSeconds = Number(seconds) || durationRange.min;
+                                    if (durationRange.min >= durationRange.max) {
+                                        return (
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-center justify-between text-[11px]">
+                                                    <span style={{ color: theme.node.muted }}>视频时长</span>
+                                                    <span className="rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold" style={{ background: theme.accent.soft, color: theme.accent.base }}>
+                                                        {durationRange.min}s
+                                                    </span>
+                                                </div>
+                                                <div className="text-[11px]" style={{ color: theme.node.muted }}>
+                                                    当前模型固定支持 {durationRange.min}s 输出
+                                                </div>
+                                            </div>
+                                        );
+                                    }
                                     return (
                                         <VideoCapsuleSlider
                                             title={`视频时长 (${durationRange.min}–${durationRange.max}s)`}

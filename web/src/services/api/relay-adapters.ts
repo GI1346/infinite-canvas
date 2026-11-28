@@ -2,8 +2,17 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { imageRequestQuality } from "@/lib/image-quality";
 import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
-import { inferVideoRatio, parseVideoResolution } from "@/lib/media-size";
+import {
+    clampVideoSecondsToRange,
+    imageSizePresets,
+    inferVideoRatio,
+    parseAspectRatio,
+    parsePixelSize,
+    parseVideoResolution,
+    videoDurationRangeForModel,
+} from "@/lib/media-size";
 import { getMediaBlob, resolveMediaUrl } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import {
@@ -1141,6 +1150,314 @@ export async function pollRouterApiVideoTask(
         }
         if (status === "FAILURE" || status === "FAILED") {
             return { status: "failed", error: data?.fail_reason || apiText("videoGenerationFailed") };
+        }
+        return { status: "pending" };
+    } catch (error) {
+        throw new Error(readRelayError(error, apiText("videoTaskQueryFailed")));
+    }
+}
+
+/* ==========================================================================
+ *  4. 65535 原生异步 Tasks API — https://my.65535.space/
+ *     - Docs:   /docs/async-native-api
+ *     - Models: GET  /v1/models
+ *     - Tasks:  POST /v1/tasks (kind: "image" | "video"), GET /v1/tasks/{id}
+ * ========================================================================== */
+
+const S65535_TASK_POLL_TIMEOUT_MS = 60 * 60 * 1000;
+
+type S65535TaskPayload = {
+    id?: string;
+    status?: string;
+    video_url?: string;
+    download_url?: string;
+    result_urls?: string[];
+    result?: { data?: Array<{ b64_json?: string; url?: string }> };
+    error_code?: string;
+    error_message?: string;
+    error?: { message?: string };
+};
+
+function s65535Headers(apiKey: string, contentType?: string, idempotencyKey?: string) {
+    return {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        ...(contentType ? { "Content-Type": contentType } : {}),
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+    };
+}
+
+function resolveS65535TaskError(payload: S65535TaskPayload | undefined, fallback: string) {
+    return (
+        readRelayErrorData(payload?.error_message) ||
+        readRelayErrorData(payload?.error?.message) ||
+        (payload?.error_code ? `${fallback}（${payload.error_code}）` : "") ||
+        fallback
+    );
+}
+
+function resolveS65535DownloadUrl(baseUrl: string, rawUrl: string) {
+    if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+    const root = stripSlashes(baseUrl).replace(/\/v1$/i, "");
+    return `${root}${rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`}`;
+}
+
+function resolveS65535ImageSizeFields(config: AiConfig, modelName: string): { size?: string; resolution?: string } {
+    const rawSize = (config.size || "").trim();
+    const rawRes = (config.imageResolution || "").trim().toLowerCase();
+    const validRes = rawRes === "1k" || rawRes === "2k" || rawRes === "4k" ? rawRes : undefined;
+    const isGeminiImage = /gemini|nano[-_ ]?banana/i.test(modelName);
+
+    if (rawSize && rawSize.toLowerCase() !== "auto") {
+        if (parsePixelSize(rawSize)) {
+            if (isGeminiImage && validRes) {
+                const presetMap = imageSizePresets[validRes] || {};
+                const matchedRatio = Object.keys(presetMap).find((ratio) => presetMap[ratio] === rawSize);
+                if (matchedRatio) return { size: matchedRatio, resolution: validRes };
+            }
+            return { size: rawSize };
+        }
+        if (parseAspectRatio(rawSize)) {
+            return { size: rawSize, ...(validRes ? { resolution: validRes } : {}) };
+        }
+        return { size: rawSize, ...(validRes ? { resolution: validRes } : {}) };
+    }
+    return validRes ? { resolution: validRes } : {};
+}
+
+export async function verifyS65535Channel(channel: Pick<ModelChannel, "baseUrl" | "apiKey">): Promise<RelayVerification> {
+    try {
+        const [modelsRes, tasksRes] = await Promise.all([
+            axios.get<{ data?: Array<{ id?: string }> }>(buildApiUrl(channel.baseUrl, "/models"), {
+                headers: s65535Headers(channel.apiKey),
+                timeout: MODEL_LIST_TIMEOUT_MS,
+                validateStatus: () => true,
+            }),
+            axios.get(buildApiUrl(channel.baseUrl, "/tasks?page=1&page_size=1"), {
+                headers: s65535Headers(channel.apiKey),
+                timeout: MODEL_LIST_TIMEOUT_MS,
+                validateStatus: () => true,
+            }),
+        ]);
+        const modelsOk = modelsRes.status >= 200 && modelsRes.status < 300;
+        const authOk = tasksRes.status >= 200 && tasksRes.status < 300;
+        const items = Array.isArray(modelsRes.data?.data) ? modelsRes.data.data : [];
+        return {
+            reachable: true,
+            status: authOk ? tasksRes.status : tasksRes.status || modelsRes.status,
+            authenticated: modelsOk && authOk,
+            modelCount: modelsOk && authOk ? items.length : 0,
+            detail:
+                modelsOk && authOk
+                    ? ""
+                    : readRelayErrorData(!authOk ? tasksRes.data : modelsRes.data) || `HTTP ${!authOk ? tasksRes.status : modelsRes.status}`,
+        };
+    } catch (error) {
+        return { reachable: false, status: 0, authenticated: false, modelCount: 0, detail: readRelayError(error, apiText("modelReadFailed")) };
+    }
+}
+
+export async function requestS65535Images(
+    config: AiConfig,
+    prompt: string,
+    references: ReferenceImage[],
+    options?: RequestOptions,
+): Promise<Array<{ id: string; dataUrl: string }>> {
+    const modelName = modelOptionName(config.model || config.imageModel).trim() || "gpt-image-2";
+    const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
+    const quality = imageRequestQuality(modelName, config.quality);
+    const sizeFields = resolveS65535ImageSizeFields(config, modelName);
+    const systemPrompt = config.systemPrompt.trim();
+    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+
+    try {
+        const imageDataUrls = await Promise.all(references.map((image) => imageToDataUrl(image)));
+        const isMaskRequest = references.length === 2 && references[1]?.name === "mask.png" && !/gemini|nano[-_ ]?banana/i.test(modelName);
+
+        const input: Record<string, unknown> = {
+            prompt: fullPrompt,
+            ...sizeFields,
+            ...(quality ? { quality } : {}),
+            n,
+            response_format: "url",
+        };
+        if (isMaskRequest) {
+            input.image = imageDataUrls[0];
+            input.mask = imageDataUrls[1];
+        } else if (imageDataUrls.length === 1) {
+            input.image = imageDataUrls[0];
+        } else if (imageDataUrls.length > 1) {
+            input.image_urls = imageDataUrls.slice(0, 16);
+        }
+
+        const created = (
+            await axios.post<S65535TaskPayload>(
+                buildApiUrl(config.baseUrl, "/tasks"),
+                { kind: "image", model: modelName, input },
+                { headers: s65535Headers(config.apiKey, "application/json", nanoid()), signal: options?.signal },
+            )
+        ).data;
+        if (!created?.id) throw new Error(resolveS65535TaskError(created, apiText("noImageReturned")));
+
+        const startedAt = Date.now();
+        const deadline = startedAt + S65535_TASK_POLL_TIMEOUT_MS;
+        let intervalMs = 2000;
+        for (;;) {
+            if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+            const pollResp = await axios.get<S65535TaskPayload>(
+                buildApiUrl(config.baseUrl, `/tasks/${encodeURIComponent(created.id)}`),
+                {
+                    headers: s65535Headers(config.apiKey),
+                    signal: options?.signal,
+                    validateStatus: (status) => (status >= 200 && status < 300) || status === 429,
+                },
+            );
+            if (pollResp.status === 429) {
+                const now = Date.now();
+                if (now >= deadline) throw new Error(apiText("rateLimited"));
+                intervalMs = Math.min(intervalMs * 2, 15000);
+                await delay(Math.min(intervalMs, deadline - now), options?.signal);
+                continue;
+            }
+            const task = pollResp.data;
+            const status = String(task?.status || "").toLowerCase();
+            if (status === "failed") {
+                throw new Error(resolveS65535TaskError(task, apiText("requestFailed")));
+            }
+            if (status === "done") {
+                const urls = Array.isArray(task?.result_urls) ? task.result_urls.filter((u): u is string => typeof u === "string" && Boolean(u)) : [];
+                const b64Items = Array.isArray(task?.result?.data)
+                    ? task.result.data.map((item) => (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : item?.url || "")).filter(Boolean)
+                    : [];
+                const sources = urls.length ? urls : b64Items;
+                if (!sources.length) throw new Error(apiText("noImageReturned"));
+                return Promise.all(
+                    sources.map(async (source) => {
+                        if (source.startsWith("data:")) return { id: nanoid(), dataUrl: source };
+                        const resolved = resolveS65535DownloadUrl(config.baseUrl, source);
+                        try {
+                            const res = await axios.get<Blob>(withLocalProxy(resolved), { responseType: "blob", signal: options?.signal });
+                            if (!res.data.type.includes("json")) {
+                                const dataUrl = await readFileAsDataUrl(new File([res.data], "image.png", { type: res.data.type || "image/png" }));
+                                return { id: nanoid(), dataUrl };
+                            }
+                        } catch (error) {
+                            if (axios.isCancel(error) || options?.signal?.aborted) throw error;
+                        }
+                        return { id: nanoid(), dataUrl: resolved };
+                    }),
+                );
+            }
+            const now = Date.now();
+            if (now >= deadline) throw new Error(apiText("imageTimeout"));
+            intervalMs = Math.min(Math.round(intervalMs * 1.25), 5000);
+            await delay(Math.min(intervalMs, deadline - now), options?.signal);
+        }
+    } catch (error) {
+        throw new Error(readRelayError(error, apiText("requestFailed")));
+    }
+}
+
+export async function createS65535VideoTask(
+    config: AiConfig,
+    model: string,
+    prompt: string,
+    references: ReferenceImage[],
+    options?: VideoMediaOptions,
+): Promise<{ id: string; provider: "s65535"; model: string }> {
+    const modelName = modelOptionName(model).trim() || "grok-imagine-video";
+    const trimmedPrompt = prompt.trim();
+    const isEditModel = /-edit$/i.test(modelName) && Boolean(options?.videos?.length);
+    const ratio = inferVideoRatio(config.size || "auto");
+    const durationRange = videoDurationRangeForModel(modelName, "s65535");
+    const seconds = Number(clampVideoSecondsToRange(config.videoSeconds || "6", durationRange));
+    const resolution = `${parseVideoResolution(config.vquality)}p`;
+
+    try {
+        const [imageDataUrls, videoRefs, audioRefs] = await Promise.all([
+            Promise.all(references.map((image) => imageToDataUrl(image))),
+            Promise.all((options?.videos || []).map((video) => referenceMediaToDataUrl(video, "ref.mp4", "invalidReferenceVideo", options))),
+            Promise.all((options?.audios || []).map((audio) => referenceMediaToDataUrl(audio, "ref.mp3", "invalidReferenceAudio", options))),
+        ]);
+
+        const input: Record<string, unknown> = {
+            prompt: trimmedPrompt,
+        };
+        if (!isEditModel) {
+            input.seconds = seconds;
+            input.resolution = resolution;
+            if (ratio && ratio !== "auto") {
+                input.aspect_ratio = ratio;
+            }
+        }
+        if (imageDataUrls.length > 0) {
+            if (config.videoMode !== "reference" && imageDataUrls.length <= 2) {
+                input.input_mode = "first_frame";
+                input.input_reference = { image_url: imageDataUrls[0] };
+                if (imageDataUrls[1]) input.last_frame_url = imageDataUrls[1];
+            } else {
+                input.input_mode = "reference";
+                input.reference_image_urls = imageDataUrls;
+            }
+        }
+        if (videoRefs[0]) input.video = videoRefs[0];
+        if (audioRefs.length) input.audio_urls = audioRefs;
+
+        const created = (
+            await axios.post<S65535TaskPayload>(
+                buildApiUrl(config.baseUrl, "/tasks"),
+                {
+                    kind: "video",
+                    model: modelName,
+                    operation: isEditModel ? "edit" : "generate",
+                    input,
+                },
+                { headers: s65535Headers(config.apiKey, "application/json", nanoid()), signal: options?.signal },
+            )
+        ).data;
+
+        if (!created?.id) throw new Error(resolveS65535TaskError(created, apiText("noVideoTaskId")));
+        return { id: created.id, provider: "s65535", model };
+    } catch (error) {
+        throw new Error(readRelayError(error, apiText("videoTaskCreateFailed")));
+    }
+}
+
+export async function pollS65535VideoTask(
+    config: AiConfig,
+    taskId: string,
+    options?: RequestOptions,
+): Promise<RelayVideoTaskState> {
+    try {
+        const resp = await axios.get<S65535TaskPayload>(
+            buildApiUrl(config.baseUrl, `/tasks/${encodeURIComponent(taskId)}`),
+            {
+                headers: s65535Headers(config.apiKey),
+                signal: options?.signal,
+                validateStatus: (status) => (status >= 200 && status < 300) || status === 429,
+            },
+        );
+        if (resp.status === 429) return { status: "pending" };
+        const task = resp.data;
+        const status = String(task?.status || "").toLowerCase();
+        if (status === "failed") {
+            return { status: "failed", error: resolveS65535TaskError(task, apiText("videoGenerationFailed")) };
+        }
+        if (status === "done") {
+            const rawUrl =
+                [task?.video_url, ...(Array.isArray(task?.result_urls) ? task.result_urls : []), task?.download_url].find(
+                    (u): u is string => typeof u === "string" && Boolean(u.trim()),
+                ) || "";
+            if (!rawUrl) return { status: "failed", error: apiText("noPlayableVideo") };
+            const resolved = resolveS65535DownloadUrl(config.baseUrl, rawUrl);
+            if (!/^https?:\/\//i.test(rawUrl)) {
+                const content = await axios.get<Blob>(withLocalProxy(resolved), {
+                    headers: s65535Headers(config.apiKey),
+                    responseType: "blob",
+                    signal: options?.signal,
+                });
+                return { status: "completed", result: { blob: content.data, mimeType: content.data.type || "video/mp4" } };
+            }
+            return { status: "completed", result: await downloadMediaResult(resolved, "video/mp4", options) };
         }
         return { status: "pending" };
     } catch (error) {

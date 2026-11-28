@@ -159,6 +159,16 @@ const MODEL_VIDEO_DURATION_RANGES: Record<string, VideoDurationRange> = {
     "seedance-2.5-special1": { min: 5, max: 30 },
     "seedance-2.5-pa-480p": { min: 4, max: 30 },
     "seedance-2.5-pa-720p": { min: 4, max: 30 },
+    // 65535 任务专用
+    "seedance-2.0-native": { min: 5, max: 15 },
+    "seedance-2.0-fast-native": { min: 5, max: 15 },
+    "seedance-2.5-native": { min: 5, max: 30 },
+    "seedance-2-5-flash-native": { min: 5, max: 30 },
+    "veo-omni-3-1": { min: 8, max: 8 },
+    "veo-omni-flash": { min: 10, max: 10 },
+    "veo-omni-flash-edit": { min: 10, max: 10 },
+    "grok-imagine-video": { min: 1, max: 15 },
+    "grok-imagine-video-1.5-preview": { min: 1, max: 15 },
     // AutoDL.art (Auto DL-H3)
     minimax_h3_lightx2v_v5: { min: 1, max: 10 },
     minimax_h3_image_audio_to_video_v2: { min: 1, max: 10 },
@@ -241,6 +251,16 @@ const MODEL_VIDEO_RESOLUTION_TIERS: Record<string, readonly string[]> = {
     "seedance-2.5-special1": ["720"],
     "seedance-2.5-pa-480p": ["480"],
     "seedance-2.5-pa-720p": ["720"],
+    // 65535 任务专用
+    "seedance-2.0-native": ["720", "1080"],
+    "seedance-2.0-fast-native": ["720"],
+    "seedance-2.5-native": ["720", "1080"],
+    "seedance-2-5-flash-native": ["720"],
+    "veo-omni-3-1": ["720", "1080"],
+    "veo-omni-flash": ["720", "1080"],
+    "veo-omni-flash-edit": ["720", "1080"],
+    "grok-imagine-video": ["480", "720"],
+    "grok-imagine-video-1.5-preview": ["480", "720", "1080"],
     // AutoDL.art (Auto DL-H3) 全部 27 款视频工作流
     "wan2.2animate-v4-motion_retargeting": ["464"],
     minimax_h3_b99_001: ["736"],

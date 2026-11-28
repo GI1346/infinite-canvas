@@ -59,6 +59,7 @@ function assertAudioConfig(config: AiConfig, model: string) {
     if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
     if (config.apiFormat === "gemini") throw new Error(apiText("geminiAudioUnsupported"));
     if (config.apiFormat === "sand") throw new Error("MAGI-2（Sand AI）仅支持视频生成，不支持语音合成");
+    if (config.apiFormat === "s65535") throw new Error("65535 原生异步协议（/v1/tasks）仅支持图片与视频生成，不支持语音合成");
 }
 
 async function assertAudioBlob(blob: Blob) {

@@ -9,6 +9,7 @@ import { FIXED_CHANNELS, guessCapability, modelDisplayName, useConfigStore, type
 import { groupModelFamilies, modelCapabilityOptions } from "./model-catalog";
 
 const catalogStorage = localforage.createInstance({ name: "infinite-canvas", storeName: "channel_model_catalogs" });
+type CachedChannelCatalog = ChannelModel[] | { synced: boolean; models: ChannelModel[] };
 
 type Props = { open: boolean; channel: ModelChannel | null; selectedNames: string[]; fetchOnOpen?: boolean; onConfirm: (names: string[], details: ChannelModel[]) => void; onClose: () => void; embedded?: boolean; refreshKey?: number; onEditModel?: (name: string) => void };
 
@@ -18,7 +19,10 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
     const config = useConfigStore((state) => state.config);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const [details, setDetails] = useState<ChannelModel[]>([]);
+    const [syncedCatalog, setSyncedCatalog] = useState(false);
     const [selected, setSelected] = useState<Set<string>>(new Set());
+    const selectedRef = useRef(selected);
+    selectedRef.current = selected;
     const [capability, setCapability] = useState<ModelCapability | "all">("all");
     const [onlySelected, setOnlySelected] = useState(false);
     const [search, setSearch] = useState("");
@@ -27,11 +31,14 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
     const [loadError, setLoadError] = useState("");
     const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
     const catalogKey = channel ? `${channel.id}:${channel.apiFormat}:${channel.baseUrl.trim()}` : "";
-    const cacheModels = (models: ChannelModel[]) => { if (catalogKey) void catalogStorage.setItem(catalogKey, models).catch(() => message.warning("模型列表缓存失败，已选模型仍会保存。")); };
+    const cacheModels = (models: ChannelModel[], synced = syncedCatalog) => {
+        if (catalogKey) void catalogStorage.setItem<CachedChannelCatalog>(catalogKey, { synced, models }).catch(() => message.warning("模型列表缓存失败，已选模型仍会保存。"));
+    };
 
     useEffect(() => {
         if (!open) return;
         setDetails(channel?.models || []);
+        setSyncedCatalog(false);
         setSelected(new Set(selectedNames));
         setCapability(embedded ? channel?.models[0]?.capability || "image" : "all");
         setOnlySelected(false);
@@ -48,16 +55,32 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
         if (!open || !catalogKey) return;
         const id = requestId.current;
         let active = true;
-        void catalogStorage.getItem<ChannelModel[]>(catalogKey).then((cached) => {
-            if (active && id === requestId.current && Array.isArray(cached)) setDetails(cached);
+        void catalogStorage.getItem<CachedChannelCatalog>(catalogKey).then((cached) => {
+            if (!active || id !== requestId.current || !cached) return;
+            if (Array.isArray(cached)) {
+                setDetails(cached);
+                setSyncedCatalog(false);
+            } else if (Array.isArray(cached.models)) {
+                setDetails(cached.models);
+                setSyncedCatalog(Boolean(cached.synced));
+            }
         }).catch(() => undefined);
         return () => { active = false; requestId.current += 1; setLoading(false); };
     }, [open, catalogKey, channel?.apiKey]);
     useEffect(() => { if (open && embedded && refreshKey) void fetchModels(); }, [refreshKey]);
-    useEffect(() => { if (embedded) setSelected(new Set(selectedNames)); }, [embedded, selectedNames.join("\n")]);
+    useEffect(() => { if (embedded) { const next = new Set(selectedNames); selectedRef.current = next; setSelected(next); } }, [embedded, selectedNames.join("\n")]);
 
     const fixedPresetModels = channel?.id ? FIXED_CHANNELS.find((item) => item.id === channel.id)?.models || [] : [];
-    const models = Array.from(new Map([...fixedPresetModels, ...details, ...(channel?.models || [])].map((model) => [model.name, model])).values());
+    const channelOverrideMap = new Map((channel?.models || []).map((model) => [model.name, model]));
+    const baseModels = syncedCatalog ? details : [...fixedPresetModels, ...details, ...(channel?.models || [])];
+    const models = Array.from(
+        new Map(
+            baseModels.map((model) => {
+                const override = channelOverrideMap.get(model.name);
+                return [model.name, override ? { ...model, ...override } : model];
+            }),
+        ).values(),
+    );
     const keyword = search.trim().toLowerCase();
     const visible = models.filter((model) => (capability === "all" || model.capability === capability) && (!onlySelected || selected.has(model.name)) && (model.name.toLowerCase().includes(keyword) || modelDisplayName(model.name, model.label).toLowerCase().includes(keyword)));
     const visibleSelected = visible.filter((model) => selected.has(model.name)).length;
@@ -88,10 +111,34 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
         try {
             const fetched = await fetchChannelModelDetails(channel);
             if (id !== requestId.current) return;
-            const nextModels = Array.from(new Map([...models, ...fetched, ...(channel.models || [])].map((model) => [model.name, model])).values());
+            const existingMap = new Map(models.map((model) => [model.name, model]));
+            const nextModels = Array.from(
+                new Map(
+                    fetched.map((model) => {
+                        const prev = existingMap.get(model.name);
+                        const label = model.label || prev?.label;
+                        return [model.name, { ...model, ...(label ? { label } : {}) }];
+                    }),
+                ).values(),
+            );
+            const currentSelected = selectedRef.current;
+            const fetchedNames = new Set(nextModels.map((model) => model.name));
+            const nextSelectedNames = nextModels.filter((model) => currentSelected.has(model.name)).map((model) => model.name);
+            const removedCount = Array.from(currentSelected).filter((name) => !fetchedNames.has(name)).length;
+            setSyncedCatalog(true);
             setDetails(nextModels);
-            cacheModels(nextModels);
-            message.success(`已更新 ${fetched.length} 个模型，请选择需要使用的模型`);
+            cacheModels(nextModels, true);
+            const nextSelectedSet = new Set(nextSelectedNames);
+            selectedRef.current = nextSelectedSet;
+            setSelected(nextSelectedSet);
+            if (embedded && (removedCount > 0 || nextSelectedNames.length > 0)) {
+                onConfirm(nextSelectedNames, nextModels);
+            }
+            if (removedCount > 0) {
+                message.success(`已同步服务端 ${nextModels.length} 个模型，并自动取消勾选 ${removedCount} 个已下线模型`);
+            } else {
+                message.success(`已同步服务端 ${nextModels.length} 个模型`);
+            }
         } catch (error) {
             if (id === requestId.current) { const reason = error instanceof Error ? error.message : "更新模型失败"; setLoadError(reason); message.error(reason); }
         } finally {

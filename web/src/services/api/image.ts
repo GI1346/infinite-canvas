@@ -3,7 +3,7 @@ import axios from "axios";
 
 import i18n from "@/i18n";
 import { buildApiUrl, resolveModelRequestConfig, withLocalProxy, type AiConfig, type ModelChannel, type ChannelModel, type ModelCapability, guessCapability } from "@/stores/use-config-store";
-import { fetchAutoDLModels, fetchSandModels, requestAutoDLImages, verifyAutoDLChannel, verifySandChannel } from "./relay-adapters";
+import { fetchAutoDLModels, fetchSandModels, requestAutoDLImages, requestS65535Images, verifyAutoDLChannel, verifyS65535Channel, verifySandChannel } from "./relay-adapters";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
@@ -777,6 +777,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     }
     if (requestConfig.apiFormat === "sand") throw new Error("MAGI-2（Sand AI）仅支持视频生成，请在视频节点中选择该模型");
     if (requestConfig.apiFormat === "autodl") return requestAutoDLImages(requestConfig, prompt, [], options);
+    if (requestConfig.apiFormat === "s65535") return requestS65535Images(requestConfig, prompt, [], options);
     const quality = imageRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(config.size);
     const background = normalizeBackground(config.background);
@@ -824,6 +825,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     }
     if (requestConfig.apiFormat === "sand") throw new Error("MAGI-2（Sand AI）仅支持视频生成，请在视频节点中选择该模型");
     if (requestConfig.apiFormat === "autodl") return requestAutoDLImages(requestConfig, requestPrompt, references, options);
+    if (requestConfig.apiFormat === "s65535") return requestS65535Images(requestConfig, requestPrompt, references, options);
 
     const quality = imageRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(config.size);
@@ -861,7 +863,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
-    if (requestConfig.apiFormat === "sand" || requestConfig.apiFormat === "autodl") {
+    if (requestConfig.apiFormat === "sand" || requestConfig.apiFormat === "autodl" || requestConfig.apiFormat === "s65535") {
         throw new Error("当前中转站协议仅支持媒体生成，不支持文本对话");
     }
     try {
@@ -959,6 +961,7 @@ export type ChannelVerification = {    /** 地址是否真的返回了 HTTP 响�
 export async function verifyChannelConnection(channel: Pick<ModelChannel, "baseUrl" | "apiKey" | "apiFormat">): Promise<ChannelVerification> {
     if (channel.apiFormat === "sand") return verifySandChannel(channel);
     if (channel.apiFormat === "autodl") return verifyAutoDLChannel(channel);
+    if (channel.apiFormat === "s65535") return verifyS65535Channel(channel);
     if (channel.apiFormat === "gemini") {
         try {
             const models = await fetchChannelModels(channel as ModelChannel);

@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { desktopProxyUrl } from "@/lib/desktop-network";
 
-export type ApiCallFormat = "openai" | "gemini" | "sand" | "autodl" | "routerapi";
+export type ApiCallFormat = "openai" | "gemini" | "sand" | "autodl" | "routerapi" | "s65535";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
@@ -85,6 +85,9 @@ const SAND_BASE_URL = "https://api.sand.ai";
 const AUTODL_BASE_URL = "https://autodl.art";
 const ROUTERAPI_BASE_URL = "https://routerapi.net";
 const YINGMAN_BASE_URL = "https://yingman.xlapis.com";
+const S65535_CHAT_BASE_URL = "https://api.65536.space";
+const S65535_TASK_BASE_URL = "https://task-cn.65536.space";
+const S65535_CONSOLE_URL = "https://my.65535.space/";
 export const LOCAL_PROXY_PACKAGE = "@basketikun/canvas-proxy";
 export const DEFAULT_LOCAL_PROXY_URL = "http://127.0.0.1:23210";
 
@@ -170,6 +173,106 @@ export const FIXED_CHANNELS: ModelChannel[] = [
             { name: "seedance-2.5-pa-720p", capability: "video" },
         ],
     },
+    {
+        id: "fixed-65535-tasks",
+        name: "65535 任务专用",
+        baseUrl: S65535_TASK_BASE_URL,
+        apiKey: "",
+        apiFormat: "s65535",
+        fixed: true,
+        apiKeyUrl: S65535_CONSOLE_URL,
+        models: [
+            { name: "gpt-image-2", capability: "image" },
+            { name: "gpt-image-2-native", capability: "image" },
+            { name: "gpt-image-2-auto", capability: "image" },
+            { name: "gpt-image-2-eco", capability: "image" },
+            { name: "gpt-image-2-n", capability: "image" },
+            { name: "gpt-image-2.5", capability: "image" },
+            { name: "gpt-image-2.5-auto", capability: "image" },
+            { name: "gpt-image-2.5-flare", capability: "image" },
+            { name: "gpt-image-2.5-flare-native", capability: "image" },
+            { name: "gpt-image-2.5-flare-auto", capability: "image" },
+            { name: "gpt-image-2.5-flare-eco", capability: "image" },
+            { name: "gpt-image-2.5-sunburst", capability: "image" },
+            { name: "gpt-image-2.5-sunburst-native", capability: "image" },
+            { name: "gpt-image-2.5-sunburst-auto", capability: "image" },
+            { name: "gpt-image-2.5-sunburst-eco", capability: "image" },
+            { name: "gpt-image-2.6-flare", capability: "image" },
+            { name: "gpt-image-2.6-flare-native", capability: "image" },
+            { name: "gpt-image-2.6-flare-eco", capability: "image" },
+            { name: "gpt-image-2.6-sunburst", capability: "image" },
+            { name: "gpt-image-2.6-sunburst-native", capability: "image" },
+            { name: "gpt-image-2.6-sunburst-eco", capability: "image" },
+            { name: "gemini-nano-banana-2.1", capability: "image" },
+            { name: "gemini-3-pro-image", capability: "image" },
+            { name: "gemini-3.1-flash-image", capability: "image" },
+            { name: "grok-imagine-image", capability: "image" },
+            { name: "grok-imagine-image-quality", capability: "image" },
+            { name: "grok-imagine-image-2.0", capability: "image" },
+            { name: "seedvr2-7b", capability: "image" },
+            { name: "seedance-2.0-native", capability: "video" },
+            { name: "seedance-2.0-fast-native", capability: "video" },
+            { name: "seedance-2.5-native", capability: "video" },
+            { name: "seedance-2-5-flash-native", capability: "video" },
+            { name: "veo-omni-3-1", capability: "video" },
+            { name: "veo-omni-flash", capability: "video" },
+            { name: "veo-omni-flash-edit", capability: "video" },
+            { name: "grok-imagine-video", capability: "video" },
+            { name: "grok-imagine-video-1.5-preview", capability: "video" },
+        ],
+    },
+    {
+        id: "fixed-65535-openai-pro",
+        name: "65535 OpenAI-Pro",
+        baseUrl: S65535_CHAT_BASE_URL,
+        apiKey: "",
+        apiFormat: "openai",
+        fixed: true,
+        apiKeyUrl: S65535_CONSOLE_URL,
+        models: [
+            { name: "gpt-6.2-astra", capability: "text" },
+            { name: "gpt-6.2-sol", capability: "text" },
+            { name: "gpt-6.1-sol", capability: "text" },
+            { name: "gpt-6.1-terra", capability: "text" },
+            { name: "gpt-6-astra", capability: "text" },
+            { name: "gpt-6-sol", capability: "text" },
+            { name: "gpt-5.6-sol", capability: "text" },
+            { name: "gpt-5.6-terra", capability: "text" },
+            { name: "codex-auto-review", capability: "text" },
+        ],
+    },
+    {
+        id: "fixed-65535-gemini-std",
+        name: "65535 Gemini-Std",
+        baseUrl: S65535_CHAT_BASE_URL,
+        apiKey: "",
+        apiFormat: "gemini",
+        fixed: true,
+        apiKeyUrl: S65535_CONSOLE_URL,
+        models: [
+            { name: "gemini-4-hydrogen", capability: "text" },
+            { name: "gemini-4-neon", capability: "text" },
+            { name: "gemini-4-argon", capability: "text" },
+            { name: "gemini-4-carbon", capability: "text" },
+            { name: "gemini-3.1-pro", capability: "text" },
+            { name: "gemini-3.8-flash", capability: "text" },
+        ],
+    },
+    {
+        id: "fixed-65535-gemini-ultra",
+        name: "65535 Gemini-Ultra",
+        baseUrl: S65535_CHAT_BASE_URL,
+        apiKey: "",
+        apiFormat: "gemini",
+        fixed: true,
+        apiKeyUrl: S65535_CONSOLE_URL,
+        models: [
+            { name: "gemini-4-hydrogen", capability: "text" },
+            { name: "gemini-4-neon", capability: "text" },
+            { name: "gemini-4-argon", capability: "text" },
+            { name: "gemini-4-carbon", capability: "text" },
+        ],
+    },
 ];
 
 export const defaultConfig: AiConfig = {
@@ -237,7 +340,7 @@ export function boolConfig(value: string, fallback: boolean) {
     return value ? value === "true" : fallback;
 }
 const AUDIO_KEYWORDS = ["audio", "tts", "speech", "voice", "music", "sound", "indextts"];
-const IMAGE_KEYWORDS = ["banana", "sunburst", "seedream", "gpt-image", "image", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
+const IMAGE_KEYWORDS = ["banana", "sunburst", "seedream", "seedvr2", "gpt-image", "image", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
 
 /** Best-effort default capability for a freshly fetched model name; user can override in the channel editor. */
 export function guessCapability(name: string): ModelCapability {
@@ -625,11 +728,12 @@ export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
     if (apiFormat === "sand") return SAND_BASE_URL;
     if (apiFormat === "autodl") return AUTODL_BASE_URL;
     if (apiFormat === "routerapi") return ROUTERAPI_BASE_URL;
+    if (apiFormat === "s65535") return S65535_TASK_BASE_URL;
     return OPENAI_BASE_URL;
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    if (apiFormat === "gemini" || apiFormat === "sand" || apiFormat === "autodl" || apiFormat === "routerapi") return apiFormat;
+    if (apiFormat === "gemini" || apiFormat === "sand" || apiFormat === "autodl" || apiFormat === "routerapi" || apiFormat === "s65535") return apiFormat;
     return "openai";
 }
 

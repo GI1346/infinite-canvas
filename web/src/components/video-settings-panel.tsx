@@ -90,11 +90,19 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     columns={3}
                 />
                 <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
-                    <div className="flex items-center gap-3" onMouseDown={(event) => event.stopPropagation()}>
-                        <Slider className="min-w-0 flex-1" min={durationRange.min} max={durationRange.max} step={1} value={seconds} onChange={(value) => onConfigChange("videoSeconds", clampVideoSecondsToRange(Array.isArray(value) ? value[0] : value, durationRange))} />
-                        <SecondsInput value={seconds} min={durationRange.min} max={durationRange.max} theme={theme} onCommit={(value) => onConfigChange("videoSeconds", clampVideoSecondsToRange(value, durationRange))} />
-                        <span className="shrink-0 text-sm" style={{ color: theme.node.muted }}>s</span>
-                    </div>
+                    {durationRange.min >= durationRange.max ? (
+                        <div className="grid grid-cols-4 gap-2.5">
+                            <OptionPill selected theme={theme} onClick={() => onConfigChange("videoSeconds", String(durationRange.min))}>
+                                {durationRange.min}s
+                            </OptionPill>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-3" onMouseDown={(event) => event.stopPropagation()}>
+                            <Slider className="min-w-0 flex-1" min={durationRange.min} max={durationRange.max} step={1} value={seconds} onChange={(value) => onConfigChange("videoSeconds", clampVideoSecondsToRange(Array.isArray(value) ? value[0] : value, durationRange))} />
+                            <SecondsInput value={seconds} min={durationRange.min} max={durationRange.max} theme={theme} onCommit={(value) => onConfigChange("videoSeconds", clampVideoSecondsToRange(value, durationRange))} />
+                            <span className="shrink-0 text-sm" style={{ color: theme.node.muted }}>s</span>
+                        </div>
+                    )}
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.mode")} color={theme.node.muted}>
                     <div className="grid grid-cols-2 gap-2.5">
