@@ -10,7 +10,7 @@ import { Popover } from "radix-ui";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { NODE_PANEL_CONTENT_WIDTH, NODE_PANEL_WIDTH } from "@/lib/canvas/canvas-node-size";
-import { clampVideoResolutionToStops, formatVideoResolutionLabel, inferMediaRatio, inferVideoRatio, videoResolutionStopsForModel } from "@/lib/media-size";
+import { clampVideoResolutionToStops, clampVideoSecondsToRange, formatVideoResolutionLabel, inferMediaRatio, inferVideoRatio, videoDurationRangeForModel, videoResolutionStopsForModel } from "@/lib/media-size";
 import { formatBytes } from "@/lib/image-utils";
 import { formatGenerationDuration } from "@/lib/generation-timer";
 import { LiveGenerationTimer } from "@/components/image-generation-pending";
@@ -196,10 +196,12 @@ export const CanvasNode = React.memo(function CanvasNode({
             const activeModel = meta.model || globalVideoModel || "";
             const decoded = decodeChannelModel(activeModel);
             const channel = decoded ? configChannels.find((item) => item.id === decoded.channelId) : undefined;
-            const stops = videoResolutionStopsForModel(modelOptionName(activeModel), channel?.apiFormat);
+            const rawModelName = modelOptionName(activeModel);
+            const stops = videoResolutionStopsForModel(rawModelName, channel?.apiFormat);
+            const durationRange = videoDurationRangeForModel(rawModelName, channel?.apiFormat);
             const resolution = clampVideoResolutionToStops(meta.vquality, stops);
             const res = formatVideoResolutionLabel(resolution);
-            const sec = `${meta.seconds || "6"}s`;
+            const sec = `${clampVideoSecondsToRange(meta.seconds || "6", durationRange)}s`;
             return `${ratio === "auto" ? "自动" : ratio} · ${res} · ${sec}`;
         }
         const ratio = meta.imageAspectRatio || inferMediaRatio(meta.size || "auto");

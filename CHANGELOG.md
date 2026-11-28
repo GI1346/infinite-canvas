@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.20.84
+
++ [优化] 视频节点与参数面板的时长滑块范围与刻度按当前中转站模型实际支持的最短/最长秒数动态同步，切换模型时自动收敛时长并同步更新空视频节点标牌。
+
 ## v0.20.83
 
 + [新增] 适配 Sand AI（`MAGI-2`，原生 v2 + Ark 首尾帧）、AutoDL.art ComfyUI（`Auto DL-H3`，全部 28 个工作流动态 `input_rules` 与中文名）、RouterAPI（`Rou-SD2.5`，`seedance-2.0`/`seedance-2.5` 按秒视频生成与多模态素材上传）及萤漫（`萤漫Video`，7 款 H3 / Seedance 2.5 中文名视频模型）四个固定中转站渠道，并提供「获取 API Key」官网直达按钮。

@@ -140,6 +140,84 @@ export function readMediaDimensions(size: string, scale: string, ratio: string) 
     return parsePixelSize(computed) || { width: 0, height: 0 };
 }
 
+export type VideoDurationRange = {
+    min: number;
+    max: number;
+};
+
+const MODEL_VIDEO_DURATION_RANGES: Record<string, VideoDurationRange> = {
+    // Sand AI (MAGI-2): 4-30s
+    "magi-2": { min: 4, max: 30 },
+    // RouterAPI (Rou-SD2.5)
+    "seedance-2.0": { min: 4, max: 15 },
+    "seedance-2.5": { min: 4, max: 30 },
+    // 萤漫 Video
+    "h3-video": { min: 4, max: 15 },
+    "minimax-h3-rb": { min: 4, max: 15 },
+    "h3-2k": { min: 5, max: 15 },
+    "seedance-2.5-hlg": { min: 4, max: 30 },
+    "seedance-2.5-special1": { min: 5, max: 30 },
+    "seedance-2.5-pa-480p": { min: 4, max: 30 },
+    "seedance-2.5-pa-720p": { min: 4, max: 30 },
+    // AutoDL.art (Auto DL-H3)
+    minimax_h3_lightx2v_v5: { min: 1, max: 10 },
+    minimax_h3_image_audio_to_video_v2: { min: 1, max: 10 },
+    minimax_h3_zm_titi: { min: 5, max: 25 },
+    minimax_h3_zm_titim: { min: 5, max: 25 },
+    "wan2.2animate-v4-motion_retargeting": { min: 1, max: 15 },
+    minimax_h3_adl_int8: { min: 1, max: 15 },
+    minimax_h3_b99_001: { min: 1, max: 15 },
+    minimax_h3_b99_002: { min: 1, max: 15 },
+    minimax_h3_b99_003_12s: { min: 1, max: 15 },
+    minimax_h3_lightx2v_no_pic: { min: 1, max: 15 },
+    minimax_h3_lightx2v: { min: 1, max: 15 },
+    minimax_h3_lightx2v_v5_15s: { min: 1, max: 15 },
+    minimax_h3_image_audio_to_video: { min: 1, max: 15 },
+    minimax_h3_image_audio_to_video_v2_15s: { min: 1, max: 15 },
+    minimax_h3_z0901: { min: 1, max: 15 },
+    minimax_h3_z0902: { min: 1, max: 15 },
+    minimax_h3_z0903: { min: 1, max: 15 },
+    minimax_h3_801: { min: 1, max: 15 },
+    minimax_h3_802: { min: 1, max: 15 },
+    minimax_h3_803: { min: 1, max: 15 },
+    minimax_h3_804: { min: 1, max: 15 },
+    minimax_h3_805: { min: 1, max: 15 },
+    minimax_h3_zm_nono: { min: 1, max: 15 },
+    minimax_h3_zm_u08: { min: 1, max: 15 },
+    minimax_h3_zm_u22: { min: 1, max: 15 },
+    minimax_h3_zm_u24: { min: 1, max: 15 },
+    minimax_h3_zm_u30: { min: 1, max: 15 },
+};
+
+export function videoDurationRangeForModel(modelName: string | undefined, apiFormat?: string): VideoDurationRange {
+    const raw = String(modelName || "").trim().toLowerCase();
+    if (apiFormat === "sand") return { min: 4, max: 30 };
+    if (raw && MODEL_VIDEO_DURATION_RANGES[raw]) return MODEL_VIDEO_DURATION_RANGES[raw];
+    if (apiFormat === "autodl") return { min: 1, max: 15 };
+    return { min: VIDEO_SECONDS_MIN, max: VIDEO_SECONDS_MAX };
+}
+
+export function clampVideoSecondsToRange(value: string | number | undefined, range: VideoDurationRange): string {
+    const parsed = Math.floor(Number(value) || 6);
+    return String(Math.max(range.min, Math.min(range.max, parsed)));
+}
+
+export function videoDurationStopsForRange(range: VideoDurationRange): Array<{ value: number; label: string }> {
+    const { min, max } = range;
+    let picks: number[];
+    if (max <= 10) {
+        picks = [min, 4, 6, 8, max];
+    } else if (max <= 15) {
+        picks = [min, 5, 8, 12, max];
+    } else if (max <= 25) {
+        picks = [min, 10, 15, 20, max];
+    } else {
+        picks = [min, 8, 12, 20, max];
+    }
+    const unique = Array.from(new Set(picks.filter((v) => v >= min && v <= max))).sort((a, b) => a - b);
+    return unique.map((value) => ({ value, label: `${value}s` }));
+}
+
 export function clampVideoSeconds(value: string) {
     const seconds = Math.floor(Number(value) || 6);
     return String(Math.max(VIDEO_SECONDS_MIN, Math.min(VIDEO_SECONDS_MAX, seconds)));

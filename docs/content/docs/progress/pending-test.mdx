@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- [ ] 在视频节点切换不同中转站模型（`MAGI-2` 4–30s、`Rou-SD2.5` `Seedance 2.0` 4–15s / `2.5` 4–30s、`Auto DL-H3` 1–10s / 1–15s / 5–25s、`萤漫Video` 4–15s / 5–15s / 4–30s / 5–30s），确认清晰度档位与时长滑块范围、刻度及空视频节点左上角标牌均实时同步并自动收敛。
+
 - [ ] 打开「模型与接口」，确认左侧接口栏固定展示 `MAGI-2`（Sand AI，`https://api.sand.ai`）、`Auto DL-H3`（AutoDL ComfyUI，`https://autodl.art`，28 个中文名工作流）、`Rou-SD2.5`（RouterAPI，`https://routerapi.net`，`seedance-2.0`/`seedance-2.5`）与 `萤漫Video`（`https://yingman.xlapis.com`，7 款 H3 / Seedance 2.5 中文名视频模型），四个固定渠道默认 Key 为空且不可删除，右上角与 API Key 标签旁均提供「获取 API Key」按钮直达各自官网密钥页；填入各自 Key 后测试「一键验证」、「更新模型」与视频节点出片。
 
 - [ ] 新建空图片生成节点与空视频节点，分别测试 `1:1`、`4:3`、`3:4`、`3:2`、`2:3`、`16:9`、`9:16`、`21:9` 及自定义比例（如 `2.39:1`、`5:1`、`1:4`）：确认所有横屏高度与 `1:1`（`240px`）严格齐平、所有竖屏宽度与 `1:1`（`240px`）严格等宽、切换比例时以中心为锚点平滑缩放、空画板无双层虚线内框、左上角外置显示比例（视频含清晰度与时长），且拖入横/竖图及出图后均遵循同一规则。

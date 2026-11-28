@@ -9,7 +9,7 @@ import { canvasGlass, canvasThemes } from "@/lib/canvas-theme";
 import { buildGenerationConfig } from "@/lib/canvas/canvas-generation-helpers";
 import { buildCanvasResourceReferences, getGroupResourceNodes, orderReferenceNodes, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { VIDEO_QUICK_CAMERA_CHIPS } from "@/lib/canvas/video-presets";
-import { clampVideoResolutionToStops, clampVideoSeconds, computeVideoSize, formatVideoResolutionLabel, inferVideoRatio, VIDEO_SECONDS_MAX, VIDEO_SECONDS_MIN, videoRatioOptions, videoResolutionStopsForModel } from "@/lib/media-size";
+import { clampVideoResolutionToStops, clampVideoSecondsToRange, computeVideoSize, formatVideoResolutionLabel, inferVideoRatio, videoDurationRangeForModel, videoDurationStopsForRange, videoRatioOptions, videoResolutionStopsForModel } from "@/lib/media-size";
 import { boolConfig, decodeChannelModel, modelOptionName, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
@@ -77,15 +77,20 @@ export function CanvasVideoNodePanel({
     }, [node.id]);
 
     const videoMode = normalizeVideoModeValue(config.videoMode);
-    const resolutionStopsFor = (modelValue: string | undefined) => {
+    const channelApiFormatFor = (modelValue: string | undefined) => {
         const decoded = decodeChannelModel(modelValue || "");
-        const channel = decoded ? globalConfig.channels.find((item) => item.id === decoded.channelId) : undefined;
-        return videoResolutionStopsForModel(modelOptionName(modelValue || ""), channel?.apiFormat);
+        return decoded ? globalConfig.channels.find((item) => item.id === decoded.channelId)?.apiFormat : undefined;
     };
+    const resolutionStopsFor = (modelValue: string | undefined) =>
+        videoResolutionStopsForModel(modelOptionName(modelValue || ""), channelApiFormatFor(modelValue));
+    const durationRangeFor = (modelValue: string | undefined) =>
+        videoDurationRangeForModel(modelOptionName(modelValue || ""), channelApiFormatFor(modelValue));
     const resolutionStops = useMemo(() => resolutionStopsFor(config.model), [config.model, globalConfig.channels]);
+    const durationRange = useMemo(() => durationRangeFor(config.model), [config.model, globalConfig.channels]);
+    const durationStops = useMemo(() => videoDurationStopsForRange(durationRange), [durationRange]);
     const resolution = clampVideoResolutionToStops(config.vquality, resolutionStops);
     const ratio = inferVideoRatio(node.metadata?.size || "16:9");
-    const seconds = clampVideoSeconds(config.videoSeconds || "6");
+    const seconds = clampVideoSecondsToRange(config.videoSeconds || "6", durationRange);
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
     const watermark = boolConfig(config.videoWatermark, false);
 
@@ -314,8 +319,9 @@ export function CanvasVideoNodePanel({
                                 onChange={(model) => {
                                     const nextStops = resolutionStopsFor(model);
                                     const nextResolution = clampVideoResolutionToStops(config.vquality, nextStops);
+                                    const nextSeconds = clampVideoSecondsToRange(config.videoSeconds || "6", durationRangeFor(model));
                                     const nextSize = ratio === "auto" ? "auto" : computeVideoSize(nextResolution, ratio);
-                                    onConfigChange(node.id, { model, vquality: nextResolution, size: nextSize });
+                                    onConfigChange(node.id, { model, vquality: nextResolution, seconds: nextSeconds, size: nextSize });
                                 }}
                                 capability="video"
                                 fullWidth
@@ -398,23 +404,17 @@ export function CanvasVideoNodePanel({
                                 fixedZoom={large ? 1 : undefined}
                             >
                                 {() => {
-                                    const numSeconds = Number(seconds) || VIDEO_SECONDS_MIN;
+                                    const numSeconds = Number(seconds) || durationRange.min;
                                     return (
                                         <VideoCapsuleSlider
-                                            title="视频时长"
+                                            title={`视频时长 (${durationRange.min}–${durationRange.max}s)`}
                                             valueLabel={`${numSeconds}s`}
-                                            min={VIDEO_SECONDS_MIN}
-                                            max={VIDEO_SECONDS_MAX}
+                                            min={durationRange.min}
+                                            max={durationRange.max}
                                             value={numSeconds}
                                             ariaLabel="视频时长滑块"
-                                            stops={[
-                                                { value: VIDEO_SECONDS_MIN, label: `${VIDEO_SECONDS_MIN}s` },
-                                                { value: 8, label: "8s" },
-                                                { value: 12, label: "12s" },
-                                                { value: 20, label: "20s" },
-                                                { value: VIDEO_SECONDS_MAX, label: `${VIDEO_SECONDS_MAX}s` },
-                                            ]}
-                                            onChange={(next) => onConfigChange(node.id, { seconds: clampVideoSeconds(String(next)) })}
+                                            stops={durationStops}
+                                            onChange={(next) => onConfigChange(node.id, { seconds: clampVideoSecondsToRange(next, durationRange) })}
                                         />
                                     );
                                 }}
