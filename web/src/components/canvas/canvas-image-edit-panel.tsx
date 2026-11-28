@@ -4,7 +4,7 @@ import { imageQualityForModel, imageQualityOptions } from "@/lib/image-quality";
 import { computeMediaSize, mediaScaleOptions } from "@/lib/media-size";
 import { ModelPicker } from "@/components/model-picker";
 import type { AiConfig } from "@/stores/use-config-store";
-import { Check, ChevronDown, ImagePlus, X } from "lucide-react";
+import { Check, ChevronDown, Eye, ImagePlus, RotateCcw, X } from "lucide-react";
 
 import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
 import type { CanvasNodeData } from "@/types/canvas";
@@ -121,6 +121,7 @@ export function CanvasImageEditPanel({ node, mode, theme, config, screen, runnin
     const [presetCss, setPresetCss] = useState("");
     const [presetName, setPresetName] = useState("");
     const [matchThumb, setMatchThumb] = useState<string | null>(null);
+    const [comparingOriginal, setComparingOriginal] = useState(false);
     const [portraitPreset, setPortraitPreset] = useState(PORTRAIT_PRESETS[0].name);
     const [portraitStrength, setPortraitStrength] = useState<"标准" | "增强">("标准");
     const [hoverPreset, setHoverPreset] = useState<string | null>(null);
@@ -141,8 +142,27 @@ export function CanvasImageEditPanel({ node, mode, theme, config, screen, runnin
     // 实时预览：把 filter 写到节点元数据上，由节点渲染层套用；关闭 / 确认时由父级清除。
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
-        onPreviewFilter(node.id, mode === "color" && cssFilter ? cssFilter : null);
-    }, [cssFilter, mode, node.id]);
+        onPreviewFilter(node.id, mode === "color" && cssFilter && !comparingOriginal ? cssFilter : null);
+    }, [comparingOriginal, cssFilter, mode, node.id]);
+
+    useEffect(() => {
+        if (!comparingOriginal) return;
+        const end = () => setComparingOriginal(false);
+        window.addEventListener("pointerup", end);
+        window.addEventListener("pointercancel", end);
+        return () => {
+            window.removeEventListener("pointerup", end);
+            window.removeEventListener("pointercancel", end);
+        };
+    }, [comparingOriginal]);
+
+    const resetColor = () => {
+        setAdjust(ZERO_ADJUSTMENTS);
+        setPresetCss("");
+        setPresetName("");
+        setMatchThumb(null);
+        setComparingOriginal(false);
+    };
 
     // Esc 关闭面板（与即梦一致）
     useEffect(() => {
@@ -284,7 +304,34 @@ export function CanvasImageEditPanel({ node, mode, theme, config, screen, runnin
                             <p className="m-0 text-[11px]" style={{ color: theme.node.faint }}>本地比对两张图的平均色彩并换算成色温 / 色调，不消耗额度。</p>
                         </div>
                     ) : null}
-                    <div className="mt-3 flex justify-end">
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                type="button"
+                                aria-label="按住对比原图"
+                                title="按住查看原图效果"
+                                disabled={!dirty}
+                                className="inline-flex h-[30px] select-none items-center gap-1 rounded-lg px-2 text-[11px] font-medium transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-white/10"
+                                style={comparingOriginal ? { background: theme.accent.soft, color: theme.accent.base } : { background: theme.glass.inset, color: theme.node.muted }}
+                                onPointerDown={(event) => { event.stopPropagation(); setComparingOriginal(true); }}
+                                onPointerUp={() => setComparingOriginal(false)}
+                                onPointerCancel={() => setComparingOriginal(false)}
+                                onPointerLeave={() => setComparingOriginal(false)}
+                            >
+                                <Eye size={13} />对比原图
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="重置调色"
+                                title="重置全部调色参数与滤镜"
+                                disabled={!dirty && !presetName && !matchThumb}
+                                className="inline-flex h-[30px] items-center gap-1 rounded-lg px-2 text-[11px] font-medium transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-white/10"
+                                style={{ background: theme.glass.inset, color: theme.node.muted }}
+                                onClick={resetColor}
+                            >
+                                <RotateCcw size={12} />重置
+                            </button>
+                        </div>
                         <button type="button" className="h-[30px] rounded-lg px-4 text-[12px] font-medium transition hover:opacity-90 disabled:cursor-not-allowed" style={{ background: dirty || presetName ? theme.node.text : isLight ? "#f2f2f2" : "#333333", color: dirty || presetName ? theme.node.panel : isLight ? "#b8b8b8" : "#6f6f6f" }} disabled={!dirty && !presetName} onClick={() => void confirmColor()}>
                             确认
                         </button>

@@ -1,6 +1,7 @@
-import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/constant/canvas";
+import { getNodeSpec } from "@/constant/canvas";
 import { markNodeCreated } from "@/lib/canvas/canvas-node-creation";
 import { configNodeSize } from "@/lib/canvas/canvas-node-size";
+import { computeVideoSize } from "@/lib/media-size";
 import { useCanvasImageSettingsStore } from "@/stores/canvas/use-canvas-image-settings-store";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { UploadedImage } from "@/services/image-storage";
@@ -12,9 +13,12 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
     const spec = getNodeSpec(type);
     // 图片节点和生成节点共用同一份配置记忆：新建时沿用上一次在配置栏选好的项。
     const remembered = type === CanvasNodeType.Image || type === CanvasNodeType.Config ? useCanvasImageSettingsStore.getState().settings : undefined;
-    const initialMetadata = { ...spec.metadata, ...remembered, ...metadata };
-    // 生成节点沿用记忆里的比例，所以创建时就按比例给卡片；其它节点仍统一同一张卡片尺寸。
-    const dimensions = isGenerationCard({ type, metadata: initialMetadata }) ? configNodeSize(initialMetadata.imageAspectRatio) : spec;
+    // 新建空视频节点默认显式写入 16:9 (720p)，避免继承全局图片 1:1 尺寸导致显示框和比例文字不一致。
+    const videoDefaults = type === CanvasNodeType.Video && !metadata?.size ? { vquality: metadata?.vquality || "720", size: computeVideoSize(metadata?.vquality || "720", "16:9") } : undefined;
+    const initialMetadata = { ...spec.metadata, ...remembered, ...videoDefaults, ...metadata };
+    // 生成节点和空视频节点创建时即按所选比例匹配显示框尺寸。
+    const initialRatio = initialMetadata.imageAspectRatio ?? (typeof initialMetadata.size === "string" ? initialMetadata.size : undefined);
+    const dimensions = isGenerationCard({ type, metadata: initialMetadata }) ? configNodeSize(initialRatio) : spec;
     const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     markNodeCreated(id);
 
@@ -73,14 +77,18 @@ export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetada
 
 export function applyNodeConfigPatch(node: CanvasNodeData, patch: Partial<CanvasNodeData["metadata"]>) {
     const next = { ...node, metadata: { ...node.metadata, ...(patch || {}) } };
-    // 只有还没出图的生成节点跟着比例变形，并且以中心为锚点收放，避免卡片只往下长顶住面板。
+    // 未出图的生成节点和空视频节点随所选比例变形，并以中心为锚点收放避免顶住下方配置面板。
     const ratio = patch?.imageAspectRatio ?? (typeof patch?.size === "string" ? patch.size : undefined);
     if (!isGenerationCard(node) || !ratio) return next;
     const size = configNodeSize(ratio);
     return { ...next, ...size, position: { x: node.position.x + (node.width - size.width) / 2, y: node.position.y + (node.height - size.height) / 2 } };
 }
 
-/** 空图片节点就是待生成的生成节点（配置 + 比例都挂它上面）。 */
+/** 空图片节点、生成配置节点以及空视频节点都会随比例同步显示框形状。 */
 function isGenerationCard(node: { type: CanvasNodeTypeId; metadata?: CanvasNodeMetadata }) {
-    return node.type === CanvasNodeType.Config || (node.type === CanvasNodeType.Image && !node.metadata?.content && !node.metadata?.images?.length);
+    return (
+        node.type === CanvasNodeType.Config ||
+        (node.type === CanvasNodeType.Image && !node.metadata?.content && !node.metadata?.images?.length) ||
+        (node.type === CanvasNodeType.Video && !node.metadata?.content)
+    );
 }

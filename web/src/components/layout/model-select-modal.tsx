@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { fetchChannelModelDetails } from "@/services/api/image";
-import { guessCapability, useConfigStore, type ModelCapability, type ModelChannel, type ChannelModel } from "@/stores/use-config-store";
+import { FIXED_CHANNELS, guessCapability, modelDisplayName, useConfigStore, type ModelCapability, type ModelChannel, type ChannelModel } from "@/stores/use-config-store";
 import { groupModelFamilies, modelCapabilityOptions } from "./model-catalog";
 
 const catalogStorage = localforage.createInstance({ name: "infinite-canvas", storeName: "channel_model_catalogs" });
@@ -56,9 +56,10 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
     useEffect(() => { if (open && embedded && refreshKey) void fetchModels(); }, [refreshKey]);
     useEffect(() => { if (embedded) setSelected(new Set(selectedNames)); }, [embedded, selectedNames.join("\n")]);
 
-    const models = Array.from(new Map([...details, ...(channel?.models || [])].map((model) => [model.name, model])).values());
+    const fixedPresetModels = channel?.id ? FIXED_CHANNELS.find((item) => item.id === channel.id)?.models || [] : [];
+    const models = Array.from(new Map([...fixedPresetModels, ...details, ...(channel?.models || [])].map((model) => [model.name, model])).values());
     const keyword = search.trim().toLowerCase();
-    const visible = models.filter((model) => (capability === "all" || model.capability === capability) && (!onlySelected || selected.has(model.name)) && model.name.toLowerCase().includes(keyword));
+    const visible = models.filter((model) => (capability === "all" || model.capability === capability) && (!onlySelected || selected.has(model.name)) && (model.name.toLowerCase().includes(keyword) || modelDisplayName(model.name, model.label).toLowerCase().includes(keyword)));
     const visibleSelected = visible.filter((model) => selected.has(model.name)).length;
     const groups = groupModelFamilies(visible);
     const defaultModelKey = capability === "all" ? null : ({ text: "textModel", image: "imageModel", video: "videoModel", audio: "audioModel" } as const)[capability];
@@ -120,7 +121,8 @@ export function ModelSelectModal({ open, channel, selectedNames, fetchOnOpen = f
                     <div className="flex items-center justify-between gap-3 px-4 py-3"><button type="button" className="flex items-center gap-2 text-left" onClick={() => setCollapsed((current) => { const next = new Set(current); next.has(group.family) ? next.delete(group.family) : next.add(group.family); return next; })}><ChevronDown className={`size-4 text-muted-foreground transition-transform ${collapsed.has(group.family) ? "-rotate-90" : ""}`} /><span><strong className="block text-xs">{group.family}</strong><span className="mt-1 block text-[11px] text-muted-foreground">{group.models.length} 个版本 · 已选 <span key={count} className="bf-digit-roll font-mono text-primary">{count}</span></span></span></button><div className="flex gap-2"><Button size="small" disabled={count === group.models.length} onClick={() => toggleModels(group.models.map((model) => model.name), true)}>全选本组</Button><Button size="small" disabled={!count} onClick={() => toggleModels(group.models.map((model) => model.name), false)}>清空本组</Button></div></div>
                     {!collapsed.has(group.family) && <div className="flex flex-wrap gap-2 border-t border-border p-3">{group.models.map((model) => {
                         const checked = selected.has(model.name);
-                        return <div key={model.name} className={`flex max-w-full items-center rounded-lg border text-sm transition ${checked ? "border-[#0ea977] bg-[#0ea977] text-white shadow-xs hover:bg-[#12896a] dark:border-[#37d39b]/45 dark:bg-[#0ea977]/22 dark:text-[#37d39b] dark:hover:bg-[#0ea977]/32" : "border-border bg-background hover:border-muted-foreground"}`}><button type="button" role="checkbox" aria-checked={checked} aria-label={model.name} className="bf-mag-btn flex min-w-0 items-center gap-2 px-3 py-2 text-left" onClick={() => toggleModels([model.name], !checked)}>{checked && <Check className="size-3.5 shrink-0" />}<span className="break-all">{model.name}</span></button>{checked && onEditModel && <button type="button" className="mr-1 rounded p-1.5 opacity-70 hover:opacity-100" aria-label={`编辑 ${model.name}`} onClick={() => onEditModel(model.name)}><Pencil className="size-3.5" /></button>}</div>;
+                        const displayName = modelDisplayName(model.name, model.label);
+                        return <div key={model.name} title={displayName !== model.name ? `${displayName} (${model.name})` : model.name} className={`flex max-w-full items-center rounded-lg border text-sm transition ${checked ? "border-[#0ea977] bg-[#0ea977] text-white shadow-xs hover:bg-[#12896a] dark:border-[#37d39b]/45 dark:bg-[#0ea977]/22 dark:text-[#37d39b] dark:hover:bg-[#0ea977]/32" : "border-border bg-background hover:border-muted-foreground"}`}><button type="button" role="checkbox" aria-checked={checked} aria-label={displayName} className="bf-mag-btn flex min-w-0 items-center gap-2 px-3 py-2 text-left" onClick={() => toggleModels([model.name], !checked)}>{checked && <Check className="size-3.5 shrink-0" />}<span className="break-all">{displayName}</span></button>{checked && onEditModel && <button type="button" className="mr-1 rounded p-1.5 opacity-70 hover:opacity-100" aria-label={`编辑 ${displayName}`} onClick={() => onEditModel(model.name)}><Pencil className="size-3.5" /></button>}</div>;
                     })}</div>}
                 </section>;
             })}

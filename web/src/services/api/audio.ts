@@ -4,6 +4,7 @@ import i18n from "@/i18n";
 import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { requestAutoDLAudio } from "./relay-adapters";
 
 type RequestOptions = { signal?: AbortSignal };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
@@ -24,6 +25,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     const model = requestConfig.model.trim();
     const format = normalizeAudioFormatValue(config.audioFormat);
     assertAudioConfig(requestConfig, model);
+    if (requestConfig.apiFormat === "autodl") return requestAutoDLAudio(requestConfig, prompt, options);
     const instructions = config.audioInstructions.trim();
 
     try {
@@ -56,6 +58,7 @@ function assertAudioConfig(config: AiConfig, model: string) {
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
     if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
     if (config.apiFormat === "gemini") throw new Error(apiText("geminiAudioUnsupported"));
+    if (config.apiFormat === "sand") throw new Error("MAGI-2（Sand AI）仅支持视频生成，不支持语音合成");
 }
 
 async function assertAudioBlob(blob: Blob) {

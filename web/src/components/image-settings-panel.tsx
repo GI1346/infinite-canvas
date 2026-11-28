@@ -4,8 +4,10 @@ import { ConfigProvider, Switch } from "antd";
 import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
+import { AspectRatioPicker } from "@/components/canvas/canvas-aspect-ratio-picker";
+import { CapsuleSlider } from "@/components/canvas/canvas-capsule-slider";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, parseAspectRatio, readMediaDimensions } from "@/lib/media-size";
+import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, readMediaDimensions } from "@/lib/media-size";
 import type { AiConfig } from "@/stores/use-config-store";
 import { decodeChannelModel, modelOptionName } from "@/stores/use-config-store";
 
@@ -33,21 +35,23 @@ type ImageSettingsPanelProps = {
     quickCount?: number;
 };
 
-export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
+export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15 }: ImageSettingsPanelProps) {
     const { t } = useTranslation();
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
-    // 预设之外的比例（9:1、6:1）直接从输入框填，面板里不再只给固定档位。
-    const [customRatioOpen, setCustomRatioOpen] = useState(false);
-    const [ratioDraft, setRatioDraft] = useState("");
     const qualityModel = config.model || config.imageModel;
     // Gemini 只有分辨率档位，没有 quality 参数；这里直接收窄，避免选了 quality 却被静默忽略。
     const qualityIgnored = geminiChannel(config, qualityModel);
-    const supportedQualities = qualityIgnored ? [] : modelQualityOptions(qualityModel), quality = imageQualityForModel(qualityModel, config.quality);
+    const supportedQualities = qualityIgnored ? [] : modelQualityOptions(qualityModel);
+    const quality = imageQualityForModel(qualityModel, config.quality);
+    const activeQualityList = qualityOptions.filter((item) => (supportedQualities.length ? supportedQualities.includes(item.value) : item.value === "auto"));
+    const qualityIndex = Math.max(0, activeQualityList.findIndex((item) => item.value === quality));
+
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
     const transparentBackground = config.background === "transparent";
     const selectedScale = inferMediaScale(activeSize);
     const selectedRatio = inferMediaRatio(activeSize);
+    const scaleIndex = Math.max(0, mediaScaleOptions.findIndex((v) => v === selectedScale));
     const dimensions = readMediaDimensions(activeSize, selectedScale, selectedRatio);
     const applySize = (scale: string, ratio: string) => onConfigChange("size", computeMediaSize(scale, ratio));
     const selectScale = (scale: string) => applySize(scale, selectedRatio === "auto" ? "1:1" : selectedRatio);
@@ -58,6 +62,11 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
         const height = key === "height" ? next : dimensions.height;
         onConfigChange("size", `${alignDimension(width, snapDimensionToStep)}x${alignDimension(height, snapDimensionToStep)}`);
     };
+
+    const countStops = Array.from(new Set([1, 2, 4, 6, 8, Math.min(12, maxCount), maxCount].filter((n) => n >= 1 && n <= maxCount))).map((n) => ({
+        value: n,
+        label: t("settingsPanels.image.images", { count: n }),
+    }));
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -70,22 +79,71 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     if (document.activeElement instanceof HTMLInputElement && event.currentTarget.contains(document.activeElement)) document.activeElement.blur();
                 }}
             >
-                {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.image.title")}</div> : null}
-                <div className="space-y-2.5">
-                    <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.quality")}</SettingTitle>
-                    <fieldset disabled={!supportedQualities.length} className="grid grid-cols-3 gap-2.5 disabled:opacity-40">
-                        {qualityOptions.filter((item) => supportedQualities.length ? supportedQualities.includes(item.value) : item.value === "auto").map((item) => (
-                            <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
-                                {t(`settingsPanels.common.${item.labelKey}`)}
-                            </OptionPill>
-                        ))}
-                    </fieldset>
-                </div>
-                <div className="space-y-2.5">
+                {showTitle ? <div className="text-base font-semibold">{t("settingsPanels.image.title")}</div> : null}
+
+                {/* 质量滑块 */}
+                <CapsuleSlider
+                    theme={theme}
+                    title={t("settingsPanels.image.quality")}
+                    valueLabel={t(`settingsPanels.common.${activeQualityList[qualityIndex]?.labelKey || "auto"}`)}
+                    min={0}
+                    max={Math.max(0, activeQualityList.length - 1)}
+                    value={qualityIndex}
+                    ariaLabel={t("settingsPanels.image.quality")}
+                    disabled={!supportedQualities.length}
+                    stops={activeQualityList.map((item, idx) => ({ value: idx, label: t(`settingsPanels.common.${item.labelKey}`) }))}
+                    onChange={(idx) => {
+                        const picked = activeQualityList[idx];
+                        if (picked) onConfigChange("quality", picked.value);
+                    }}
+                />
+
+                {/* 清晰度 / 分辨率滑块 */}
+                <CapsuleSlider
+                    theme={theme}
+                    title={t("settingsPanels.image.resolution")}
+                    valueLabel={selectedScale === "auto" ? t("settingsPanels.common.auto") : selectedScale.toUpperCase()}
+                    min={0}
+                    max={mediaScaleOptions.length - 1}
+                    value={scaleIndex}
+                    ariaLabel={t("settingsPanels.image.resolution")}
+                    stops={mediaScaleOptions.map((value, idx) => ({
+                        value: idx,
+                        label: value === "auto" ? t("settingsPanels.common.auto") : value.toUpperCase(),
+                    }))}
+                    onChange={(idx) => {
+                        const picked = mediaScaleOptions[idx];
+                        if (picked) selectScale(picked);
+                    }}
+                />
+
+                {/* 比例点击选择（含等比画幅方框示意 + 自定义比例输入） */}
+                <AspectRatioPicker
+                    theme={theme}
+                    options={mediaRatioOptions}
+                    value={selectedRatio}
+                    onChange={selectRatio}
+                    title={t("settingsPanels.image.aspectRatio")}
+                    autoLabel={t("settingsPanels.common.auto")}
+                    orientationLabels={{
+                        landscape: t("settingsPanels.video.sizes.landscape"),
+                        portrait: t("settingsPanels.video.sizes.portrait"),
+                        square: t("settingsPanels.video.sizes.square"),
+                        auto: t("settingsPanels.video.adaptive"),
+                    }}
+                    allowCustom
+                    customLabel={t("settingsPanels.image.customRatio")}
+                    customActiveLabel={t("settingsPanels.image.customRatio").replace(/\s*[（(].*[）)]\s*$/, "")}
+                    customInputAriaLabel={t("settingsPanels.image.customRatio")}
+                    customApplyLabel={t("settingsPanels.image.customRatioApply")}
+                />
+
+                {/* 像素尺寸微调 */}
+                <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
                         <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.size")}</SettingTitle>
                         <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium" style={{ color: theme.node.muted }}>
+                            <span className="text-[11px] font-medium" style={{ color: theme.node.muted }}>
                                 {t("settingsPanels.image.align16")}
                             </span>
                             <span title={t("settingsPanels.image.align16Hint")} onMouseDown={(event) => event.stopPropagation()}>
@@ -93,100 +151,37 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             </span>
                         </div>
                     </div>
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                         <DimensionInput prefix="W" value={dimensions.width} disabled={selectedRatio === "auto"} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("width", value)} />
-                        <span className="text-lg opacity-45">↔</span>
+                        <span className="text-sm opacity-45">↔</span>
                         <DimensionInput prefix="H" value={dimensions.height} disabled={selectedRatio === "auto"} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("height", value)} />
                     </div>
                 </div>
-                <div className="space-y-2.5">
-                    <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.resolution")}</SettingTitle>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {mediaScaleOptions.map((value) => (
-                            <OptionPill key={value} selected={selectedScale === value} theme={theme} onClick={() => selectScale(value)}>
-                                {value === "auto" ? t("settingsPanels.common.auto") : value}
-                            </OptionPill>
-                        ))}
-                    </div>
-                </div>
-                <div className="space-y-2.5">
-                    <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.aspectRatio")}</SettingTitle>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {mediaRatioOptions.map((item) => (
-                            <button
-                                key={item.value}
-                                type="button"
-                                className="flex h-[72px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
-                                style={{ borderColor: selectedRatio === item.value ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
-                                onMouseDown={(event) => event.stopPropagation()}
-                                onClick={() => selectRatio(item.value)}
-                            >
-                                <AspectIcon width={item.width} height={item.height} color={theme.node.text} />
-                                <span>{item.value === "auto" ? t("settingsPanels.common.auto") : item.value}</span>
-                            </button>
-                        ))}
-                    </div>
-                    {customRatioOpen ? (
-                        <form
-                            className="flex gap-2"
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onSubmit={(event) => {
-                                event.preventDefault();
-                                const parsed = parseAspectRatio(ratioDraft.replace(/：/g, ":").replace(/\s/g, ""));
-                                if (!parsed) return;
-                                selectRatio(`${parsed.width}:${parsed.height}`);
-                                setCustomRatioOpen(false);
-                            }}
-                        >
-                            <input
-                                autoFocus
-                                aria-label={t("settingsPanels.image.customRatio")}
-                                placeholder="9:1"
-                                value={ratioDraft}
-                                onChange={(event) => setRatioDraft(event.target.value)}
-                                className="min-w-0 flex-1 rounded-xl border bg-transparent px-3 py-1.5 text-sm outline-none"
-                                style={{ borderColor: theme.node.stroke, color: theme.node.text }}
-                            />
-                            <button type="submit" className="cursor-pointer rounded-xl px-3 py-1.5 text-sm" style={{ background: theme.canvas.selectionStroke, color: theme.node.panel }}>
-                                {t("settingsPanels.image.customRatioApply")}
-                            </button>
-                        </form>
-                    ) : (
-                        <button
-                            type="button"
-                            className="w-full cursor-pointer rounded-xl border bg-transparent py-1.5 text-xs transition hover:opacity-80"
-                            style={{ borderColor: theme.node.stroke, color: theme.node.muted }}
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onClick={() => {
-                                setRatioDraft(selectedRatio === "auto" ? "" : selectedRatio);
-                                setCustomRatioOpen(true);
-                            }}
-                        >
-                            {t("settingsPanels.image.customRatio")}
-                        </button>
-                    )}
-                </div>
-                <div className="flex items-center justify-between gap-3">
+
+                {/* 生成数量滑块 */}
+                <CapsuleSlider
+                    theme={theme}
+                    title={t("settingsPanels.image.count")}
+                    valueLabel={t("settingsPanels.image.images", { count })}
+                    min={1}
+                    max={maxCount}
+                    value={count}
+                    ariaLabel={t("settingsPanels.image.count")}
+                    stops={countStops}
+                    onChange={(next) => onConfigChange("count", String(Math.max(1, Math.min(maxCount, next))))}
+                />
+
+                {/* 透明背景开关 */}
+                <div className="flex items-center justify-between gap-3 pt-1">
                     <div className="space-y-0.5">
                         <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.transparent")}</SettingTitle>
-                        <div className="text-xs" style={{ color: theme.node.muted, opacity: 0.75 }}>
+                        <div className="text-[11px]" style={{ color: theme.node.muted, opacity: 0.75 }}>
                             {t("settingsPanels.image.transparentHint")}
                         </div>
                     </div>
                     <span onMouseDown={(event) => event.stopPropagation()}>
                         <Switch size="small" checked={transparentBackground} onChange={(checked) => onConfigChange("background", checked ? "transparent" : "")} />
                     </span>
-                </div>
-                <div className="space-y-2.5">
-                    <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.count")}</SettingTitle>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {Array.from({ length: quickCount }, (_, index) => index + 1).map((value) => (
-                            <OptionPill key={value} selected={count === value} theme={theme} onClick={() => onConfigChange("count", String(value))}>
-                                {t("settingsPanels.image.images", { count: value })}
-                            </OptionPill>
-                        ))}
-                        <CountInput value={count} max={maxCount} theme={theme} onChange={(value) => onConfigChange("count", String(value || 1))} />
-                    </div>
                 </div>
             </div>
         </ImageSettingsTheme>
@@ -218,21 +213,7 @@ export function imageSizeLabel(size: string) {
     const ratio = inferMediaRatio(size);
     if (ratio === "auto" || size === "auto") return i18n.t("settingsPanels.common.auto");
     if (scale === "auto") return ratio;
-    return `${scale} · ${ratio}`;
-}
-
-function OptionPill({ selected, theme, onClick, children }: { selected: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
-    return (
-        <button
-            type="button"
-            className="h-9 cursor-pointer rounded-full border px-2 text-sm transition hover:opacity-80"
-            style={{ background: "transparent", borderColor: selected ? theme.node.text : theme.node.stroke, color: theme.node.text }}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={onClick}
-        >
-            {children}
-        </button>
-    );
+    return `${scale.toUpperCase()} · ${ratio}`;
 }
 
 function DimensionInput({ prefix, value, disabled, theme, alignToStep, onChange }: { prefix: string; value: number; disabled: boolean; theme: CanvasTheme; alignToStep: boolean; onChange: (value: number | null) => void }) {
@@ -243,15 +224,15 @@ function DimensionInput({ prefix, value, disabled, theme, alignToStep, onChange 
     };
 
     return (
-        <label className="flex h-9 overflow-hidden rounded-xl text-sm" style={{ background: theme.node.fill, color: theme.node.text, opacity: disabled ? 0.55 : 1 }}>
-            <span className="grid w-9 place-items-center" style={{ color: theme.node.muted }}>
+        <label className="flex h-8 overflow-hidden rounded-xl text-xs" style={{ background: theme.glass.inset, color: theme.node.text, opacity: disabled ? 0.55 : 1 }}>
+            <span className="grid w-8 place-items-center font-semibold" style={{ color: theme.node.muted }}>
                 {prefix}
             </span>
             <input
                 type="number"
                 min={1}
                 disabled={disabled}
-                className="min-w-0 flex-1 bg-transparent px-2 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                className="min-w-0 flex-1 bg-transparent px-2 font-mono outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 defaultValue={value || ""}
                 key={`${prefix}-${value}`}
                 onBlur={(event) => commit(event.currentTarget)}
@@ -261,35 +242,6 @@ function DimensionInput({ prefix, value, disabled, theme, alignToStep, onChange 
                 onMouseDown={(event) => event.stopPropagation()}
             />
         </label>
-    );
-}
-
-function CountInput({ value, max, theme, onChange }: { value: number; max: number; theme: CanvasTheme; onChange: (value: number | null) => void }) {
-    return (
-        <label className="col-span-2 flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke, color: theme.node.text }}>
-            <input
-                type="number"
-                min={1}
-                max={max}
-                className="min-w-0 flex-1 bg-transparent px-3 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                style={{ color: theme.node.text, WebkitTextFillColor: theme.node.text }}
-                value={value || ""}
-                onChange={(event) => onChange(Number(event.target.value) || null)}
-                onMouseDown={(event) => event.stopPropagation()}
-            />
-        </label>
-    );
-}
-
-function AspectIcon({ width, height, color }: { width: number; height: number; color: string }) {
-    if (!width || !height) return null;
-    const ratio = width / height;
-    const boxWidth = ratio >= 1 ? 24 : Math.max(10, 24 * ratio);
-    const boxHeight = ratio >= 1 ? Math.max(10, 24 / ratio) : 24;
-    return (
-        <span className="grid h-7 w-9 place-items-center">
-            <span className="border-2" style={{ width: boxWidth, height: boxHeight, borderColor: color }} />
-        </span>
     );
 }
 

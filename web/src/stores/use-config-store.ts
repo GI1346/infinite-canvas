@@ -6,13 +6,14 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { desktopProxyUrl } from "@/lib/desktop-network";
 
-export type ApiCallFormat = "openai" | "gemini";
+export type ApiCallFormat = "openai" | "gemini" | "sand" | "autodl" | "routerapi";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
 export type ChannelModel = {
     name: string;
     capability: ModelCapability;
+    label?: string;
 };
 
 export type ModelChannel = {
@@ -22,6 +23,9 @@ export type ModelChannel = {
     apiKey: string;
     apiFormat: ApiCallFormat;
     models: ChannelModel[];
+    fixed?: boolean;
+    presetVersion?: number;
+    apiKeyUrl?: string;
 };
 
 export type AiConfig = {
@@ -77,15 +81,106 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
+const SAND_BASE_URL = "https://api.sand.ai";
+const AUTODL_BASE_URL = "https://autodl.art";
+const ROUTERAPI_BASE_URL = "https://routerapi.net";
+const YINGMAN_BASE_URL = "https://yingman.xlapis.com";
 export const LOCAL_PROXY_PACKAGE = "@basketikun/canvas-proxy";
 export const DEFAULT_LOCAL_PROXY_URL = "http://127.0.0.1:23210";
+
+export const FIXED_CHANNELS: ModelChannel[] = [
+    {
+        id: "fixed-magi-2",
+        name: "MAGI-2",
+        baseUrl: SAND_BASE_URL,
+        apiKey: "",
+        apiFormat: "sand",
+        fixed: true,
+        apiKeyUrl: "https://platform.sand.ai/app/keys/",
+        models: [{ name: "magi-2", capability: "video" }],
+    },
+    {
+        id: "fixed-autodl-h3",
+        name: "Auto DL-H3",
+        baseUrl: AUTODL_BASE_URL,
+        apiKey: "",
+        apiFormat: "autodl",
+        fixed: true,
+        presetVersion: 2,
+        apiKeyUrl: "https://autodl.art/large-model/tokens",
+        models: [
+            { name: "minimax_h3_adl_int8", capability: "video" },
+            { name: "minimax_h3_zm_u24", capability: "video" },
+            { name: "minimax_h3_image_audio_to_video_v2_15s", capability: "video" },
+            { name: "minimax_h3_zm_u30", capability: "video" },
+            { name: "minimax_h3_zm_nono", capability: "video" },
+            { name: "minimax_h3_lightx2v_v5_15s", capability: "video" },
+            { name: "minimax_h3_lightx2v_no_pic", capability: "video" },
+            { name: "minimax_h3_803", capability: "video" },
+            { name: "minimax_h3_lightx2v", capability: "video" },
+            { name: "minimax_h3_lightx2v_v5", capability: "video" },
+            { name: "minimax_h3_image_audio_to_video_v2", capability: "video" },
+            { name: "minimax_h3_801", capability: "video" },
+            { name: "minimax_h3_zm_u08", capability: "video" },
+            { name: "wan2.2animate-v4-motion_retargeting", capability: "video" },
+            { name: "minimax_h3_805", capability: "video" },
+            { name: "minimax_h3_802", capability: "video" },
+            { name: "minimax_h3_zm_u22", capability: "video" },
+            { name: "minimax_h3_804", capability: "video" },
+            { name: "minimax_h3_zm_titi", capability: "video" },
+            { name: "minimax_h3_image_audio_to_video", capability: "video" },
+            { name: "minimax_h3_z0902", capability: "video" },
+            { name: "minimax_h3_zm_titim", capability: "video" },
+            { name: "minimax_h3_b99_002", capability: "video" },
+            { name: "minimax_h3_z0901", capability: "video" },
+            { name: "minimax_h3_z0903", capability: "video" },
+            { name: "minimax_h3_b99_003_12s", capability: "video" },
+            { name: "minimax_h3_b99_001", capability: "video" },
+            { name: "indextts2-v1", capability: "audio" },
+        ],
+    },
+    {
+        id: "fixed-rou-sd25",
+        name: "Rou-SD2.5",
+        baseUrl: ROUTERAPI_BASE_URL,
+        apiKey: "",
+        apiFormat: "routerapi",
+        fixed: true,
+        apiKeyUrl: "https://routerapi.net/console/token",
+        models: [
+            { name: "seedance-2.0", capability: "video", label: "Seedance 2.0" },
+            { name: "seedance-2.5", capability: "video", label: "Seedance 2.5" },
+        ],
+    },
+    {
+        id: "fixed-yingman-video",
+        name: "萤漫Video",
+        baseUrl: YINGMAN_BASE_URL,
+        apiKey: "",
+        apiFormat: "openai",
+        fixed: true,
+        apiKeyUrl: "https://yingman.xlapis.com/settings",
+        models: [
+            { name: "h3-video", capability: "video" },
+            { name: "minimax-h3-rb", capability: "video" },
+            { name: "h3-2k", capability: "video" },
+            { name: "seedance-2.5-hlg", capability: "video" },
+            { name: "seedance-2.5-special1", capability: "video" },
+            { name: "seedance-2.5-pa-480p", capability: "video" },
+            { name: "seedance-2.5-pa-720p", capability: "video" },
+        ],
+    },
+];
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
     baseUrl: OPENAI_BASE_URL,
     apiKey: "",
     apiFormat: "openai",
-    channels: [{ id: "default", name: "默认渠道", baseUrl: OPENAI_BASE_URL, apiKey: "", apiFormat: "openai", models: [] }],
+    channels: [
+        { id: "default", name: "默认渠道", baseUrl: OPENAI_BASE_URL, apiKey: "", apiFormat: "openai", models: [] },
+        ...FIXED_CHANNELS.map((channel) => ({ ...channel, models: channel.models.map((m) => ({ ...m })) })),
+    ],
     model: "",
     imageModel: "",
     videoModel: "",
@@ -136,12 +231,12 @@ type ConfigStore = {
     clearPromptContinue: () => void;
 };
 
-const VIDEO_KEYWORDS = ["video", "sora", "veo", "kling", "wan", "hailuo"];
+const VIDEO_KEYWORDS = ["video", "sora", "veo", "kling", "wan", "hailuo", "magi", "minimax_h3", "minimax-h3", "h3-", "animate", "seedance"];
 
 export function boolConfig(value: string, fallback: boolean) {
     return value ? value === "true" : fallback;
 }
-const AUDIO_KEYWORDS = ["audio", "tts", "speech", "voice", "music", "sound"];
+const AUDIO_KEYWORDS = ["audio", "tts", "speech", "voice", "music", "sound", "indextts"];
 const IMAGE_KEYWORDS = ["banana", "sunburst", "seedream", "gpt-image", "image", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
 
 /** Best-effort default capability for a freshly fetched model name; user can override in the channel editor. */
@@ -276,6 +371,51 @@ export function useEffectiveConfig() {
     return useMemo(() => ({ ...config, channelMode: "local" as const }), [config]);
 }
 
+export const MODEL_DISPLAY_NAMES: Record<string, string> = {
+    minimax_h3_adl_int8: "H3极速生视频(质量高并发高)",
+    minimax_h3_lightx2v_no_pic: "H3文生视频",
+    minimax_h3_lightx2v: "H3首尾帧生成视频",
+    minimax_h3_lightx2v_v5: "H3多图参考生视频",
+    minimax_h3_lightx2v_v5_15s: "H3多图生视频15秒",
+    minimax_h3_image_audio_to_video: "H3图生视频-音频同步(自动对口型)",
+    minimax_h3_image_audio_to_video_v2: "H3多图多音频生视频",
+    minimax_h3_image_audio_to_video_v2_15s: "H3多图多音频生视频15秒",
+    minimax_h3_z0901: "H3文生视频（高质量创意直出）",
+    minimax_h3_z0902: "H3六图生视频（多图一致性创作）",
+    minimax_h3_z0903: "H3六图三音频生视频（高质量音画融合）",
+    minimax_h3_801: "H3九图15s(无字幕版)",
+    minimax_h3_802: "H3九图15s(画质增强版)",
+    minimax_h3_803: "H3九图三音15s(画质增强版)",
+    minimax_h3_804: "H3九图15s(多模式版)",
+    minimax_h3_805: "H3九图三音15s(多模式版)",
+    minimax_h3_b99_001: "H3文生视频（736p）",
+    minimax_h3_b99_002: "H3首尾帧生成视频（736p）",
+    minimax_h3_b99_003_12s: "H3多图生视频12秒",
+    minimax_h3_zm_nono: "H3多图多音频生视频(影视画质)",
+    minimax_h3_zm_u08: "H3多图多音频生视频(高速版)",
+    minimax_h3_zm_u22: "H3多图多音频生视频(短剧带货版)",
+    minimax_h3_zm_u24: "H3多图多音频生视频(升级画质)",
+    minimax_h3_zm_u30: "H3多图多音频生视频(超清画质)",
+    minimax_h3_zm_titi: "H3全自动角色动迁替换",
+    minimax_h3_zm_titim: "H3全自动多角色动迁替换",
+    "wan2.2animate-v4-motion_retargeting": "动作迁移",
+    "indextts2-v1": "IndexTTS2 语音合成",
+    "seedance-2.0": "Seedance 2.0",
+    "seedance-2.5": "Seedance 2.5",
+    "h3-video": "H3 视频生成（按秒）",
+    "minimax-h3-rb": "H3 首尾帧·音频参考（按次）",
+    "h3-2k": "H3 2K 超清视频（按次）",
+    "seedance-2.5-hlg": "Seedance 2.5 720P 多模态（按次）",
+    "seedance-2.5-special1": "Seedance 2.5 720P 专线（按次）",
+    "seedance-2.5-pa-480p": "Seedance 2.5 480P（按秒）",
+    "seedance-2.5-pa-720p": "Seedance 2.5 720P（按秒）",
+};
+
+export function modelDisplayName(name: string, label?: string) {
+    const raw = (name || "").trim();
+    return label?.trim() || MODEL_DISPLAY_NAMES[raw] || raw;
+}
+
 /** Normalize a mixed list of raw model names or model objects into deduped ChannelModel entries. */
 export function normalizeChannelModels(models: Array<string | ChannelModel> | undefined): ChannelModel[] {
     const seen = new Set<string>();
@@ -285,7 +425,8 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         if (!name || seen.has(name)) continue;
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
-        result.push({ name, capability });
+        const label = typeof item === "string" ? undefined : item.label?.trim() || undefined;
+        result.push(label ? { name, capability, label } : { name, capability });
     }
     return result;
 }
@@ -299,6 +440,9 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         apiKey: channel?.apiKey || "",
         apiFormat,
         models: normalizeChannelModels(channel?.models),
+        ...(channel?.fixed ? { fixed: true } : {}),
+        ...(channel?.presetVersion ? { presetVersion: channel.presetVersion } : {}),
+        ...(channel?.apiKeyUrl ? { apiKeyUrl: channel.apiKeyUrl } : {}),
     };
 }
 
@@ -384,11 +528,19 @@ export function modelOptionName(value: string) {
     return decodeChannelModel(value)?.model || value;
 }
 
+export function modelOptionDisplayName(config: AiConfig, value: string) {
+    const rawName = modelOptionName(value);
+    const matched = findChannelModel(config, value);
+    return modelDisplayName(rawName, matched?.model.label);
+}
+
 export function modelOptionLabel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
-    if (!decoded) return value;
+    if (!decoded) return modelDisplayName(value);
     const channel = config.channels.find((item) => item.id === decoded.channelId);
-    return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
+    const channelModel = channel?.models.find((item) => item.name === decoded.model);
+    const display = modelDisplayName(decoded.model, channelModel?.label);
+    return channel ? `${display}（${channel.name}）` : display;
 }
 
 export function modelOptionsFromChannels(channels: ModelChannel[]) {
@@ -429,14 +581,25 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
 
 function normalizeChannels(config: AiConfig) {
     const persistedChannels = Array.isArray(config.channels) ? config.channels : [];
-    const channels = persistedChannels.map((channel, index) =>
-        createModelChannel({
+    const fixedById = new Map(FIXED_CHANNELS.map((item) => [item.id, item]));
+    const channels = persistedChannels.map((channel, index) => {
+        const fixedTemplate = channel.id ? fixedById.get(channel.id) : undefined;
+        const needsPresetSync = Boolean(fixedTemplate?.presetVersion && (channel.presetVersion || 0) < fixedTemplate.presetVersion);
+        const mergedModels = needsPresetSync && fixedTemplate
+            ? normalizeChannelModels([...(channel.models || []), ...fixedTemplate.models])
+            : normalizeChannelModels(channel.models);
+        return createModelChannel({
             ...channel,
             id: channel.id || (index === 0 ? "default" : `channel-${index + 1}`),
-            name: channel.name || (index === 0 ? i18n.t("config.channels.defaultName") : i18n.t("config.channels.indexedName", { index: index + 1 })),
-            models: normalizeChannelModels(channel.models),
-        }),
-    );
+            name: channel.name || fixedTemplate?.name || (index === 0 ? i18n.t("config.channels.defaultName") : i18n.t("config.channels.indexedName", { index: index + 1 })),
+            apiFormat: channel.apiFormat || fixedTemplate?.apiFormat,
+            baseUrl: channel.baseUrl || fixedTemplate?.baseUrl,
+            models: mergedModels,
+            fixed: Boolean(fixedTemplate || channel.fixed),
+            presetVersion: fixedTemplate?.presetVersion ?? channel.presetVersion,
+            apiKeyUrl: fixedTemplate?.apiKeyUrl || channel.apiKeyUrl,
+        });
+    });
     if (!channels.length) {
         channels.push(
             createModelChannel({
@@ -449,16 +612,25 @@ function normalizeChannels(config: AiConfig) {
             }),
         );
     }
+    for (const fixed of FIXED_CHANNELS) {
+        if (!channels.some((channel) => channel.id === fixed.id)) {
+            channels.push(createModelChannel({ ...fixed, models: fixed.models.map((m) => ({ ...m })) }));
+        }
+    }
     return channels;
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
     if (apiFormat === "gemini") return GEMINI_BASE_URL;
+    if (apiFormat === "sand") return SAND_BASE_URL;
+    if (apiFormat === "autodl") return AUTODL_BASE_URL;
+    if (apiFormat === "routerapi") return ROUTERAPI_BASE_URL;
     return OPENAI_BASE_URL;
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    return apiFormat === "gemini" ? apiFormat : "openai";
+    if (apiFormat === "gemini" || apiFormat === "sand" || apiFormat === "autodl" || apiFormat === "routerapi") return apiFormat;
+    return "openai";
 }
 
 function uniqueModelOptions(models: string[]) {

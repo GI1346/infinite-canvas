@@ -1,7 +1,7 @@
 import { CanvasLogsModal } from "./canvas-logs-modal";
 import { CanvasWheelSensitivity } from "./canvas-wheel-sensitivity";
-import { useEffect, useRef, useState } from "react";
-import { BookOpen, Download, Eraser, FileText, Home, Images, Keyboard, Menu, Moon, Plus, Redo2, Settings2, Sun, Trash2, Undo2, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BookOpen, Crosshair, Download, Eraser, FileText, Home, Images, Keyboard, Menu, Moon, Plus, Redo2, Search, Settings2, Square, Sun, Trash2, Undo2, Upload } from "lucide-react";
 import { App, Button, Dropdown, Modal, Popover, Slider, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
@@ -9,13 +9,17 @@ import { VersionReleaseModal } from "@/components/layout/version-release-modal";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useCanvasNavigationStore } from "@/stores/use-canvas-navigation-store";
+import { useGenerationRunnerStore, type RunningGenerationTask } from "@/stores/canvas/use-generation-runner-store";
 import { canvasGlass, canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { DOCS_URL } from "@/constant/env";
 import { openDeepSeekHarness } from "@/services/api/deepseek-harness";
 import { recordDiagnostic } from "@/services/diagnostics";
+import type { CanvasNodeData } from "@/types/canvas";
 
 export function CanvasTopBar({
+    projectId,
+    nodes,
     title,
     titleDraft,
     isTitleEditing,
@@ -35,9 +39,13 @@ export function CanvasTopBar({
     onImportImage,
     onOpenPlugins,
     onOpenCleanup,
+    onOpenNodeSearch,
+    onFocusNodes,
     onUndo,
     onRedo,
 }: {
+    projectId?: string;
+    nodes?: CanvasNodeData[];
     title: string;
     titleDraft: string;
     isTitleEditing: boolean;
@@ -57,19 +65,42 @@ export function CanvasTopBar({
     onImportImage: () => void;
     onOpenPlugins: () => void;
     onOpenCleanup: () => void;
+    onOpenNodeSearch?: () => void;
+    onFocusNodes?: (nodeIds: string[]) => void;
     onUndo: () => void;
     onRedo: () => void;
 }) {
     const colorTheme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const allTasks = useGenerationRunnerStore((state) => state.tasks);
+    const abortTask = useGenerationRunnerStore((state) => state.abortTask);
     const { t } = useTranslation();
     const theme = canvasThemes[colorTheme];
     const titleRef = useRef<HTMLDivElement>(null);
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
     const [logsOpen, setLogsOpen] = useState(false);
     const [harnessOpening, setHarnessOpening] = useState(false);
+    const [now, setNow] = useState(() => Date.now());
     const { message } = App.useApp();
+
+    const projectTasks = useMemo(
+        () => (projectId ? Object.values(allTasks).filter((task) => task.projectId === projectId) : []),
+        [allTasks, projectId],
+    );
+
+    useEffect(() => {
+        if (!projectTasks.length) return;
+        setNow(Date.now());
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [projectTasks.length]);
+
+    const taskLabel = (task: RunningGenerationTask) => {
+        const lookupId = task.targetNodeId || task.nodeId;
+        const found = nodes?.find((item) => item.id === lookupId || item.id === task.nodeId);
+        return found?.title || "后台生成任务";
+    };
 
     useEffect(() => {
         if (!isTitleEditing) return;
@@ -137,13 +168,70 @@ export function CanvasTopBar({
                             </button>
                         )}
                     </div>
-                    <span className="hidden shrink-0 items-center gap-1 rounded-full bg-[#0ea977]/12 px-2 py-0.5 text-[11px] font-medium text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b] xl:inline-flex">
-                        <span className="size-1.5 rounded-full bg-current" />
-                        已同步
-                    </span>
+                    {projectTasks.length > 0 ? (
+                        <Popover
+                            trigger="click"
+                            placement="bottomLeft"
+                            content={
+                                <div
+                                    data-canvas-overlay
+                                    data-canvas-no-zoom
+                                    className="flex w-72 flex-col gap-2 p-1 text-xs"
+                                    style={{ color: theme.node.text }}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onWheel={(event) => event.stopPropagation()}
+                                >
+                                    <div className="flex items-center justify-between px-1">
+                                        <span className="font-semibold">当前画布后台任务</span>
+                                        <span className="font-mono text-[11px]" style={{ color: theme.node.muted }}>{projectTasks.length} 项运行中</span>
+                                    </div>
+                                    <div className="max-h-56 space-y-1.5 overflow-y-auto">
+                                        {projectTasks.map((task) => {
+                                            const elapsed = Math.max(0, Math.floor((now - task.startedAt) / 1000));
+                                            const targetIds = task.outputNodeIds?.length ? task.outputNodeIds : [task.targetNodeId || task.nodeId];
+                                            return (
+                                                <div key={`${task.projectId}:${task.nodeId}`} className="flex items-center justify-between gap-2 rounded-xl px-2.5 py-2" style={{ background: theme.glass.inset }}>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="truncate font-medium">{taskLabel(task)}</div>
+                                                        <div className="font-mono text-[10px]" style={{ color: theme.accent.base }}>已运行 {elapsed}s</div>
+                                                    </div>
+                                                    <div className="flex shrink-0 items-center gap-1">
+                                                        {onFocusNodes && (
+                                                            <button type="button" className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition hover:opacity-80" style={{ background: theme.accent.soft, color: theme.accent.base }} onClick={() => onFocusNodes(targetIds)}>
+                                                                <Crosshair className="size-3" />定位
+                                                            </button>
+                                                        )}
+                                                        <button type="button" aria-label={`停止 ${taskLabel(task)}`} className="inline-flex items-center gap-1 rounded-lg bg-red-500/12 px-2 py-1 text-[11px] font-medium text-red-500 transition hover:bg-red-500/20" onClick={() => abortTask(task)}>
+                                                            <Square className="size-2.5" />停止
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            }
+                        >
+                            <button
+                                type="button"
+                                aria-label={`后台生成任务（${projectTasks.length} 项运行中）`}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition hover:brightness-110"
+                                style={{ background: theme.accent.soft, color: theme.accent.base }}
+                            >
+                                <span className="size-1.5 animate-pulse rounded-full bg-current" />
+                                生成中 {projectTasks.length}
+                            </button>
+                        </Popover>
+                    ) : (
+                        <span className="hidden shrink-0 items-center gap-1 rounded-full bg-[#0ea977]/12 px-2 py-0.5 text-[11px] font-medium text-[#0ea977] dark:bg-[#37d39b]/15 dark:text-[#37d39b] xl:inline-flex">
+                            <span className="size-1.5 rounded-full bg-current" />
+                            已同步
+                        </span>
+                    )}
                 </div>
 
-                {/* 正中间悬浮岛：撤销 / 重做 + 主页 + 模型与接口 */}
+                {/* 正中间悬浮岛：撤销 / 重做 + 主页 + 模型与接口 + 快速定位 */}
                 <div className="bf-canvas-glass pointer-events-auto hidden h-11 items-center gap-1 justify-self-center rounded-2xl px-2 sm:flex" style={{ ...canvasGlass(theme), color: theme.node.text }}>
                     <div className="flex items-center gap-0.5 rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
                         <Tooltip title={t("canvas.undo")}><Button type="text" aria-label={t("canvas.undo")} disabled={!canUndo} icon={<Undo2 className="size-4" />} onClick={onUndo} /></Tooltip>
@@ -154,6 +242,23 @@ export function CanvasTopBar({
                     <div className="rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]">
                         <BarAction icon={<Settings2 className="size-4" />} label={t("navigation.config")} onClick={() => openConfigDialog(false)} />
                     </div>
+                    {onOpenNodeSearch && (
+                        <>
+                            <div className="mx-1 h-4 w-px shrink-0 bg-black/10 dark:bg-white/15" />
+                            <button
+                                type="button"
+                                aria-label="快速定位节点"
+                                title="快速定位画布节点 (Ctrl+K)"
+                                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl bg-black/[0.04] px-2.5 text-xs font-medium transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.12]"
+                                style={{ color: theme.node.muted }}
+                                onClick={onOpenNodeSearch}
+                            >
+                                <Search className="size-3.5" />
+                                <span className="hidden lg:inline">定位</span>
+                                <kbd className="hidden rounded border px-1 py-0.5 font-mono text-[10px] leading-none lg:inline" style={{ borderColor: theme.node.stroke }}>Ctrl K</kbd>
+                            </button>
+                        </>
+                    )}
                 </div>
 
                 {/* 右上角悬浮岛：实心翡翠绿 Harness（唯一 AI 协同入口）+ 主题 + 更多收纳 */}
@@ -204,6 +309,7 @@ export function CanvasTopBar({
                     <Shortcut keys={[t("canvas.shortcut.zoomSlider")]} value={t("canvas.shortcut.preciseZoom")} />
                     <Shortcut keys={[t("canvas.shortcut.drag")]} value={t("canvas.shortcut.boxSelect")} />
                     <Shortcut keys={["Shift / Cmd", t("canvas.shortcut.click")]} value={t("canvas.shortcut.addSelection")} />
+                    <Shortcut keys={["Ctrl / Cmd", "K"]} value="快速定位节点" />
                     <Shortcut keys={["Ctrl / Cmd", "A"]} value={t("canvas.shortcut.selectAll")} />
                     <Shortcut keys={["Ctrl / Cmd", "C / V"]} value={t("canvas.shortcut.copyPaste")} />
                     <Shortcut keys={["Ctrl / Cmd", "G"]} value={t("canvas.shortcut.group")} />

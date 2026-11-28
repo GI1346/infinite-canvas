@@ -25,6 +25,11 @@ export function groupModelFamilies(models: ChannelModel[]) {
             : /seedream|doubao/i.test(name) ? "豆包"
             : /sora/i.test(name) ? "Sora"
             : /kling/i.test(name) ? "Kling"
+            : /^magi/i.test(name) ? "MAGI"
+            : /^(?:minimax[_-]h3|h3-)/i.test(name) ? "MiniMax H3"
+            : /^wan/i.test(name) ? "Wan 动作迁移"
+            : /^indextts/i.test(name) ? "IndexTTS"
+            : /^seedance/i.test(name) ? "Seedance"
             : /suno/i.test(name) ? "Suno"
             : name.split(/[-_.:]/)[0] || "其他";
         groups.set(family, [...(groups.get(family) || []), model]);

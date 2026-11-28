@@ -1,6 +1,7 @@
 import type { CharacterRecipe } from "@/services/api/pose-gallery";
 
 export const CHARACTER_RECIPE_NODE_TYPE = "character-recipe";
+export const DIRECTOR_NODE_TYPE = "blinkflow:director";
 
 export type Position = {
     x: number;
@@ -60,7 +61,264 @@ export type CanvasCropContext = { full: true } | { conflict: true } | {
     paddedRect: CanvasCropRect;
 };
 
+export type PoseJoints25 = {
+    bodyPitch?: number;
+    bodyYaw?: number;
+    bodyRoll?: number;
+    chestPitch?: number;
+    chestYaw?: number;
+    chestRoll?: number;
+    headPitch?: number;
+    headYaw?: number;
+    headRoll?: number;
+    leftArmPitch?: number;
+    leftArmAbduct?: number;
+    leftArmTwist?: number;
+    leftArmBend?: number;
+    rightArmPitch?: number;
+    rightArmAbduct?: number;
+    rightArmTwist?: number;
+    rightArmBend?: number;
+    leftLegPitch?: number;
+    leftLegAbduct?: number;
+    leftLegTwist?: number;
+    leftLegBend?: number;
+    rightLegPitch?: number;
+    rightLegAbduct?: number;
+    rightLegTwist?: number;
+    rightLegBend?: number;
+    // Legacy compatibility keys
+    torsoPitch?: number;
+    leftArm?: number;
+    rightArm?: number;
+    leftElbow?: number;
+    rightElbow?: number;
+    leftLeg?: number;
+    rightLeg?: number;
+};
+
+export type DirectorCharacterBodyType =
+    | "male_standard"
+    | "female_standard"
+    | "male_teen"
+    | "female_teen"
+    | "male_child"
+    | "female_child"
+    | "male_slim"
+    | "female_slim"
+    | "male_muscular"
+    | "female_muscular"
+    | "male_plump"
+    | "female_plump"
+    | "custom"
+    // Legacy body types kept for seamless backward compatibility
+    | "male"
+    | "female"
+    | "muscular"
+    | "slim"
+    | "teen"
+    | "child"
+    | "crowd"
+    | "prop";
+
+export type DirectorCharacterItem = {
+    id: string;
+    name: string;
+    bodyType: DirectorCharacterBodyType;
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: number | [number, number, number];
+    color: string;
+    defaultColor?: string;
+    opacity?: number;
+    visible?: boolean;
+    locked?: boolean;
+    pose: string;
+    poseActionId?: string;
+    poseFrame?: number;
+    joints?: PoseJoints25;
+    autoFacePath?: boolean;
+    customAssetId?: string;
+};
+
+export type DirectorPropItem = {
+    id: string;
+    name: string;
+    presetId: string;
+    category: string;
+    baseHeight: number;
+    dimensions: [number, number, number];
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+    color: string;
+    defaultColor?: string;
+    opacity: number;
+    visible?: boolean;
+    locked?: boolean;
+    customAssetId?: string;
+};
+
+export type DirectorCameraItem = {
+    id: string;
+    name: string;
+    position: [number, number, number];
+    target: [number, number, number];
+    followCharacterId?: string;
+    fov: number;
+    roll?: number;
+    aspectRatio?: string;
+    showTarget?: boolean;
+    lockTarget?: boolean;
+    locked?: boolean;
+};
+
+export type DirectorEnvironment = {
+    preset: "studio" | "daylight" | "sunset" | "night";
+    backgroundColor: string;
+    groundColor: string;
+    showGround: boolean;
+    groundOpacity: number;
+    exposure: number;
+    showGrid: boolean;
+    keyLight: { color: string; intensity: number; azimuth: number; elevation: number; castShadow: boolean };
+    fillLight: { color: string; intensity: number };
+    rimLight: { color: string; intensity: number };
+};
+
+export type DirectorViewSettings = {
+    ground: boolean;
+    grid: boolean;
+    motionPaths: boolean;
+    objectNames: boolean;
+    heightGuides: boolean;
+    cameraFrameMask: boolean;
+    viewIndicator: boolean;
+};
+
+export type DirectorBackgroundItem = {
+    id: string;
+    name: string;
+    kind: "panorama" | "plane";
+    url: string;
+    storageKey?: string;
+    createdAt: number;
+};
+
+export type DirectorCustomAsset = {
+    id: string;
+    name: string;
+    kind: "character" | "prop";
+    format: "glb" | "gltf" | "fbx";
+    targetHeight: number;
+    url?: string;
+    storageKey?: string;
+    createdAt: number;
+};
+
+export type DirectorCustomAction = {
+    id: string;
+    name: string;
+    source: "text" | "video" | "fbx";
+    description?: string;
+    durationSec: number;
+    keyframes: Array<{ t: number; joints: PoseJoints25 }>;
+    createdAt: number;
+};
+
+export type DirectorKeyframe = {
+    id: string;
+    time: number;
+    objectId: string;
+    property: "position" | "rotation" | "scale" | "target" | "fov" | "roll";
+    value: number | [number, number, number];
+};
+
+export type DirectorActionClip = {
+    id: string;
+    characterId: string;
+    actionId: string;
+    actionName: string;
+    mode: "action" | "pose";
+    startTime: number;
+    duration: number;
+    poseFrame?: number;
+};
+
+export type DirectorStoryboardCut = {
+    id: string;
+    cameraId: string;
+    startTime: number;
+    duration: number;
+    label?: string;
+};
+
+export type DirectorTimelineState = {
+    fps: 24 | 25 | 30 | 50 | 60;
+    duration: number;
+    loop: boolean;
+    hideEmptyTracks: boolean;
+    keyframes: DirectorKeyframe[];
+    actionClips: DirectorActionClip[];
+    storyboardCuts: DirectorStoryboardCut[];
+};
+
+export type DirectorSceneContent = {
+    characters: DirectorCharacterItem[];
+    props: DirectorPropItem[];
+    cameras: DirectorCameraItem[];
+    activeCameraId: string;
+    environment: DirectorEnvironment;
+    backgroundKind?: "none" | "panorama" | "plane";
+    backgroundUrl?: string;
+    timeline: DirectorTimelineState;
+};
+
+export type DirectorRevision = {
+    id: string;
+    label: string;
+    savedAt: number;
+    mode: "static" | "dynamic";
+    scene: DirectorSceneContent;
+};
+
+export type DirectorSnapshot = {
+    id: string;
+    title: string;
+    cameraName: string;
+    aspectRatio: string;
+    dataUrl: string;
+    storageKey?: string;
+    createdAt: number;
+};
+
+export type DirectorStageState = {
+    mode?: "static" | "dynamic";
+    aspectRatio: string;
+    scenePrompt: string;
+    skyColor: string;
+    panoramaUrl?: string;
+    backgroundKind?: "none" | "panorama" | "plane";
+    showLabels: boolean;
+    gridSnap: boolean;
+    viewSettings?: DirectorViewSettings;
+    environment?: DirectorEnvironment;
+    characters: DirectorCharacterItem[];
+    props?: DirectorPropItem[];
+    cameras: DirectorCameraItem[];
+    activeCameraId: string;
+    pipCameraId?: string; // "storyboard" or camera id
+    timeline?: DirectorTimelineState;
+    dynamicScene?: DirectorSceneContent;
+    backgrounds?: DirectorBackgroundItem[];
+    customAssets?: DirectorCustomAsset[];
+    customActions?: DirectorCustomAction[];
+    revisions?: DirectorRevision[];
+    snapshots: DirectorSnapshot[];
+};
+
 export type CanvasNodeMetadata = {
+    directorData?: DirectorStageState;
     workflowAssetUrls?: Record<string, string>;
     characterRecipe?: CharacterRecipe;
     workflowDisplayVersion?: number;
@@ -130,7 +388,7 @@ export type CanvasNodeMetadata = {
     bytes?: number;
     durationMs?: number;
     videoTaskId?: string;
-    videoTaskProvider?: "openai" | "gemini";
+    videoTaskProvider?: "openai" | "gemini" | "sand" | "autodl" | "routerapi";
     groupId?: string;
     groupColor?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.

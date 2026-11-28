@@ -3,6 +3,7 @@ import axios from "axios";
 
 import i18n from "@/i18n";
 import { buildApiUrl, resolveModelRequestConfig, withLocalProxy, type AiConfig, type ModelChannel, type ChannelModel, type ModelCapability, guessCapability } from "@/stores/use-config-store";
+import { fetchAutoDLModels, fetchSandModels, requestAutoDLImages, verifyAutoDLChannel, verifySandChannel } from "./relay-adapters";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
@@ -774,6 +775,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
     }
+    if (requestConfig.apiFormat === "sand") throw new Error("MAGI-2（Sand AI）仅支持视频生成，请在视频节点中选择该模型");
+    if (requestConfig.apiFormat === "autodl") return requestAutoDLImages(requestConfig, prompt, [], options);
     const quality = imageRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(config.size);
     const background = normalizeBackground(config.background);
@@ -819,6 +822,8 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
     }
+    if (requestConfig.apiFormat === "sand") throw new Error("MAGI-2（Sand AI）仅支持视频生成，请在视频节点中选择该模型");
+    if (requestConfig.apiFormat === "autodl") return requestAutoDLImages(requestConfig, requestPrompt, references, options);
 
     const quality = imageRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(config.size);
@@ -856,6 +861,9 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
+    if (requestConfig.apiFormat === "sand" || requestConfig.apiFormat === "autodl") {
+        throw new Error("当前中转站协议仅支持媒体生成，不支持文本对话");
+    }
     try {
         if (requestConfig.apiFormat === "gemini") {
             // Agent 要结构化决策文本：Gemini 用 responseMimeType 约束 JSON，与 OpenAI 侧的 JSON 模式对齐。
@@ -887,6 +895,12 @@ function readModelListError(error: unknown) {
 
 export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {
     try {
+        if (config.apiFormat === "sand") {
+            return fetchSandModels().map((m) => m.name);
+        }
+        if (config.apiFormat === "autodl") {
+            return (await fetchAutoDLModels({ baseUrl: config.baseUrl, apiKey: config.apiKey, models: [] })).map((m) => m.name);
+        }
         if (config.apiFormat === "gemini") {
             const response = await axios.get<GeminiPayload>(geminiApiUrl({ ...defaultGeminiConfig, ...config }), { headers: geminiHeaders({ ...defaultGeminiConfig, ...config }), timeout: MODEL_LIST_TIMEOUT_MS });
             validateGeminiPayload(response.data);
@@ -943,6 +957,8 @@ export type ChannelVerification = {    /** 地址是否真的返回了 HTTP 响�
  * 不带密钥探测根路径会被 CORS 挡住，所以直接用真实握手请求，任何状态码都说明地址可达。
  */
 export async function verifyChannelConnection(channel: Pick<ModelChannel, "baseUrl" | "apiKey" | "apiFormat">): Promise<ChannelVerification> {
+    if (channel.apiFormat === "sand") return verifySandChannel(channel);
+    if (channel.apiFormat === "autodl") return verifyAutoDLChannel(channel);
     if (channel.apiFormat === "gemini") {
         try {
             const models = await fetchChannelModels(channel as ModelChannel);
@@ -972,6 +988,8 @@ export async function verifyChannelConnection(channel: Pick<ModelChannel, "baseU
 }
 
 export async function fetchChannelModelDetails(channel: ModelChannel): Promise<ChannelModel[]> {
+    if (channel.apiFormat === "sand") return fetchSandModels(channel);
+    if (channel.apiFormat === "autodl") return fetchAutoDLModels(channel);
     if (channel.apiFormat === "gemini") return (await fetchChannelModels(channel)).map((name) => ({ name, capability: guessCapability(name) }));
     try {
         const response = await withNetworkRetry(() => axios.get(buildApiUrl(channel.baseUrl, "/models"), { headers: { Authorization: `Bearer ${channel.apiKey.trim()}` }, timeout: MODEL_LIST_TIMEOUT_MS }));

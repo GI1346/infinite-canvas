@@ -28,6 +28,7 @@ export default function CanvasPage() {
     const inputRef = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState("");
     const [view, setView] = useState<"grid" | "list">("grid");
+    const [exportProjects, setExportProjects] = useState<CanvasProject[]>([]);
     const autoOpenRef = useRef(false);
     const hydrated = useCanvasStore((state) => state.hydrated);
     const hydrationError = useCanvasStore((state) => state.hydrationError);
@@ -83,7 +84,6 @@ export default function CanvasPage() {
     // 主页主按钮：统一品牌翡翠绿渐变，深浅色主题都一致。
     const primaryStyle = { backgroundImage: "linear-gradient(135deg,#0ea977,#12896a)", color: "#fff", borderColor: "rgba(255,255,255,.35)", boxShadow: "0 12px 28px rgba(14,169,119,.26)" };
 
-    const [exportProjects, setExportProjects] = useState<CanvasProject[]>([]);
     return (
         <main className="h-full overflow-auto" style={{ color: theme.node.text }}>
             <div className={`mx-auto flex w-full max-w-[1180px] flex-col gap-7 px-9 py-7 ${selectedIds.length ? "pb-24" : ""}`}>

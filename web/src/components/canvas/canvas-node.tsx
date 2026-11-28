@@ -10,6 +10,7 @@ import { Popover } from "radix-ui";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { NODE_PANEL_CONTENT_WIDTH, NODE_PANEL_WIDTH } from "@/lib/canvas/canvas-node-size";
+import { clampVideoResolutionToStops, formatVideoResolutionLabel, inferMediaRatio, inferVideoRatio, videoResolutionStopsForModel } from "@/lib/media-size";
 import { formatBytes } from "@/lib/image-utils";
 import { formatGenerationDuration } from "@/lib/generation-timer";
 import { LiveGenerationTimer } from "@/components/image-generation-pending";
@@ -21,6 +22,7 @@ import { CANVAS_NODE_FONT_SIZE } from "@/constant/canvas";
 import { consumeNodeCreated, emitNodeBurst } from "@/lib/canvas/canvas-node-creation";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { decodeChannelModel, modelOptionName, useConfigStore } from "@/stores/use-config-store";
 import { useAssetStore, type TextAsset } from "@/stores/use-asset-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeImage, type CanvasNodeText, type Position } from "@/types/canvas";
@@ -169,7 +171,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const isImage = data.type === CanvasNodeType.Image;
-    const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent", CanvasNodeType.Text, LOCAL_FUSION_NODE_TYPE, CHARACTER_RECIPE_NODE_TYPE].includes(data.type);
+    const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent", CanvasNodeType.Text, CanvasNodeType.Video, LOCAL_FUSION_NODE_TYPE, CHARACTER_RECIPE_NODE_TYPE, "blinkflow:director"].includes(data.type);
     const generationDuration = data.metadata?.status === "success" ? formatGenerationDuration(data.metadata.generationDurationMs) : null;
     const titleName = isImage ? canvasTitleWithoutExtension(data.title || "") : data.title || "";
     const [titleDraft, setTitleDraft] = useState(titleName);
@@ -180,6 +182,29 @@ export const CanvasNode = React.memo(function CanvasNode({
     const groupColor = data.metadata?.groupColor || theme.node.muted;
     const batchCount = data.type === CanvasNodeType.Image ? data.metadata?.images?.length || 0 : data.type === CanvasNodeType.Text ? data.metadata?.texts?.length || 0 : 0;
     const isBatchRoot = batchCount > 1;
+    const isEmptyArtboard =
+        data.type === CanvasNodeType.Config ||
+        (data.type === CanvasNodeType.Image && !hasImageContent && !isBatchRoot) ||
+        (data.type === CanvasNodeType.Video && !hasVideoContent);
+    const globalVideoModel = useConfigStore((state) => state.config.videoModel);
+    const configChannels = useConfigStore((state) => state.config.channels);
+    const artboardMetaBadge = useMemo(() => {
+        if (!isEmptyArtboard) return null;
+        const meta = data.metadata || {};
+        if (data.type === CanvasNodeType.Video) {
+            const ratio = inferVideoRatio(meta.size || "16:9");
+            const activeModel = meta.model || globalVideoModel || "";
+            const decoded = decodeChannelModel(activeModel);
+            const channel = decoded ? configChannels.find((item) => item.id === decoded.channelId) : undefined;
+            const stops = videoResolutionStopsForModel(modelOptionName(activeModel), channel?.apiFormat);
+            const resolution = clampVideoResolutionToStops(meta.vquality, stops);
+            const res = formatVideoResolutionLabel(resolution);
+            const sec = `${meta.seconds || "6"}s`;
+            return `${ratio === "auto" ? "自动" : ratio} · ${res} · ${sec}`;
+        }
+        const ratio = meta.imageAspectRatio || inferMediaRatio(meta.size || "auto");
+        return ratio === "auto" ? "自动" : ratio;
+    }, [configChannels, data.metadata, data.type, globalVideoModel, isEmptyArtboard]);
     // Nodes with the interaction/move toggle ignore content pointer events in move mode and allow interaction in interactive mode.
     // forceInteractive states such as editing stay interactive, as do empty nodes so their upload and generation actions remain usable.
     const supportsInteractionToggle = Boolean(definition?.interactionToggle);
@@ -381,6 +406,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                 willChange: isDragging && data.type !== CanvasNodeType.Text ? "transform" : undefined,
                 width: data.width,
                 height: data.height,
+                // 世界层用 CSS zoom 缩放，Chromium 会把 zoom 算进 width/height/transform 的计算值；
+                // 对它们加 transition 会在缩放画布时与视口位移不同步，导致节点乱跳。
                 transition: "box-shadow 200ms ease",
                 contain: "layout style",
             }}
@@ -434,8 +461,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                     <span className="grid shrink-0 place-items-center [&>svg]:size-full" style={{ width: Math.round(NODE_TITLE_FONT_SIZE * 1.2), height: Math.round(NODE_TITLE_FONT_SIZE * 1.2), color: theme.accent.base }} aria-hidden="true">{getNodeDefinition(data.type)?.icon}</span>
                     <button
                         type="button"
-                        className={`block min-w-0 max-w-full truncate ${generationDuration ? "flex-1" : ""} border-b border-dashed border-transparent px-0 py-0.5 text-left text-base font-medium opacity-75 transition hover:border-current hover:opacity-100`}
-                        style={{ color: theme.node.text, fontSize: NODE_TITLE_FONT_SIZE, ...(isGroup ? { padding: "2px 8px", borderRadius: 7, border: "1px solid " + groupColor, background: "color-mix(in srgb, " + groupColor + " 12%, " + theme.node.panel + ")", opacity: 1 } : {}), ...(isImage || largeTitle || generationDuration ? { width: generationDuration ? undefined : "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } : {}) }}
+                        className={`block min-w-0 max-w-full truncate ${generationDuration || artboardMetaBadge ? "flex-1" : ""} border-b border-dashed border-transparent px-0 py-0.5 text-left text-base font-medium opacity-75 transition hover:border-current hover:opacity-100`}
+                        style={{ color: theme.node.text, fontSize: NODE_TITLE_FONT_SIZE, ...(isGroup ? { padding: "2px 8px", borderRadius: 7, border: "1px solid " + groupColor, background: "color-mix(in srgb, " + groupColor + " 12%, " + theme.node.panel + ")", opacity: 1 } : {}), ...(isImage || largeTitle || generationDuration || artboardMetaBadge ? { width: generationDuration || artboardMetaBadge ? undefined : "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" } : {}) }}
                         title={t("canvas.node.renameHint")}
                         onDoubleClick={(event) => {
                             event.stopPropagation();
@@ -444,19 +471,39 @@ export const CanvasNode = React.memo(function CanvasNode({
                     >
                         {titleName || t("canvas.node.untitled")}
                     </button>
+                    {artboardMetaBadge && !generationDuration && (
+                        <span
+                            className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 font-mono text-[11px] font-medium tabular-nums"
+                            style={{ color: theme.node.muted, background: theme.glass.inset }}
+                        >
+                            {artboardMetaBadge}
+                        </span>
+                    )}
                     </>
                 )}
                 {generationDuration && <span data-generation-duration title={`本次生图耗时 ${generationDuration}`} className="bf-spring-pop inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold tabular-nums" style={{ color: theme.toolbar.activeText, background: theme.accent.soft, borderColor: theme.accent.soft }}><Clock3 size={10} className="shrink-0" />{generationDuration}</span>}
             </div>}
 
             <div
-                className="relative h-full w-full overflow-visible rounded-2xl border-2"
+                className={`relative h-full w-full overflow-visible ${isEmptyArtboard ? "rounded-[14px] border" : "rounded-2xl border-2"}`}
                 style={{
-                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text ? (theme === canvasThemes.light ? "rgba(255,255,255,.96)" : "color-mix(in srgb, " + theme.node.panel + " 86%, transparent)") : theme.node.fill,
-                    borderColor: isActive || isGroupDropTarget ? selectionStroke(theme) : hovered ? `${selectionStroke(theme)}66` : isGroup ? groupColor : hasImageContent || transparentBg ? "transparent" : theme.node.stroke,
+                    background: isGroup ? "color-mix(in srgb, " + groupColor + " 7%, transparent)" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : data.type === CanvasNodeType.Text ? (theme === canvasThemes.light ? "rgba(255,255,255,.96)" : "color-mix(in srgb, " + theme.node.panel + " 86%, transparent)") : isEmptyArtboard ? (theme === canvasThemes.light ? "#ffffff" : "#1b1d21") : theme.node.fill,
+                    borderColor: isActive || isGroupDropTarget ? selectionStroke(theme) : hovered ? `${selectionStroke(theme)}78` : isGroup ? groupColor : hasImageContent || transparentBg ? "transparent" : isEmptyArtboard ? theme.glass.insetBorder : theme.node.stroke,
                     borderStyle: "solid",
-                    borderWidth: isGroup ? 2.5 : undefined,
-                    boxShadow: isGroupDropTarget ? `0 0 0 2px ${selectionStroke(theme)}66, inset 0 0 0 999px ${selectionStroke(theme)}10` : isActive ? `0 0 0 1px ${selectionStroke(theme)}55` : hovered ? `0 0 0 1px ${selectionStroke(theme)}22` : undefined,
+                    borderWidth: isGroup ? 2.5 : isEmptyArtboard ? 1 : undefined,
+                    boxShadow: isGroupDropTarget
+                        ? `0 0 0 2px ${selectionStroke(theme)}66, inset 0 0 0 999px ${selectionStroke(theme)}10`
+                        : isEmptyArtboard
+                          ? isActive
+                              ? `0 0 0 1px ${selectionStroke(theme)}, 0 12px 32px ${selectionStroke(theme)}22`
+                              : hovered
+                                ? `0 8px 24px rgba(0,0,0,${theme === canvasThemes.light ? "0.08" : "0.34"}), inset 0 1px 0 ${theme.glass.highlight}`
+                                : `0 6px 20px rgba(0,0,0,${theme === canvasThemes.light ? "0.05" : "0.26"}), inset 0 1px 0 ${theme === canvasThemes.light ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.045)"}`
+                          : isActive
+                            ? `0 0 0 1px ${selectionStroke(theme)}55`
+                            : hovered
+                              ? `0 0 0 1px ${selectionStroke(theme)}22`
+                              : undefined,
                     backdropFilter: !isGroup && data.type === CanvasNodeType.Text && !hasImageContent ? "blur(14px) saturate(150%)" : undefined,
                 }}
                 onMouseDown={(event) => {
@@ -513,7 +560,7 @@ export const CanvasNode = React.memo(function CanvasNode({
 
                 {hasImageContent ? <ImageInfoBar node={data} showBytes={showImageInfo} /> : null}
 
-                {!isGroup && data.type !== CanvasNodeType.Text && !hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
+                {!isGroup && !isEmptyArtboard && data.type !== CanvasNodeType.Text && !hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
 
                 {referenceSelectionState && (referenceSelectionState !== "available" || hovered) ? (
                     <div className="pointer-events-none absolute inset-0 z-[60] grid place-items-center rounded-[inherit]" style={{ background: `color-mix(in srgb, ${theme.canvas.background} ${referenceSelectionState === "target" ? 78 : referenceSelectionState === "disabled" ? 60 : 34}%, transparent)`, boxShadow: referenceSelectionState === "available" ? `inset 0 0 0 2px ${selectionStroke(theme)}` : undefined }}>
@@ -853,32 +900,45 @@ function ImageNodeContent(props: NodeContentRendererProps) {
     );
 }
 
-function EmptyImageContent({ theme, node }: NodeContentRendererProps) {
-    const { t } = useTranslation();
-    // 卡片跟着比例变形后可能出现很扁/很窄的尺寸，这种时候只留图标，避免文字被裁成半截。
-    const compact = node.height < 180 || node.width < 180;
+function EmptyImageContent({ theme }: NodeContentRendererProps) {
     return (
-        <div className="flex h-full w-full items-center justify-center overflow-hidden p-3" style={{ color: theme.node.placeholder }}>
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-dashed border-[#0ea977]/30 bg-gradient-to-b from-[#0ea977]/[0.04] to-transparent">
-                <div className={compact ? "flex size-8 items-center justify-center rounded-lg bg-[#0ea977]/12" : "flex size-14 items-center justify-center rounded-2xl bg-[#0ea977]/12"}>
-                    <ImageIcon className={compact ? "size-4 text-[#0ea977]/60" : "size-6 text-[#0ea977]/60"} />
-                </div>
-                {compact ? null : <span className="text-[10px] tracking-[0.18em] opacity-50">{t("canvas.node.emptyImage")}</span>}
-            </div>
+        <div
+            className="flex h-full w-full items-center justify-center overflow-hidden"
+            style={{ background: theme === canvasThemes.light ? "#ffffff" : "#1b1d21", color: theme.node.placeholder }}
+        >
+            <ImageIcon
+                className="size-5 transition-transform duration-200 group-data-[selected=true]/node:scale-110"
+                strokeWidth={1.6}
+                style={{ opacity: 0.42 }}
+            />
         </div>
     );
 }
 
 function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
-    const { t } = useTranslation();
-    if (!node.metadata?.content)
+    const meta = node.metadata || {};
+    if (!meta.content) {
+        const isLoading = meta.status === "loading";
         return (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
-                <Video className="size-7 opacity-35" />
-                <span className="text-base">{t("canvas.node.emptyVideo")}</span>
+            <div
+                className="relative flex h-full w-full flex-col items-center justify-center gap-2 overflow-hidden"
+                style={{ background: theme === canvasThemes.light ? "#ffffff" : "#1b1d21", color: theme.node.placeholder }}
+            >
+                {isLoading && <div className="absolute inset-x-0 top-0 h-[2px] animate-pulse" style={{ background: theme.accent.base }} />}
+                <Video
+                    className={`size-5 transition-transform duration-200 ${isLoading ? "animate-pulse" : "group-data-[selected=true]/node:scale-110"}`}
+                    strokeWidth={1.6}
+                    style={{ color: isLoading ? theme.accent.base : undefined, opacity: isLoading ? 0.9 : 0.42 }}
+                />
+                {isLoading && (
+                    <span className="text-[11px] font-medium" style={{ color: theme.node.muted }}>
+                        正在生成视频…
+                    </span>
+                )}
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-video={node.id} data-canvas-no-zoom />;
+    }
+    return <video src={meta.content} controls className="h-full w-full rounded-[14px] bg-black object-contain" data-canvas-video={node.id} data-canvas-no-zoom />;
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
@@ -1140,7 +1200,7 @@ function BatchFrame({ batchCount, batchExpanded, children }: { batchCount: numbe
                     {Array.from({ length: Math.min(batchCount - 1, 3) }).map((_, index) => (
                         <div
                             key={index}
-                            className="absolute rounded-[inherit] border shadow-[0_10px_24px_rgba(68,64,60,.12)] transition-all duration-300 group-hover/batch:translate-x-1"
+                            className="absolute rounded-[inherit] border shadow-[0_10px_24px_rgba(68,64,60,.12)] transition-opacity duration-300 group-hover/batch:translate-x-1"
                             style={{
                                 inset: 0,
                                 background: `linear-gradient(135deg, ${theme.node.panel}, ${theme.node.fill})`,

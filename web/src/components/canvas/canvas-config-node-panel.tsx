@@ -8,13 +8,16 @@ import { resolveModelForCapability, useConfigStore, useEffectiveConfig } from "@
 import { canvasGlass, canvasThemes } from "@/lib/canvas-theme";
 import { orderReferenceNodes } from "@/lib/canvas/canvas-resource-references";
 import { useCanvasImageSettingsStore } from "@/stores/canvas/use-canvas-image-settings-store";
-import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, parseAspectRatio } from "@/lib/media-size";
+import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions } from "@/lib/media-size";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { stopWorkflowControlDrag } from "./workflow-node-interactions";
+import { AspectRatioPicker } from "./canvas-aspect-ratio-picker";
+import { CapsuleSlider } from "./canvas-capsule-slider";
 import { CanvasConfigComposer } from "./canvas-config-composer";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
 import { CanvasGenerationEditorModal, GenerationReferenceHeader } from "./canvas-generation-editor-modal";
 import { CanvasReferenceImagePicker } from "./canvas-reference-image-picker";
+import { VideoPresetPromptsModal } from "./canvas-video-modals";
 import { flattenGenerationInputs, type NodeGenerationInput } from "./canvas-node-generation";
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 import type { GalleryImage } from "@/pages/gallery/gallery-data";
@@ -41,7 +44,7 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
     const global = useEffectiveConfig(), theme = canvasThemes[useThemeStore((state) => state.theme)];
     const providerTheme = useMemo(() => ({ token: { colorPrimary: theme.accent.base, colorPrimaryBg: theme.accent.soft, colorInfo: theme.accent.base } }), [theme]);
     const [expanded, setExpanded] = useState(false), [compressionOpen, setCompressionOpen] = useState(false);
-    const [collapsed, setCollapsed] = useState(false), [exploring, setExploring] = useState(false);
+    const [collapsed, setCollapsed] = useState(false), [exploring, setExploring] = useState(false), [presetModalOpen, setPresetModalOpen] = useState(false);
     const meta = node.metadata || {}, value = meta.composerContent ?? meta.prompt ?? "";
     const referenceOrder = meta.referenceNodeOrder;
     const imageNumbers = useMemo(() => {
@@ -57,6 +60,13 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
         useCanvasImageSettingsStore.getState().remember(next);
         onConfigChange(node.id, next);
     };
+    const insertPresetPrompt = (text: string) => {
+        const clean = text.trim();
+        if (!clean) return;
+        const base = value.trim();
+        if (base.includes(clean)) return;
+        patch({ composerContent: base ? `${base}，${clean}` : clean });
+    };
     const inputStyle = { background: theme.node.panel, color: theme.node.text, border: `1px solid ${theme.node.stroke}`, borderRadius: 10 };
     const reorderReferences = isRunning ? undefined : (referenceNodeOrder: string[]) => patch({ referenceNodeOrder });
     const close = () => setExpanded(false);
@@ -70,7 +80,7 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
     const badge = { background: theme.accent.soft, color: theme.toolbar.activeText };
     const renderPanel = (large: boolean) => <div data-config-island className={`flex w-full min-w-0 flex-col gap-2 rounded-[20px] border p-2.5 text-sm ${large ? "h-[min(72dvh,760px)]" : ""}`}
         data-expanded={large || undefined} inert={!large && expanded} style={{ ...(large ? { borderColor: theme.glass.border } : { ...canvasGlass(theme), backgroundImage: "none" }), color: theme.node.text }}>
-        <GenerationReferenceHeader theme={theme} count={imageNumbers.size} expanded={large} collapsed={collapsed} onSelect={selectReferences} onAddImage={(image) => onAddImageReference(node.id, image)} onExpand={() => setExpanded(true)} onCollapse={() => setCollapsed((previous) => !previous)} onClose={close} />
+        <GenerationReferenceHeader theme={theme} count={imageNumbers.size} expanded={large} collapsed={collapsed} onSelect={selectReferences} onAddImage={(image) => onAddImageReference(node.id, image)} onOpenPresets={() => setPresetModalOpen(true)} onExpand={() => setExpanded(true)} onCollapse={() => setCollapsed((previous) => !previous)} onClose={close} />
         {(large || !collapsed) && <>
         {imageNumbers.size ? <CanvasNodeReferenceBar imageNumbers={imageNumbers} nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onReorder={reorderReferences} /> : null}
         <div data-canvas-no-zoom className={large ? "min-h-0 min-w-0 flex-1" : "min-w-0"} onMouseDown={stopWorkflowControlDrag}>{editor(large)}</div>
@@ -79,10 +89,10 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
                 <button type="button" className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold hover:opacity-75" style={badge} onClick={() => setExploring(true)}>探索</button>
                 <div className="min-w-0 flex-1"><ModelPicker className="!h-8 !gap-1 !rounded-xl !px-2 !text-xs" config={config} value={config.model} onChange={(model) => patch({ model, quality: imageQualityForModel(model, config.quality) })} capability="image" groupByChannel="list" menuZoom={large ? 1 : undefined} onMissingConfig={() => { if (large) close(); useConfigStore.getState().openConfigDialog(true); }} fullWidth /></div>
                 <div className="flex shrink-0 items-center gap-px rounded-xl p-0.5" style={{ background: theme.glass.inset }}>
-                    <RatioParameter value={ratio} disabled={isRunning} onChange={(next) => patch({ imageAspectRatio: next, imageResolution: resolution, size: computeMediaSize(resolution, next) })} />
-                    <ParameterMenu label="清晰度" ariaLabel="生成配置分辨率" value={resolution === "auto" ? "自动" : resolution.toUpperCase()} disabled={isRunning}>{(close) => <ParameterOptions value={resolution} options={mediaScaleOptions.map((item) => ({ value: item, label: item === "auto" ? "自动" : item.toUpperCase() }))} onChange={(next) => { patch({ imageResolution: next, imageAspectRatio: ratio, size: computeMediaSize(next, ratio) }); close(); }} />}</ParameterMenu>
-                    <ParameterMenu label="质量" ariaLabel="生成配置质量" value={quality} disabled={isRunning || !qualityOptions.length}>{(close) => <ParameterOptions columns={qualityOptions.length > 4 ? 3 : 2} value={quality} options={qualityOptions.map((item) => ({ value: item, label: item }))} onChange={(next) => { patch({ quality: next }); close(); }} />}</ParameterMenu>
-                    <CountParameter value={Number(config.count)} disabled={isRunning} onChange={(count) => patch({ count })} />
+                    <RatioParameter value={ratio} disabled={isRunning} fixedZoom={large ? 1 : undefined} onChange={(next) => patch({ imageAspectRatio: next, imageResolution: resolution, size: computeMediaSize(resolution, next) })} />
+                    <ResolutionParameter value={resolution} disabled={isRunning} fixedZoom={large ? 1 : undefined} onChange={(next) => patch({ imageResolution: next, imageAspectRatio: ratio, size: computeMediaSize(next, ratio) })} />
+                    <QualityParameter value={quality} options={qualityOptions} disabled={isRunning || !qualityOptions.length} fixedZoom={large ? 1 : undefined} onChange={(next) => patch({ quality: next })} />
+                    <CountParameter value={Number(config.count)} disabled={isRunning} fixedZoom={large ? 1 : undefined} onChange={(count) => patch({ count })} />
                 </div>
                 <button type="button" aria-label="图片压缩设置" title="图片压缩设置" aria-expanded={compressionOpen} className="relative grid size-8 shrink-0 place-items-center rounded-xl hover:opacity-70" style={compressionOpen ? badge : { color: theme.node.muted }} onClick={() => setCompressionOpen((open) => !open)}><Minimize2 size={15} />{compressionEnabled && <span className="absolute right-1 top-1 size-1.5 rounded-full" style={{ background: theme.accent.base }} />}</button>
                 <button type="button" aria-label={isRunning ? "停止生成" : "生成图片"} title={isRunning ? "停止生成" : "生成图片（Ctrl+Enter）"} disabled={!isRunning && !value.trim() && !inputs.length} onClick={() => isRunning ? onStop(node.id) : submit(large)} className="bf-mag-btn flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-xs font-semibold shadow-sm disabled:opacity-40" style={{ background: `linear-gradient(135deg, ${theme.accent.base}, #12896a)`, color: "white" }}>
@@ -104,40 +114,120 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
         {renderPanel(false)}
         <CanvasGenerationEditorModal open={expanded} onClose={close}>{renderPanel(true)}</CanvasGenerationEditorModal>
         {exploring && <CanvasReferenceImagePicker initialTab="all" onClose={() => setExploring(false)} onSelect={async (image) => { await onAddImageReference(node.id, image); setExploring(false); }} />}
+        <VideoPresetPromptsModal open={presetModalOpen} onClose={() => setPresetModalOpen(false)} onInsertPrompt={insertPresetPrompt} />
     </ConfigProvider>;
 }
 
-function ParameterMenu({ label, ariaLabel, value, disabled, wide, onOpenChange, children }: { label: string; ariaLabel: string; value: string; disabled?: boolean; wide?: boolean; onOpenChange?: (open: boolean) => void; children: (close: () => void) => ReactNode }) {
+function ParameterMenu({ label, ariaLabel, value, disabled, wide, fixedZoom, onOpenChange, children }: { label: string; ariaLabel: string; value: string; disabled?: boolean; wide?: boolean; fixedZoom?: number; onOpenChange?: (open: boolean) => void; children: (close: () => void) => ReactNode }) {
     const [open, setOpen] = useState(false);
-    const { triggerRef, zoom: menuZoom } = useCanvasMenuZoom(open);
+    const { triggerRef, zoom } = useCanvasMenuZoom(open);
+    const menuZoom = fixedZoom ?? zoom;
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const changeOpen = (next: boolean) => { setOpen(next); onOpenChange?.(next); };
     return <Popover.Root open={open && !disabled} onOpenChange={changeOpen}>
-        <Popover.Trigger asChild><button ref={triggerRef} type="button" aria-label={ariaLabel} disabled={disabled} data-canvas-no-zoom className="flex min-w-0 max-w-24 items-center gap-1 rounded-lg px-1.5 py-1 text-left hover:bg-black/5 focus-visible:outline disabled:opacity-40 dark:hover:bg-white/10" style={{ color: theme.node.text, borderColor: open ? theme.node.activeStroke : undefined }}><span className="text-[10px]" style={{ color: theme.node.muted }}>{label}</span><span key={value} className="bf-digit-roll truncate text-[11px] font-semibold">{value}</span><ChevronDown size={10} className="shrink-0 opacity-60" /></button></Popover.Trigger>
-        <Popover.Portal><Popover.Content aria-label={`${label}选项`} data-canvas-overlay data-canvas-no-zoom className="bf-spring-pop z-[1200] max-w-[calc(100vw-24px)] rounded-xl border p-1 shadow-xl outline-none" style={{ width: wide ? 240 : 170, zoom: menuZoom, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} align="start" sideOffset={8 * menuZoom} collisionPadding={12} updatePositionStrategy="always" onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{children(() => changeOpen(false))}</Popover.Content></Popover.Portal>
+        <Popover.Trigger asChild><button ref={triggerRef} type="button" aria-label={ariaLabel} disabled={disabled} data-canvas-no-zoom className="inline-flex h-7 min-w-0 max-w-28 items-center justify-center gap-1 rounded-lg px-2 leading-none transition hover:bg-black/5 focus-visible:outline disabled:opacity-40 dark:hover:bg-white/10" style={{ background: open ? theme.node.panel : "transparent", color: theme.node.text }}><span className="text-[10px]" style={{ color: theme.node.muted }}>{label}</span><span key={value} className="bf-digit-roll truncate font-mono text-[11px] font-semibold">{value}</span><ChevronDown size={10} className="shrink-0 opacity-60" /></button></Popover.Trigger>
+        <Popover.Portal><Popover.Content aria-label={`${label}选项`} data-canvas-overlay data-canvas-no-zoom className={`bf-spring-pop z-[1250] max-w-[calc(100vw-24px)] border shadow-xl outline-none ${wide ? "rounded-2xl p-3" : "rounded-xl p-2.5"}`} style={{ width: wide ? 340 : 252, zoom: menuZoom, background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} align="center" sideOffset={8 * menuZoom} collisionPadding={12} updatePositionStrategy="always" onEscapeKeyDown={(event) => { if (event.target instanceof HTMLElement && event.target.hasAttribute("data-custom-ratio-input")) event.preventDefault(); }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{children(() => changeOpen(false))}</Popover.Content></Popover.Portal>
     </Popover.Root>;
 }
 
-function ParameterOptions({ options, value, onChange, columns = 2 }: { options: { value: string; label: string; icon?: ReactNode }[]; value: string; onChange: (value: string) => void; columns?: number }) {
+function RatioParameter({ value, disabled, fixedZoom, onChange }: { value: string; disabled: boolean; fixedZoom?: number; onChange: (ratio: string) => void }) {
+    const [openVersion, setOpenVersion] = useState(0);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    return <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{options.map((option) => <button key={option.value} type="button" aria-pressed={option.value === value} className="flex min-h-7 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-1 py-1 font-semibold transition-colors hover:opacity-75" style={{ fontSize: 12, lineHeight: "16px", ...(option.value === value ? { background: theme.accent.soft, color: theme.accent.base } : {}) }} onClick={() => onChange(option.value)}>{option.icon && <span aria-hidden="true" className="flex w-3 shrink-0 items-center justify-center">{option.icon}</span>}{option.label}</button>)}</div>;
+    return (
+        <ParameterMenu
+            label="比例"
+            ariaLabel="生成配置比例"
+            value={value === "auto" ? "自动" : value}
+            disabled={disabled}
+            wide
+            fixedZoom={fixedZoom}
+            onOpenChange={(open) => {
+                if (open) setOpenVersion((v) => v + 1);
+            }}
+        >
+            {(close) => (
+                <AspectRatioPicker
+                    theme={theme}
+                    options={mediaRatioOptions}
+                    value={value}
+                    onChange={onChange}
+                    onDone={close}
+                    title="画幅比例"
+                    allowCustom
+                    customLabel="自定义比例"
+                    customInputAriaLabel="自定义生成比例"
+                    resetCustomSignal={openVersion}
+                />
+            )}
+        </ParameterMenu>
+    );
 }
 
-function RatioParameter({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (ratio: string) => void }) {
-    const [custom, setCustom] = useState(false), [draft, setDraft] = useState("");
+function ResolutionParameter({ value, disabled, fixedZoom, onChange }: { value: string; disabled: boolean; fixedZoom?: number; onChange: (resolution: string) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    const isPreset = mediaRatioOptions.some((item) => item.value === value);
-    return <ParameterMenu label="比例" ariaLabel="生成配置比例" value={value === "auto" ? "自动" : value} disabled={disabled} wide onOpenChange={(open) => { if (open) { setCustom(false); setDraft(isPreset ? "" : value); } }}>{(close) => <>
-        <ParameterOptions columns={4} value={isPreset ? value : "custom"} options={[...mediaRatioOptions.map((item) => ({ value: item.value, label: item.value === "auto" ? "自动" : item.value, icon: item.value === "auto" ? <span className="text-xs font-bold">A</span> : <span className="inline-block rounded-[2px] border" style={{ width: Math.min(12, 10 * item.width / item.height), height: Math.min(12, 10 * item.height / item.width) }} /> })), { value: "custom", label: "自定义" }]} onChange={(next) => { if (next === "custom") { setCustom(true); return; } onChange(next); close(); }} />
-        {custom && <form className="mt-2 flex gap-2 border-t pt-2" style={{ borderColor: theme.node.stroke }} onSubmit={(event) => { event.preventDefault(); const parsed = parseAspectRatio(draft.replace(/：/g, ":").replace(/\s/g, "")); if (!parsed) return; onChange(`${parsed.width}:${parsed.height}`); close(); }}><input autoFocus aria-label="自定义生成比例" placeholder="9:1" value={draft} onChange={(event) => setDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} /><button type="submit" className="rounded-lg px-2 py-1 text-sm" style={{ background: theme.accent.soft, color: theme.accent.base }}>确定</button></form>}
-    </>}</ParameterMenu>;
+    const index = Math.max(0, mediaScaleOptions.findIndex((item) => item === value));
+    const current = mediaScaleOptions[index] || mediaScaleOptions[0];
+    return <ParameterMenu label="清晰度" ariaLabel="生成配置分辨率" value={value === "auto" ? "自动" : value.toUpperCase()} disabled={disabled} fixedZoom={fixedZoom}>{() => (
+        <CapsuleSlider
+            theme={theme}
+            title="清晰度"
+            valueLabel={current === "auto" ? "自动" : current.toUpperCase()}
+            min={0}
+            max={mediaScaleOptions.length - 1}
+            value={index}
+            ariaLabel="清晰度滑块"
+            stops={mediaScaleOptions.map((item, i) => ({ value: i, label: item === "auto" ? "自动" : item.toUpperCase() }))}
+            onChange={(nextIdx) => {
+                const picked = mediaScaleOptions[nextIdx];
+                if (picked) onChange(picked);
+            }}
+        />
+    )}</ParameterMenu>;
 }
 
-function CountParameter({ value, disabled, onChange }: { value: number; disabled: boolean; onChange: (value: number) => void }) {
-    const [custom, setCustom] = useState(false), [draft, setDraft] = useState(String(value));
+function QualityParameter({ value, options, disabled, fixedZoom, onChange }: { value: string; options: string[]; disabled: boolean; fixedZoom?: number; onChange: (quality: string) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    return <ParameterMenu label="数量" ariaLabel="生成配置数量" value={`${value}张`} disabled={disabled} onOpenChange={(open) => { if (open) { setCustom(false); setDraft(String(value)); } }}>{(close) => <>
-        <ParameterOptions value={custom || ![1, 2, 4].includes(value) ? "custom" : String(value)} options={[{ value: "1", label: "1张" }, { value: "2", label: "2张" }, { value: "4", label: "4张" }, { value: "custom", label: "自定义" }]} onChange={(next) => { if (next === "custom") setCustom(true); else { onChange(Number(next)); close(); } }} />
-        {custom && <form className="mt-2 flex gap-2 border-t pt-2" style={{ borderColor: theme.node.stroke }} onSubmit={(event) => { event.preventDefault(); const count = Number(draft); if (!Number.isInteger(count) || count < 1 || count > 15) return; onChange(count); close(); }}><input autoFocus aria-label="自定义生成张数" type="number" min={1} max={15} required value={draft} onChange={(event) => setDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm outline-none" style={{ background: theme.node.panel, color: theme.node.text, borderColor: theme.node.stroke }} /><button type="submit" className="rounded-lg px-2 py-1 text-sm" style={{ background: theme.accent.soft, color: theme.accent.base }}>确定</button></form>}
-    </>}</ParameterMenu>;
+    const list = options.length ? options : [value || "auto"];
+    const index = Math.max(0, list.findIndex((item) => item === value));
+    const current = list[index] || value || "auto";
+    return <ParameterMenu label="质量" ariaLabel="生成配置质量" value={value} disabled={disabled} fixedZoom={fixedZoom}>{() => (
+        <CapsuleSlider
+            theme={theme}
+            title="生成质量"
+            valueLabel={current}
+            min={0}
+            max={Math.max(0, list.length - 1)}
+            value={index}
+            ariaLabel="生成质量滑块"
+            stops={list.map((item, i) => ({ value: i, label: item }))}
+            onChange={(nextIdx) => {
+                const picked = list[nextIdx];
+                if (picked) onChange(picked);
+            }}
+        />
+    )}</ParameterMenu>;
+}
+
+function CountParameter({ value, disabled, fixedZoom, onChange }: { value: number; disabled: boolean; fixedZoom?: number; onChange: (value: number) => void }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const clamped = Math.max(1, Math.min(15, Math.floor(Number(value) || 1)));
+    return <ParameterMenu label="数量" ariaLabel="生成配置数量" value={`${clamped}张`} disabled={disabled} fixedZoom={fixedZoom}>{() => (
+        <CapsuleSlider
+            theme={theme}
+            title="生成数量"
+            valueLabel={`${clamped}张`}
+            min={1}
+            max={15}
+            value={clamped}
+            ariaLabel="生成数量滑块"
+            stops={[
+                { value: 1, label: "1张" },
+                { value: 2, label: "2张" },
+                { value: 4, label: "4张" },
+                { value: 8, label: "8张" },
+                { value: 15, label: "15张" },
+            ]}
+            onChange={(next) => onChange(Math.max(1, Math.min(15, next)))}
+        />
+    )}</ParameterMenu>;
 }

@@ -14,6 +14,8 @@ import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
+import { CanvasVideoNodePanel } from "./canvas-video-node-panel";
+import { VideoPresetPromptsModal } from "./canvas-video-modals";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "@/types/canvas";
 import { buildCanvasResourceReferences, getGroupResourceNodes, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -47,13 +49,30 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const mode = modeOverride ?? defaultMode(node.type);
+    if (mode === "video") {
+        return (
+            <CanvasVideoNodePanel
+                node={node}
+                nodes={nodes}
+                isRunning={isRunning}
+                mentionReferences={mentionReferences}
+                connectedNodes={connectedNodes}
+                onConfigChange={onConfigChange}
+                onGenerate={onGenerate}
+                onStop={onStop}
+                onDisconnectReference={onDisconnectReference}
+                onStartReferenceSelection={onStartReferenceSelection}
+                onAddImageReference={onAddImageReference}
+            />
+        );
+    }
     const config = buildGenerationConfig(globalConfig, node, mode);
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
     const [expanded, setExpanded] = useState(false);
-    const [collapsed, setCollapsed] = useState(false), [exploring, setExploring] = useState(false);
+    const [collapsed, setCollapsed] = useState(false), [exploring, setExploring] = useState(false), [presetModalOpen, setPresetModalOpen] = useState(false);
     const mediaPanel = mode === "image" || mode === "video";
     const imageNumbers = new Map(mentionReferences.filter((item) => item.active && item.kind === "image").map(({ nodeId }, index) => [nodeId, index + 1]));
     const upstreamNodes = connectedNodes.flatMap((input) => input.type === CanvasNodeType.Group ? getGroupResourceNodes(input.id, nodes) : [input]);
@@ -99,7 +118,7 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
-            {mediaPanel && <GenerationReferenceHeader theme={theme} count={imageNumbers.size} expanded={large} collapsed={collapsed} onSelect={onStartReferenceSelection ? selectReferences : undefined} onAddImage={onAddImageReference ? (image) => onAddImageReference(node.id, image) : undefined} onExpand={openExpandedEditor} onCollapse={() => setCollapsed((previous) => !previous)} onClose={close} />}
+            {mediaPanel && <GenerationReferenceHeader theme={theme} count={imageNumbers.size} expanded={large} collapsed={collapsed} onSelect={onStartReferenceSelection ? selectReferences : undefined} onAddImage={onAddImageReference ? (image) => onAddImageReference(node.id, image) : undefined} onOpenPresets={() => setPresetModalOpen(true)} onExpand={openExpandedEditor} onCollapse={() => setCollapsed((previous) => !previous)} onClose={close} />}
             {(large || !collapsed) && <>
             {mediaPanel && imageNumbers.size > 0 && <CanvasNodeReferenceBar nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} imageNumbers={imageNumbers} onDisconnect={onDisconnectReference} onReorder={isRunning ? undefined : (referenceNodeOrder) => onConfigChange(node.id, { referenceNodeOrder })} />}
             <CanvasNodeReferenceBar nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onlyNonImages={mediaPanel} onDisconnect={onDisconnectReference} onReorder={isRunning ? undefined : (referenceNodeOrder) => onConfigChange(node.id, { referenceNodeOrder })} onStartSelection={mediaPanel ? undefined : onStartReferenceSelection} />
@@ -191,6 +210,12 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
                 </div>
             </Modal>}
         {exploring && onAddImageReference && <CanvasReferenceImagePicker initialTab="all" onClose={() => setExploring(false)} onSelect={async (image) => { await onAddImageReference(node.id, image); setExploring(false); }} />}
+        {mediaPanel && <VideoPresetPromptsModal open={presetModalOpen} onClose={() => setPresetModalOpen(false)} onInsertPrompt={(text) => {
+            const clean = text.trim();
+            if (!clean) return;
+            const base = prompt.trim();
+            updatePrompt(!base ? clean : base.includes(clean) ? prompt : `${base}，${clean}`);
+        }} />}
     </>;
 }
 

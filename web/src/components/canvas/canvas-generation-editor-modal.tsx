@@ -1,6 +1,6 @@
 import { App } from "antd";
 import { createPortal } from "react-dom";
-import { ChevronDown, Maximize2, Minimize2, Plus, Upload } from "lucide-react";
+import { ChevronDown, Maximize2, Minimize2, Plus, Sparkles, Upload } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { uploadImage } from "@/services/image-storage";
 import type { GalleryImage } from "@/pages/gallery/gallery-data";
@@ -67,8 +67,8 @@ const composerInputChrome = "rounded-2xl border transition-colors focus-within:!
 export const composerInputSurface = `${composerInputChrome} bg-black/[0.025] dark:bg-white/[0.04]`;
 export const expandedComposerInputSurface = `${composerInputChrome} bg-[#f6f7f9] dark:bg-[#1a1e24]`;
 
-export function GenerationReferenceHeader({ theme, count, expanded, collapsed, onSelect, onAddImage, onExpand, onCollapse, onClose }: {
-    theme: CanvasTheme; count: number; expanded: boolean; collapsed?: boolean; onSelect?: () => void; onAddImage?: (image: GalleryImage) => Promise<unknown>;
+export function GenerationReferenceHeader({ theme, count, expanded, collapsed, onSelect, onAddImage, onOpenPresets, onExpand, onCollapse, onClose }: {
+    theme: CanvasTheme; count: number; expanded: boolean; collapsed?: boolean; onSelect?: () => void; onAddImage?: (image: GalleryImage) => Promise<unknown>; onOpenPresets?: () => void;
     onExpand: () => void; onCollapse: () => void; onClose: () => void;
 }) {
     const action = "grid size-7 shrink-0 place-items-center rounded-lg hover:opacity-70";
@@ -87,8 +87,11 @@ export function GenerationReferenceHeader({ theme, count, expanded, collapsed, o
         finally { setUploading(false); }
     };
     return <div data-canvas-no-zoom className="flex min-w-0 shrink-0 items-center gap-1.5" onMouseDown={(event) => event.stopPropagation()}>
-        {onSelect && <button type="button" className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border px-1.5 text-[11px] hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title="从画布选择参考节点" onClick={onSelect}>
+        {onSelect && <button type="button" className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border px-2 text-[11px] font-medium hover:opacity-75" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title="从画布选择参考节点" onClick={onSelect}>
             <Plus size={12} />参考图{count ? <span className="tabular-nums">({count})</span> : null}
+        </button>}
+        {onOpenPresets && <button type="button" className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-[11px] font-medium transition hover:brightness-110" style={{ background: theme.glass.inset, color: theme.node.text }} title="打开预设提示词库" onClick={onOpenPresets}>
+            <Sparkles size={12} style={{ color: theme.accent.base }} />预设提示词
         </button>}
         {expanded && onAddImage && <>
             <button type="button" aria-label="上传参考图" title="上传参考图" disabled={uploading} className={`${action} disabled:opacity-40`} onClick={() => fileInput.current?.click()}><Upload size={14} /></button>

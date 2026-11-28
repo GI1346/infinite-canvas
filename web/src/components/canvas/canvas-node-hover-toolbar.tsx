@@ -1,7 +1,7 @@
 import { useAddImagesToHarness } from "@/services/api/deepseek-harness";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { App, Modal, Popover, Segmented, Tooltip } from "antd";
-import { Check, Palette, Scan, Download, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video, Sparkles, ChevronDown } from "lucide-react";
+import { ArrowRight, Check, Palette, Scan, Download, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video, Sparkles, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -44,6 +44,7 @@ type CanvasNodeHoverToolbarProps = {
     onDelete: (node: CanvasNodeData) => void;
     onUngroup?: (node: CanvasNodeData) => void;
     onBatchDownload?: (node: CanvasNodeData) => void;
+    onContinueVideo?: (node: CanvasNodeData) => void;
     batchDownloading?: boolean;
     extraTools?: CanvasNodeToolbarItem[];
 };
@@ -90,6 +91,7 @@ export function CanvasNodeHoverToolbar({
     onDelete,
     onUngroup,
     onBatchDownload,
+    onContinueVideo,
     batchDownloading = false,
     extraTools = [],
 }: CanvasNodeHoverToolbarProps) {
@@ -135,6 +137,7 @@ export function CanvasNodeHoverToolbar({
         ...(canRetry ? [{ id: "retry", title: t("canvas.nodeToolbar.retryTitle"), label: t("canvas.node.retry"), icon: <RefreshCw className="size-4" />, onClick: () => onRetry(node) }] : []),
         ...(hasImage || hasVideo || isText ? [{ id: "saveAsset", title: t("common.addToAssets"), label: t("canvas.nodeToolbar.saveAsset"), icon: <FolderPlus className="size-4" />, onClick: () => onSaveAsset(node) }] : []),
         ...(hasImage || hasVideo || hasAudio ? [{ id: "download", title: t(hasAudio ? "canvas.nodeToolbar.downloadAudio" : hasVideo ? "canvas.nodeToolbar.downloadVideo" : "canvas.nodeToolbar.downloadImage"), label: t("common.download"), icon: <Download className="size-4" />, onClick: () => onDownload(node) }] : []),
+        ...(hasVideo && onContinueVideo ? [{ id: "continueVideo", title: "截取尾帧并自动创建下一个视频节点续写", label: "截尾帧续写", icon: <ArrowRight className="size-4" />, onClick: () => onContinueVideo(node) }] : []),
         ...(isVideo ? [{ id: "edit", title: t("common.edit"), label: t("common.edit"), icon: <MessageSquare className="size-4" />, onClick: () => onToggleDialog(node) }] : []),
         ...(isText ? [{ id: "generateImage", title: t("canvas.node.generateImage"), label: t("canvas.node.generate"), icon: <ImageIcon className="size-4" />, onClick: () => onGenerateImage(node) }] : []),
         ...(isConfig ? [{ id: "config", title: t("canvas.configNode.title"), label: t("canvas.configNode.title"), icon: <Settings2 className="size-4" />, onClick: () => onToggleDialog(node) }] : []),

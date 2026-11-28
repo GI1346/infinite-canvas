@@ -1,12 +1,12 @@
 import { useEffect, useRef } from "react";
-import { Blend, BrainCircuit, Image as ImageIcon, Settings2, Table2, FileText, Video, X } from "lucide-react";
+import { Blend, BrainCircuit, Clapperboard, Image as ImageIcon, Table2, FileText, Video, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { getNodeDefinition, listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
 import { getNodeSpec } from "@/constant/canvas";
-import { CanvasNodeType, CHARACTER_RECIPE_NODE_TYPE, type ConnectionHandle, type Position } from "@/types/canvas";
+import { CanvasNodeType, CHARACTER_RECIPE_NODE_TYPE, DIRECTOR_NODE_TYPE, type ConnectionHandle, type Position } from "@/types/canvas";
 
 export type PendingConnectionCreate = {
     connection: ConnectionHandle;
@@ -53,6 +53,8 @@ export function ConnectionCreateMenu({
             <div className="grid gap-0.5">
                 <ConnectionCreateOption theme={theme} icon={<ImageIcon className="size-4" />} title={batch ? "图片生成" : "生成节点"} description="连上提示词/参考图，生成结果直接落在这个节点" onClick={() => onCreate(CanvasNodeType.Image)} />
                 {batch ? <ConnectionCreateOption theme={theme} icon={<Video className="size-4" />} title="视频生成" description="用提示词和参考素材生成视频" onClick={() => onCreate(CanvasNodeType.Video)} /> : <ConnectionCreateOption theme={theme} icon={<FileText className="size-4" />} title="文本" description="输入和编辑文字" onClick={() => onCreate(CanvasNodeType.Text)} />}
+                {!batch && <ConnectionCreateOption theme={theme} icon={<Video className="size-4" />} title="视频生成" description="首尾帧、多图参考、角色库与运镜生视频" onClick={() => onCreate(CanvasNodeType.Video)} />}
+                {!batch && <ConnectionCreateOption theme={theme} icon={<Clapperboard className="size-4" />} title="导演台" description="3D 空间搭建站位、姿势与多机位截图" onClick={() => onCreate(DIRECTOR_NODE_TYPE)} />}
                 <ConnectionCreateOption theme={theme} icon={<Table2 className="size-4" />} title="多维表格" description="图片与文本按输入列逐行组合" onClick={() => onCreate("dxos:table")} />
                 <ConnectionCreateOption theme={theme} icon={<BrainCircuit className="size-4" />} title="LLM 多模态分析" description="分析图片与文本，输出文本或表格" onClick={() => onCreate("dxos:llm")} />
                 {!batch && <ConnectionCreateOption theme={theme} icon={<Blend className="size-4" />} title="融合节点" description="将局部修改融合回原图" onClick={() => onCreate("blinkflow:fusion")} />}
@@ -81,7 +83,9 @@ export function ConnectionCreateOption({ theme, icon, title, description, onClic
 /** 创建菜单里每个节点的一句话说明；补齐没有 description 的内置节点。 */
 const CREATEMENU_DESCRIPTIONS: Record<string, string> = {
     [CanvasNodeType.Image]: "输入文字与参考图，生成结果就在节点里",
+    [CanvasNodeType.Video]: "文生视频、首尾帧互换、角色库与 23 种运镜",
     [CanvasNodeType.Text]: "输入和编辑文字，可直接生图",
+    [DIRECTOR_NODE_TYPE]: "在 3D 空间中摆拍站位、姿势并进行多视角截图",
     "dxos:table": "图片与文本按输入列逐行组合",
     "dxos:llm": "分析图片与文本，输出文本或表格",
     "blinkflow:fusion": "将局部修改融合回原图",
@@ -92,7 +96,7 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
     const { t } = useTranslation();
     useNodeRegistryVersion();
     const menuRef = useRef<HTMLDivElement>(null);
-    const order = [CanvasNodeType.Image, CanvasNodeType.Text, "dxos:table", "dxos:llm", "blinkflow:fusion", CHARACTER_RECIPE_NODE_TYPE] as string[];
+    const order = [CanvasNodeType.Image, CanvasNodeType.Video, CanvasNodeType.Text, DIRECTOR_NODE_TYPE, "dxos:table", "dxos:llm", "blinkflow:fusion", CHARACTER_RECIPE_NODE_TYPE] as string[];
     const definitions = listNodeDefinitions().filter((def) => order.includes(def.type)).sort((a, b) => {
         const first = order.indexOf(a.type), second = order.indexOf(b.type);
         return (first < 0 ? order.length : first) - (second < 0 ? order.length : second);
@@ -126,7 +130,7 @@ export function NodeCreateMenu({ position, scale = 1, onCreate, onClose }: { pos
                 </div>
                 <div className="grid gap-0.5">
                     {definitions.map((def) => (
-                        <ConnectionCreateOption key={def.type} theme={theme} icon={def.icon} title={def.type === CanvasNodeType.Image ? "生成节点" : getNodeSpec(def.type).title} description={CREATEMENU_DESCRIPTIONS[def.type] ?? def.description} onClick={() => onCreate(def.type)} />
+                        <ConnectionCreateOption key={def.type} theme={theme} icon={def.icon} title={def.type === CanvasNodeType.Image ? "生成节点" : def.type === CanvasNodeType.Video ? "视频生成" : getNodeSpec(def.type).title} description={CREATEMENU_DESCRIPTIONS[def.type] ?? def.description} onClick={() => onCreate(def.type)} />
                     ))}
                 </div>
             </div>

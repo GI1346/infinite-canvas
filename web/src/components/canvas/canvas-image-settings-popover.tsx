@@ -89,7 +89,7 @@ function ImageSettingsPortal({
     config: AiConfig;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
 }) {
-    const width = 356;
+    const width = 368;
     const gap = 8;
     const margin = 12;
     const alignRight = placement?.endsWith("Right");
@@ -103,8 +103,10 @@ function ImageSettingsPortal({
         left: Math.max(margin, Math.min(window.innerWidth - width - margin, left)),
         ...(topPlacement ? { bottom: window.innerHeight - buttonRect.top + gap, maxHeight: Math.max(260, buttonRect.top - margin * 2) } : { top: buttonRect.bottom + gap, maxHeight: Math.max(260, window.innerHeight - buttonRect.bottom - margin * 2) }),
         background: theme.toolbar.panel,
+        border: `1px solid ${theme.glass.border}`,
         borderRadius: 16,
         boxShadow: theme.toolbar.shadow,
+        backdropFilter: "blur(24px) saturate(160%)",
         padding: 18,
         overflowY: "auto",
         color: theme.node.text,

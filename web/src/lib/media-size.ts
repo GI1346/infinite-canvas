@@ -145,10 +145,113 @@ export function clampVideoSeconds(value: string) {
     return String(Math.max(VIDEO_SECONDS_MIN, Math.min(VIDEO_SECONDS_MAX, seconds)));
 }
 
+export type VideoResolutionStop = {
+    value: string;
+    label: string;
+};
+
+const DEFAULT_VIDEO_RESOLUTION_TIERS = ["480", "720", "1080", "2160"] as const;
+
+const MODEL_VIDEO_RESOLUTION_TIERS: Record<string, readonly string[]> = {
+    // Sand AI (MAGI-2): 固定 1080p
+    "magi-2": ["1080"],
+    // 萤漫 Video
+    "h3-video": ["480", "720", "1080"],
+    "minimax-h3-rb": ["480", "720", "1080"],
+    "h3-2k": ["1440"],
+    "seedance-2.5-hlg": ["720"],
+    "seedance-2.5-special1": ["720"],
+    "seedance-2.5-pa-480p": ["480"],
+    "seedance-2.5-pa-720p": ["720"],
+    // AutoDL.art (Auto DL-H3) 全部 27 款视频工作流
+    "wan2.2animate-v4-motion_retargeting": ["464"],
+    minimax_h3_b99_001: ["736"],
+    minimax_h3_b99_002: ["736"],
+    minimax_h3_b99_003_12s: ["736"],
+    minimax_h3_zm_titi: ["768"],
+    minimax_h3_zm_titim: ["768"],
+    minimax_h3_adl_int8: ["480", "768"],
+    minimax_h3_lightx2v_no_pic: ["480", "768"],
+    minimax_h3_lightx2v: ["480", "768"],
+    minimax_h3_lightx2v_v5_15s: ["480", "768"],
+    minimax_h3_image_audio_to_video_v2_15s: ["480", "768"],
+    minimax_h3_zm_u08: ["480", "768"],
+    minimax_h3_zm_u22: ["480", "768"],
+    minimax_h3_zm_u24: ["480", "768"],
+    minimax_h3_zm_nono: ["480", "768", "960"],
+    minimax_h3_zm_u30: ["480", "768", "960"],
+    minimax_h3_lightx2v_v5: ["480", "768", "1080"],
+    minimax_h3_image_audio_to_video: ["480", "768", "1080"],
+    minimax_h3_image_audio_to_video_v2: ["480", "768", "1080"],
+    minimax_h3_z0901: ["480", "768", "1088", "1440"],
+    minimax_h3_z0902: ["480", "768", "1088", "1440"],
+    minimax_h3_z0903: ["480", "768", "1088", "1440"],
+    minimax_h3_801: ["480", "768", "1088", "1440"],
+    minimax_h3_802: ["480", "768", "1088", "1440"],
+    minimax_h3_803: ["480", "768", "1088", "1440"],
+    minimax_h3_804: ["480", "768", "1088", "1440"],
+    minimax_h3_805: ["480", "768", "1088", "1440"],
+};
+
+export function formatVideoResolutionLabel(value: string) {
+    const parsed = parseVideoResolution(value);
+    if (parsed === "2160") return "4K";
+    if (parsed === "1440") return "2K";
+    return `${parsed}P`;
+}
+
+export function videoResolutionStopsForModel(modelName: string | undefined, apiFormat?: string): VideoResolutionStop[] {
+    const raw = String(modelName || "").trim().toLowerCase();
+    let tiers: readonly string[] | undefined;
+
+    if (apiFormat === "sand") {
+        tiers = ["1080"];
+    } else if (apiFormat === "routerapi" && (raw === "seedance-2.0" || raw === "seedance-2.5")) {
+        tiers = ["720"];
+    } else if (raw && MODEL_VIDEO_RESOLUTION_TIERS[raw]) {
+        tiers = MODEL_VIDEO_RESOLUTION_TIERS[raw];
+    } else if (raw === "seedance-2.0" || raw === "seedance-2.5") {
+        tiers = ["720"];
+    } else if (/-480p$/i.test(raw)) {
+        tiers = ["480"];
+    } else if (/-720p$/i.test(raw)) {
+        tiers = ["720"];
+    } else if (/-1080p$/i.test(raw)) {
+        tiers = ["1080"];
+    } else if (/-2k$/i.test(raw)) {
+        tiers = ["1440"];
+    } else if (apiFormat === "autodl") {
+        tiers = ["480", "768", "1080"];
+    } else {
+        tiers = DEFAULT_VIDEO_RESOLUTION_TIERS;
+    }
+
+    return tiers.map((value) => ({ value, label: formatVideoResolutionLabel(value) }));
+}
+
+export function clampVideoResolutionToStops(value: string | undefined, stops: readonly VideoResolutionStop[]): string {
+    if (!stops.length) return parseVideoResolution(value);
+    const parsed = parseVideoResolution(value);
+    if (stops.some((item) => item.value === parsed)) return parsed;
+    const target = Number(parsed) || 720;
+    let best = stops[0];
+    let bestDiff = Infinity;
+    for (const stop of stops) {
+        const diff = Math.abs((Number(stop.value) || 720) - target);
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            best = stop;
+        }
+    }
+    return best.value;
+}
+
 export function parseVideoResolution(value: string | undefined) {
     const raw = String(value || "").trim().toLowerCase();
     if (raw === "low") return "480";
     if (raw === "auto" || raw === "high" || raw === "medium") return "720";
+    if (raw === "2k") return "1440";
+    if (raw === "4k") return "2160";
     const number = raw.replace(/p$/i, "");
     return /^\d+$/.test(number) && Number(number) > 0 ? number : "720";
 }

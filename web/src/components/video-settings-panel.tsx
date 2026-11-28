@@ -3,10 +3,11 @@ import { Slider } from "antd";
 import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
+import { AspectRatioPicker } from "@/components/canvas/canvas-aspect-ratio-picker";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { clampVideoSeconds, computeVideoSize, inferVideoRatio, parseVideoResolution, readVideoDimensions, VIDEO_SECONDS_MAX, VIDEO_SECONDS_MIN, videoRatioOptions } from "@/lib/media-size";
-import { type AiConfig } from "@/stores/use-config-store";
+import { clampVideoResolutionToStops, clampVideoSeconds, computeVideoSize, inferVideoRatio, readVideoDimensions, VIDEO_SECONDS_MAX, VIDEO_SECONDS_MIN, videoRatioOptions, videoResolutionStopsForModel } from "@/lib/media-size";
+import { decodeChannelModel, modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
     { value: "480", label: "480p" },
@@ -34,7 +35,11 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const { t } = useTranslation();
     const seconds = Number(clampVideoSeconds(config.videoSeconds || "6"));
     const videoMode = normalizeVideoModeValue(config.videoMode);
-    const resolution = parseVideoResolution(config.vquality);
+    const activeModel = config.model || config.videoModel || "";
+    const decodedModel = decodeChannelModel(activeModel);
+    const activeChannel = decodedModel ? config.channels.find((item) => item.id === decodedModel.channelId) : undefined;
+    const modelResolutions = videoResolutionStopsForModel(modelOptionName(activeModel), activeChannel?.apiFormat);
+    const resolution = clampVideoResolutionToStops(config.vquality, modelResolutions);
     const selectedRatio = inferVideoRatio(config.size || "auto");
     const dimensions = readVideoDimensions(config.size || "auto", resolution, selectedRatio);
     const applySize = (nextResolution: string, ratio: string) => {
@@ -52,12 +57,12 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.video.title")}</div> : null}
                 <SettingGroup title={t("settingsPanels.video.quality")} color={theme.node.muted}>
                     <div className="grid grid-cols-4 gap-2.5">
-                        {resolutionOptions.map((item) => (
+                        {modelResolutions.map((item) => (
                             <OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => selectResolution(item.value)}>
                                 {item.label}
                             </OptionPill>
                         ))}
-                        <ResolutionInput value={resolution} theme={theme} onChange={selectResolution} />
+                        {modelResolutions.length > 1 && <ResolutionInput value={resolution} theme={theme} onChange={selectResolution} />}
                     </div>
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.size")} color={theme.node.muted}>
@@ -67,23 +72,21 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <DimensionInput prefix="H" value={dimensions.height} disabled={selectedRatio === "auto"} theme={theme} onChange={(value) => updateDimension("height", value, dimensions, onConfigChange)} />
                     </div>
                 </SettingGroup>
-                <SettingGroup title={t("settingsPanels.video.ratio")} color={theme.node.muted}>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {videoRatioOptions.map((item) => (
-                            <button
-                                key={item.value}
-                                type="button"
-                                className="flex h-[72px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
-                                style={{ borderColor: selectedRatio === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
-                                onMouseDown={(event) => event.stopPropagation()}
-                                onClick={() => applySize(resolution, item.value)}
-                            >
-                                <SizePreview width={item.width} height={item.height} color={theme.node.text} />
-                                <span>{item.value === "auto" ? t("settingsPanels.common.auto") : item.value}</span>
-                            </button>
-                        ))}
-                    </div>
-                </SettingGroup>
+                <AspectRatioPicker
+                    theme={theme}
+                    options={videoRatioOptions}
+                    value={selectedRatio}
+                    onChange={(next) => applySize(resolution, next)}
+                    title={t("settingsPanels.video.ratio")}
+                    autoLabel={t("settingsPanels.common.auto")}
+                    orientationLabels={{
+                        landscape: t("settingsPanels.video.sizes.landscape"),
+                        portrait: t("settingsPanels.video.sizes.portrait"),
+                        square: t("settingsPanels.video.sizes.square"),
+                        auto: t("settingsPanels.video.adaptive"),
+                    }}
+                    columns={3}
+                />
                 <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
                     <div className="flex items-center gap-3" onMouseDown={(event) => event.stopPropagation()}>
                         <Slider className="min-w-0 flex-1" min={VIDEO_SECONDS_MIN} max={VIDEO_SECONDS_MAX} step={1} value={seconds} onChange={(value) => onConfigChange("videoSeconds", String(Array.isArray(value) ? value[0] : value))} />
@@ -208,12 +211,4 @@ function DimensionInput({ prefix, value, disabled, theme, onChange }: { prefix: 
             <input type="number" min={1} disabled={disabled} className="min-w-0 flex-1 bg-transparent px-2 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={value || ""} onChange={(event) => onChange(Number(event.target.value) || null)} onMouseDown={(event) => event.stopPropagation()} />
         </label>
     );
-}
-
-function SizePreview({ width, height, color }: { width: number; height: number; color: string }) {
-    if (!width || !height) return null;
-    const longSide = Math.max(width, height);
-    const previewWidth = Math.max(10, Math.round((width / longSide) * 26));
-    const previewHeight = Math.max(10, Math.round((height / longSide) * 26));
-    return <span className="rounded-[3px] border-2" style={{ width: previewWidth, height: previewHeight, borderColor: color }} />;
 }

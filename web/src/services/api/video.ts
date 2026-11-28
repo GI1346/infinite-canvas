@@ -6,7 +6,8 @@ import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { clampVideoSeconds, computeVideoSize, inferVideoRatio } from "@/lib/media-size";
 import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildApiUrl, modelOptionName, resolveModelRequestConfig, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
+import { boolConfig, buildApiUrl, modelOptionName, resolveModelRequestConfig, withLocalProxy, type AiConfig, type ApiCallFormat } from "@/stores/use-config-store";
+import { createAutoDLVideoTask, createRouterApiVideoTask, createSandVideoTask, pollAutoDLVideoTask, pollRouterApiVideoTask, pollSandVideoTask } from "./relay-adapters";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -18,7 +19,7 @@ type VideoMediaOptions = RequestOptions & { videos?: ReferenceVideo[]; audios?: 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "gemini"; model: string };
+export type VideoGenerationTask = { id: string; provider: ApiCallFormat; model: string };
 type GeminiInlineData = { bytesBase64Encoded: string; mimeType: string };
 type GeminiVideoOperation = {
     name?: string;
@@ -70,6 +71,9 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (requestConfig.apiFormat === "gemini") return createGeminiVideoTask(requestConfig, selectedModel, prompt, references, options);
+    if (requestConfig.apiFormat === "sand") return createSandVideoTask(requestConfig, selectedModel, prompt, references, options);
+    if (requestConfig.apiFormat === "autodl") return createAutoDLVideoTask(requestConfig, selectedModel, prompt, references, options);
+    if (requestConfig.apiFormat === "routerapi") return createRouterApiVideoTask(requestConfig, selectedModel, prompt, references, options);
     return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
 }
 
@@ -77,6 +81,9 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (task.provider === "gemini") return pollGeminiVideoTask(requestConfig, task, options);
+    if (task.provider === "sand") return pollSandVideoTask(requestConfig, task.id, options);
+    if (task.provider === "autodl") return pollAutoDLVideoTask(requestConfig, task.id, options);
+    if (task.provider === "routerapi") return pollRouterApiVideoTask(requestConfig, task.id, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
 

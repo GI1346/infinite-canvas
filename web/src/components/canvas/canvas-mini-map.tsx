@@ -1,20 +1,80 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 
-import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasGlass, canvasThemes } from "@/lib/canvas-theme";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { type CanvasNodeData, type ViewportTransform } from "@/types/canvas";
+import { nodeTypeMeta } from "./canvas-node-search-modal";
 
-export function Minimap({ nodes, viewport, viewportSize, onViewportChange }: { nodes: CanvasNodeData[]; viewport: ViewportTransform; viewportSize: { width: number; height: number }; onViewportChange: (viewport: ViewportTransform) => void }) {
+const MinimapNodes = memo(function MinimapNodes({
+    nodes,
+    worldBounds,
+    scale,
+    offset,
+    selectedNodeIds,
+    runningNodeIds,
+    accent,
+}: {
+    nodes: CanvasNodeData[];
+    worldBounds: { x: number; y: number };
+    scale: number;
+    offset: { x: number; y: number };
+    selectedNodeIds?: Set<string>;
+    runningNodeIds?: Set<string>;
+    accent: string;
+}) {
+    return (
+        <>
+            {nodes.map((node) => {
+                const x = (node.position.x - worldBounds.x) * scale + offset.x;
+                const y = (node.position.y - worldBounds.y) * scale + offset.y;
+                const selected = selectedNodeIds?.has(node.id);
+                const running = runningNodeIds?.has(node.id);
+                const color = running ? accent : getNodeDefinition(node.type)?.minimapColor || nodeTypeMeta(node.type).color;
+                return (
+                    <div
+                        key={node.id}
+                        className={`absolute rounded-[2px] ${running ? "animate-pulse" : ""}`}
+                        style={{
+                            left: x,
+                            top: y,
+                            width: Math.max(node.width * scale, 3),
+                            height: Math.max(node.height * scale, 3),
+                            backgroundColor: color,
+                            opacity: selected || running ? 1 : 0.78,
+                            boxShadow: selected ? `0 0 0 1px ${accent}` : undefined,
+                        }}
+                    />
+                );
+            })}
+        </>
+    );
+});
+
+export function Minimap({
+    nodes,
+    viewport,
+    viewportSize,
+    selectedNodeIds,
+    runningNodeIds,
+    onViewportChange,
+}: {
+    nodes: CanvasNodeData[];
+    viewport: ViewportTransform;
+    viewportSize: { width: number; height: number };
+    selectedNodeIds?: Set<string>;
+    runningNodeIds?: Set<string>;
+    onViewportChange: (viewport: ViewportTransform) => void;
+}) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const containerRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
-    const width = 240;
-    const height = 160;
+    const width = 220;
+    const height = 144;
 
     const { worldBounds, scale, offset } = useMemo(() => {
         if (!nodes.length) {
-            return { worldBounds: { x: -500, y: -500, w: 1000, h: 1000 }, scale: 0.16, offset: { x: 40, y: 0 } };
+            return { worldBounds: { x: -500, y: -500, w: 1000, h: 1000 }, scale: 0.144, offset: { x: 38, y: 0 } };
         }
 
         let minX = Infinity;
@@ -48,22 +108,18 @@ export function Minimap({ nodes, viewport, viewportSize, onViewportChange }: { n
     }, [nodes]);
 
     const toMinimap = useCallback(
-        (worldX: number, worldY: number) => {
-            return {
-                x: (worldX - worldBounds.x) * scale + offset.x,
-                y: (worldY - worldBounds.y) * scale + offset.y,
-            };
-        },
+        (worldX: number, worldY: number) => ({
+            x: (worldX - worldBounds.x) * scale + offset.x,
+            y: (worldY - worldBounds.y) * scale + offset.y,
+        }),
         [offset.x, offset.y, scale, worldBounds.x, worldBounds.y],
     );
 
     const toWorld = useCallback(
-        (minimapX: number, minimapY: number) => {
-            return {
-                x: (minimapX - offset.x) / scale + worldBounds.x,
-                y: (minimapY - offset.y) / scale + worldBounds.y,
-            };
-        },
+        (minimapX: number, minimapY: number) => ({
+            x: (minimapX - offset.x) / scale + worldBounds.x,
+            y: (minimapY - offset.y) / scale + worldBounds.y,
+        }),
         [offset.x, offset.y, scale, worldBounds.x, worldBounds.y],
     );
 
@@ -96,12 +152,21 @@ export function Minimap({ nodes, viewport, viewportSize, onViewportChange }: { n
     };
 
     return (
-        <div className="bf-canvas-glass absolute bottom-24 left-6 z-[60] overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-sm" style={{ width, height, background: theme.toolbar.panel, borderColor: theme.toolbar.border }}>
+        <div
+            data-canvas-overlay
+            data-canvas-no-zoom
+            className="bf-canvas-glass absolute bottom-20 right-5 z-[60] overflow-hidden rounded-2xl border"
+            style={{ width, height, ...canvasGlass(theme) }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
+        >
             <div
                 ref={containerRef}
                 className="relative h-full w-full cursor-crosshair"
                 onPointerDown={(event) => {
                     event.preventDefault();
+                    event.stopPropagation();
                     event.currentTarget.setPointerCapture(event.pointerId);
                     setIsDragging(true);
                     updateViewportFromEvent(event);
@@ -112,25 +177,8 @@ export function Minimap({ nodes, viewport, viewportSize, onViewportChange }: { n
                 onPointerUp={() => setIsDragging(false)}
                 onPointerLeave={() => setIsDragging(false)}
             >
-                {nodes.map((node) => {
-                    const pos = toMinimap(node.position.x, node.position.y);
-                    const color = getNodeDefinition(node.type)?.minimapColor || theme.node.muted;
-                    return (
-                        <div
-                            key={node.id}
-                            className="absolute rounded-[1px]"
-                            style={{
-                                left: pos.x,
-                                top: pos.y,
-                                width: Math.max(node.width * scale, 2),
-                                height: Math.max(node.height * scale, 2),
-                                backgroundColor: color,
-                                opacity: 0.8,
-                            }}
-                        />
-                    );
-                })}
-                <div className="pointer-events-none absolute border" style={{ left: viewportRect.x, top: viewportRect.y, width: viewportRect.w, height: viewportRect.h, borderColor: theme.node.activeStroke, background: `${theme.node.activeStroke}18` }} />
+                <MinimapNodes nodes={nodes} worldBounds={worldBounds} scale={scale} offset={offset} selectedNodeIds={selectedNodeIds} runningNodeIds={runningNodeIds} accent={theme.accent.base} />
+                <div className="pointer-events-none absolute rounded-[3px] border" style={{ left: viewportRect.x, top: viewportRect.y, width: viewportRect.w, height: viewportRect.h, borderColor: theme.node.activeStroke, background: `${theme.node.activeStroke}18` }} />
             </div>
         </div>
     );

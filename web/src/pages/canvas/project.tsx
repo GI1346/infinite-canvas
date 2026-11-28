@@ -101,6 +101,7 @@ import { registerBuiltinNodes } from "@/components/canvas/nodes/builtin-nodes";
 import { CanvasPluginManagerModal } from "@/components/canvas/canvas-plugin-manager-modal";
 import { CanvasRefreshShell } from "@/components/canvas/canvas-refresh-shell";
 import { CanvasTopBar } from "@/components/canvas/canvas-top-bar";
+import { CanvasNodeSearchModal } from "@/components/canvas/canvas-node-search-modal";
 import { CanvasBottomQuickDock, quickDockOpenKey, type QuickDockSubmission } from "@/components/canvas/canvas-bottom-quick-dock";
 import { openDeepSeekHarness } from "@/services/api/deepseek-harness";
 import { useHarnessSidebarStore } from "@/stores/use-harness-sidebar-store";
@@ -347,6 +348,16 @@ function InfiniteCanvasPage() {
     const connections = currentProject?.connections ?? EMPTY_CANVAS_CONNECTIONS;
     const imageTasks = useGenerationRunnerStore((state) => state.tasks);
     const isImageRunning = (id: string) => Object.values(imageTasks).some((task) => task.projectId === projectId && (task.nodeId === id || task.targetNodeId === id));
+    const runningNodeIds = useMemo(() => {
+        const ids = new Set<string>();
+        for (const task of Object.values(imageTasks)) {
+            if (task.projectId !== projectId) continue;
+            ids.add(task.nodeId);
+            if (task.targetNodeId) ids.add(task.targetNodeId);
+            task.outputNodeIds?.forEach((id) => ids.add(id));
+        }
+        return ids;
+    }, [imageTasks, projectId]);
     const writeNodes = useCallback<Dispatch<SetStateAction<CanvasNodeData[]>>>((next) => {
         useCanvasStore.getState().updateProject(projectId, (project) => ({ nodes: typeof next === "function" ? next(project.nodes) : next }));
     }, [projectId]);
@@ -388,6 +399,22 @@ function InfiniteCanvasPage() {
     const [infoNodeId, setInfoNodeId] = useState<string | null>(null);
     const [pluginManagerOpen, setPluginManagerOpen] = useState(false);
     const [cleanupOpen, setCleanupOpen] = useState(false);
+    const [nodeSearchOpen, setNodeSearchOpen] = useState(false);
+    const toggleMiniMap = useCallback(() => setIsMiniMapOpen((value) => !value), []);
+    const openNodeSearch = useCallback(() => setNodeSearchOpen(true), []);
+    const closeNodeSearch = useCallback(() => setNodeSearchOpen(false), []);
+    useEffect(() => {
+        const onSearchShortcut = (event: KeyboardEvent) => {
+            if (event.isComposing || event.keyCode === 229) return;
+            if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "k") return;
+            const target = event.target as HTMLElement | null;
+            if (target?.closest("input,textarea,select,[contenteditable='true']")) return;
+            event.preventDefault();
+            setNodeSearchOpen((open) => !open);
+        };
+        window.addEventListener("keydown", onSearchShortcut);
+        return () => window.removeEventListener("keydown", onSearchShortcut);
+    }, []);
     const [paintNodeId, setPaintNodeId] = useState<string | null>(null);
     const [extractNodeId, setExtractNodeId] = useState<string | null>(null);
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
@@ -524,7 +551,7 @@ function InfiniteCanvasPage() {
             assertActive();
             const task = await createVideoGenerationTask(config, prompt, images, { signal, videos, audios });
             assertActive();
-            updateNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider === "gemini" ? "gemini" : "openai", model: config.model } } : item)));
+            updateNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider, model: config.model } } : item)));
             const result = await waitForVideoGenerationTask(config, task, { signal });
             assertActive();
             const video = await storeGeneratedVideo(result);
@@ -557,7 +584,7 @@ function InfiniteCanvasPage() {
                 controller = startGenerationRequest(node.id, node.id, node.id);
                 updateRunningNodeId(node.id);
                 updateNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
-                const result = await waitForVideoGenerationTask(generationConfig, { id: taskId, provider: node.metadata?.videoTaskProvider === "gemini" ? "gemini" : "openai", model: generationConfig.model }, { signal: controller.signal });
+                const result = await waitForVideoGenerationTask(generationConfig, { id: taskId, provider: node.metadata?.videoTaskProvider || "openai", model: generationConfig.model }, { signal: controller.signal });
                 if (!active()) return;
                 const video = await storeGeneratedVideo(result);
                 if (!active()) return;
@@ -2563,6 +2590,63 @@ function InfiniteCanvasPage() {
         [message, t],
     );
 
+    const continueVideoFromLastFrame = useCallback(
+        async (node: CanvasNodeData) => {
+            if (node.type !== CanvasNodeType.Video || !node.metadata?.content) return message.error(t("canvas.videoFrames.failed"));
+            try {
+                const image = await uploadImage(await captureVideoFrame(node.metadata.content, "last", 0));
+                const frameSize = fitNodeSize(image.width, image.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+                const frameId = nanoid();
+                const nextVideoId = nanoid();
+                const frameX = node.position.x + node.width + 96;
+                let frameY = node.position.y + node.height / 2 - frameSize.height / 2;
+                while (nodesRef.current.some((item) => item.id !== node.id && item.position.x < frameX + frameSize.width && item.position.x + item.width > frameX && item.position.y < frameY + frameSize.height && item.position.y + item.height > frameY)) frameY += frameSize.height + 24;
+                const frameNode: CanvasNodeData = {
+                    id: frameId,
+                    type: CanvasNodeType.Image,
+                    title: `${node.title || t("assets.kinds.video")} · 尾帧`,
+                    position: { x: frameX, y: frameY },
+                    ...frameSize,
+                    metadata: imageMetadata(image),
+                };
+                const nextVideoNode: CanvasNodeData = {
+                    id: nextVideoId,
+                    type: CanvasNodeType.Video,
+                    title: `${node.title || t("assets.kinds.video")} · 续写`,
+                    position: { x: frameX + frameSize.width + 96, y: node.position.y },
+                    width: node.width,
+                    height: node.height,
+                    metadata: {
+                        content: "",
+                        status: "idle",
+                        generationMode: "video",
+                        videoMode: "frames",
+                        model: node.metadata.model,
+                        size: node.metadata.size,
+                        vquality: node.metadata.vquality,
+                        seconds: node.metadata.seconds,
+                        generateAudio: node.metadata.generateAudio,
+                        watermark: node.metadata.watermark,
+                        referenceNodeOrder: [frameId],
+                    },
+                };
+                setNodes((prev) => [...prev, frameNode, nextVideoNode]);
+                setConnections((prev) => [
+                    ...prev,
+                    { id: nanoid(), fromNodeId: node.id, toNodeId: frameId },
+                    { id: nanoid(), fromNodeId: frameId, toNodeId: nextVideoId },
+                ]);
+                setSelectedNodeIds(new Set([nextVideoId]));
+                setSelectedConnectionId(null);
+                setDialogNodeId(nextVideoId);
+                message.success("已截取尾帧并创建续写视频节点");
+            } catch {
+                message.error("截取尾帧续写失败");
+            }
+        },
+        [message, setConnections, setNodes, t],
+    );
+
     const saveNodeAsset = useCallback(
         async (node: CanvasNodeData) => {
             if (node.type === CanvasNodeType.Text) {
@@ -3731,6 +3815,7 @@ function InfiniteCanvasPage() {
         selectQuickDockNodes(nodes.map(({ id }) => id));
         animateViewportTo(focusViewportForNode({ position: { x: left, y: top }, width, height }, size, { bottomInset: (dock?.offsetHeight || 0) + 24 }));
     }, [animateViewportTo, message, selectQuickDockNodes, size.height, size.width]);
+    const handleFocusSingleNode = useCallback((id: string) => handleFocusQuickDockNodes([id]), [handleFocusQuickDockNodes]);
     const changeQuickDockOpen = useCallback((open: boolean) => {
         if (open) openedHarnessFromDockRef.current = false;
         setQuickDockOpen(open);
@@ -4220,6 +4305,8 @@ function InfiniteCanvasPage() {
                 <input ref={workflowInputRef} type="file" accept=".json,application/json" aria-label="导入工作流文件" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void importWorkflowJson(file); }} />
                 {exportRequest && <CanvasExportDialog request={exportRequest} onClose={() => setExportRequest(null)} />}
                 <CanvasTopBar
+                    projectId={projectId}
+                    nodes={nodes}
                     title={currentProject?.title || t("canvas.projectPage.untitledCanvas")}
                     titleDraft={titleDraft}
                     isTitleEditing={titleEditing}
@@ -4239,6 +4326,8 @@ function InfiniteCanvasPage() {
                     onImportImage={() => handleUploadRequest()}
                     onOpenPlugins={() => setPluginManagerOpen(true)}
                     onOpenCleanup={() => setCleanupOpen(true)}
+                    onOpenNodeSearch={openNodeSearch}
+                    onFocusNodes={handleFocusQuickDockNodes}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                 />
@@ -4383,6 +4472,7 @@ function InfiniteCanvasPage() {
                     onUpload={(node) => handleUploadRequest(node.id)}
                     onDownload={downloadNodeImage}
                     onBatchDownload={(node) => void downloadImages([node.id], nodesRef.current, node.title || "分组图片")}
+                    onContinueVideo={(node) => void continueVideoFromLastFrame(node)}
                     batchDownloading={batchDownloading}
                     onSaveAsset={(node) => void saveNodeAsset(node)}
                     onPaint={(node) => setPaintNodeId(node.id)}
@@ -4471,9 +4561,11 @@ function InfiniteCanvasPage() {
                     onShowImageInfoChange={setShowImageInfo}
                 />
 
-                {isMiniMapOpen ? <Minimap nodes={nodes} viewport={viewport} viewportSize={size} onViewportChange={setViewport} /> : null}
+                {isMiniMapOpen ? <Minimap nodes={nodes} viewport={viewport} viewportSize={size} selectedNodeIds={selectedNodeIds} runningNodeIds={runningNodeIds} onViewportChange={setViewport} /> : null}
 
-                <CanvasZoomControls scale={viewport.k} onScaleChange={setZoomScale} onReset={resetViewport} isMiniMapOpen={isMiniMapOpen} onToggleMiniMap={() => setIsMiniMapOpen((value) => !value)} />
+                <CanvasZoomControls scale={viewport.k} onScaleChange={setZoomScale} onReset={resetViewport} onFocusSelected={focusSelectedNode} hasSelection={selectedNodeIds.size > 0} isMiniMapOpen={isMiniMapOpen} onToggleMiniMap={toggleMiniMap} />
+
+                <CanvasNodeSearchModal open={nodeSearchOpen} nodes={nodes} runningNodeIds={runningNodeIds} onClose={closeNodeSearch} onSelectNode={handleFocusSingleNode} />
 
                 {nodes.length && !nodes.some((node) => {
                     const x = node.position.x * viewport.k + viewport.x;
