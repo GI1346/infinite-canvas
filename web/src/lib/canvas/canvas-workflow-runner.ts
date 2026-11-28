@@ -11,11 +11,10 @@ import { getGroupWrapRect } from "@/lib/canvas/canvas-node-geometry";
 import { parseAspectRatio, parsePixelSize } from "@/lib/media-size";
 import { fitNodeSize, IMAGE_NODE_MAX_EDGE } from "@/lib/canvas/canvas-node-size";
 import { imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
-import { buildLlmOutputOps, buildLlmPrompt, collectLlmInputs, LLM_TYPE, llmTableSystemPrompt } from "@/lib/canvas/dxos-llm";
 import { CONCURRENT_TYPE, generationRows, selectedGenerationRows, runRowPool, runningTableBatches, type DxBatchRun } from "@/lib/canvas/dxos-table";
 import { uploadMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
-import { decodeChannelModel, resolveModelRequestConfig, selectableModelsByCapability, type AiConfig } from "@/stores/use-config-store";
+import { resolveModelRequestConfig, selectableModelsByCapability, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasConnection, CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasPluginAi, PluginModelCapability } from "@/types/canvas-plugin";
 
@@ -63,27 +62,6 @@ function checkedModel(host: CanvasWorkflowHost, model: string, mode: PluginModel
     const resolved = resolveModelRequestConfig(config, model);
     if (!resolved.baseUrl.trim()) throw new Error("请配置所选渠道的 URL");
     return model;
-}
-
-async function runLlm(node: CanvasNodeData, host: CanvasWorkflowHost, options: CanvasWorkflowRunOptions, run: WorkflowRun) {
-    const model = checkedModel(host, node.metadata?.model ?? host.ai.defaultModel("text"), "text");
-    const decoded = decodeChannelModel(model), channelId = node.metadata?.llmChannelId ?? decoded?.channelId;
-    if (!decoded || decoded.channelId !== channelId) throw new Error("请选择当前平台下的文本模型；不会回退其他渠道");
-    const inputs = collectLlmInputs(node, host.getNodes(), host.getConnections());
-    const prompt = buildLlmPrompt(inputs, options.prompt ?? node.metadata?.prompt);
-    if (!prompt && !inputs.references.length) throw new Error("请连接图片或文本，或填写分析提示词");
-    const mode = node.metadata?.llmOutputMode === "list" ? "list" : "text";
-    const signature = () => { const source = host.getNode(node.id); return source ? JSON.stringify({ model: source.metadata?.model, channel: source.metadata?.llmChannelId, mode: source.metadata?.llmOutputMode, prompt: source.metadata?.prompt, inputs: collectLlmInputs(source, host.getNodes(), host.getConnections()) }) : ""; };
-    const initialSignature = signature();
-    write(host, node.id, { status: "loading", errorDetails: undefined });
-    const result = await host.ai.generateText(prompt || "请分析输入图片。", { model, references: inputs.references, signal: run.controller.signal, ...(mode === "list" ? { system: llmTableSystemPrompt } : {}) });
-    assertRun(host, node.id, run);
-    if (signature() !== initialSignature) throw new Error("分析期间输入或模型设置发生变化，请重新运行");
-    if (!result.text.trim()) throw new Error("模型未返回分析内容");
-    const current = host.getNode(node.id)!;
-    const output = buildLlmOutputOps(current, mode, result.text, inputs, host.getNodes(), host.getConnections());
-    host.applyOps([...output.ops, { type: "update_node", id: node.id, metadata: { content: mode === "text" ? result.text : undefined, llmSummary: output.summary, status: "success", errorDetails: undefined, llmOutputNodeId: output.outputId, model, llmChannelId: channelId } }]);
-    return host.getNode(output.outputId) || undefined;
 }
 
 async function runConcurrent(node: CanvasNodeData, host: CanvasWorkflowHost, options: CanvasWorkflowRunOptions, run: WorkflowRun) {
@@ -194,7 +172,7 @@ async function runConcurrent(node: CanvasNodeData, host: CanvasWorkflowHost, opt
 export async function runWorkflowNode(nodeId: string, host: CanvasWorkflowHost, options: CanvasWorkflowRunOptions = {}): Promise<CanvasNodeData | undefined> {
     assertActive(host, nodeId, options.signal);
     const node = host.getNode(nodeId)!;
-    if (node.type !== LLM_TYPE && node.type !== CONCURRENT_TYPE) throw new Error(`没有专用运行器的工作流节点：${node.type}`);
+    if (node.type !== CONCURRENT_TYPE) throw new Error(`没有专用运行器的工作流节点：${node.type}`);
     const originalHost = host;
     const projectId = node.type === CONCURRENT_TYPE && node.metadata?.generationMode !== "text" && node.metadata?.generationMode !== "video" ? options.projectId : undefined;
     if (isWorkflowNodeRunning(nodeId, projectId) || (projectId && useGenerationRunnerStore.getState().isNodeRunning(projectId, nodeId))) throw new Error("节点正在运行，请等待完成");
@@ -222,7 +200,6 @@ export async function runWorkflowNode(nodeId: string, host: CanvasWorkflowHost, 
     try {
         assertRun(host, nodeId, run);
         // Preflight validation belongs to this run too; persist its errors like transport errors.
-        if (node.type === LLM_TYPE) return await runLlm(node, host, options, run);
         return await runConcurrent(node, host, options, run);
     } catch (error) {
         if (owns(nodeId, run) && visible(host, nodeId)) {

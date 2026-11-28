@@ -15,10 +15,9 @@ export function showsGenerationPanel(node: CanvasNodeData) {
 
 /**
  * 面板是否展开。规则（按需求）：
- * - 单点选中的是生成节点 / 结果图 → 展开
+ * - 单点选中的是生成节点 / 结果图 / 文本节点 / 视频生成节点 → 展开
  * - 选中 2 个及以上 → 收起
- * - 视频生成节点也可打开参数；已上传且没有生成参数的视频只预览
- * - 其他节点（文本、表格、LLM、并发、音频…）单击不弹
+ * - 已上传且没有生成参数的视频或纯图片不弹；插件节点按 plugin 协议控制
  * - 插件自己调用 openPanel（dialogNodeId 指向该节点）时允许
  * - 拖拽、缩放、框选期间收起
  */
@@ -26,6 +25,7 @@ export function shouldShowNodePanel(node: CanvasNodeData, state: { selected: boo
     if (state.blocked) return false;
     if (state.selected && state.selectedCount === 1) {
         if (showsGenerationPanel(node)) return true;
+        if (node.type === CanvasNodeType.Text) return true;
         if (node.type === CanvasNodeType.Video && (!node.metadata?.content || node.metadata.model || node.metadata.videoTaskId || node.metadata.generationMode === "video")) return true;
     }
     return Boolean(getNodeDefinition(node.type)?.Panel) && state.dialogNodeId === node.id;

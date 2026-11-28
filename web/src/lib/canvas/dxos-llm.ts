@@ -19,7 +19,7 @@ export function collectLlmInputs(node: CanvasNodeData, nodes: CanvasNodeData[], 
         const visitSource = (candidate: CanvasNodeData, visited = new Set<string>()) => {
             if (visited.has(candidate.id)) return;
             visited.add(candidate.id);
-            if (candidate.type === "audio" || candidate.type === "video") throw new Error("LLM 多模态分析当前只接收图片和文本，不支持音频或视频输入；请移除对应连线");
+            if (candidate.type === "audio" || candidate.type === "video") throw new Error("文本多模态分析当前只接收图片和文本，不支持音频或视频输入；请移除对应连线");
             if (candidate.type === "group") nodes.filter((child) => child.metadata?.groupId === candidate.id).forEach((child) => visitSource(child, visited));
             if (candidate.type === "text" && acceptsText) {
                 const meta = candidate.metadata, primaryId = meta?.primaryTextId || meta?.texts?.[0]?.id;
@@ -94,10 +94,37 @@ export function buildLlmOutputOps(node: CanvasNodeData, mode: "text" | "list", t
     const table = listResult?.table;
     const groups = inputs.groups.filter((group) => nodes.some((source) => source.id === group.sourceNodeId));
     const ops: CanvasAgentOp[] = [
-        { type: "add_node", id: outputId, nodeType: table ? TABLE_TYPE : "text", title: table ? "LLM 输出列表" : "LLM 输出文本", position: { x: node.position.x + node.width + 100, y }, width: table ? 700 : TEXT_NODE_DEFAULT_SIZE.width, height: table ? 600 : TEXT_NODE_DEFAULT_SIZE.height, metadata: table ? { table, tableRowsFromData: true, tableInputChannels: groups.length ? groups.map((group) => ({ id: group.id, mode: group.references.length > 1 ? "sequence" : "shared", imagesOnly: true, mediaNodeIds: group.mediaNodeIds })) : [{ id: "input-1" }], status: "success" } : { content: text, status: "success" } },
+        { type: "add_node", id: outputId, nodeType: table ? TABLE_TYPE : "text", title: table ? "多维表格" : "文本", position: { x: node.position.x + node.width + 100, y }, width: table ? 700 : TEXT_NODE_DEFAULT_SIZE.width, height: table ? 600 : TEXT_NODE_DEFAULT_SIZE.height, metadata: table ? { table, tableRowsFromData: true, tableInputChannels: groups.length ? groups.map((group) => ({ id: group.id, mode: group.references.length > 1 ? "sequence" : "shared", imagesOnly: true, mediaNodeIds: group.mediaNodeIds })) : [{ id: "input-1" }], status: "success" } : { content: text, status: "success" } },
         // Keep flow JSON separate from editable table input channels.
         { type: "connect_nodes", fromNodeId: node.id, toNodeId: outputId, ...(table ? { toPort: "llm-output" } : {}) },
     ];
     if (table) groups.forEach((group) => ops.push({ type: "connect_nodes", fromNodeId: group.sourceNodeId, toNodeId: outputId, toPort: group.id }));
     return { outputId, ops, summary: listResult?.summary };
+}
+
+export function materializeLlmTableOps(sourceNode: CanvasNodeData, rawText: string, inputs: LlmInputs, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const output = buildLlmOutputOps(sourceNode, "list", rawText, inputs, nodes, connections);
+    const addedNodes: CanvasNodeData[] = [];
+    const addedConnections: CanvasConnection[] = [];
+    output.ops.forEach((op) => {
+        if (op.type === "add_node") {
+            addedNodes.push({
+                id: op.id!,
+                type: op.nodeType || TABLE_TYPE,
+                title: op.title || "多维表格",
+                position: op.position || { x: sourceNode.position.x + sourceNode.width + 100, y: sourceNode.position.y },
+                width: op.width || 700,
+                height: op.height || 600,
+                metadata: op.metadata,
+            });
+        } else if (op.type === "connect_nodes") {
+            addedConnections.push({
+                id: nanoid(),
+                fromNodeId: op.fromNodeId,
+                toNodeId: op.toNodeId,
+                ...(op.toPort ? { toPort: op.toPort } : {}),
+            });
+        }
+    });
+    return { outputId: output.outputId, summary: output.summary, addedNodes, addedConnections };
 }

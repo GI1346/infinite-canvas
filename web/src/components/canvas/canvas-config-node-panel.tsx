@@ -118,7 +118,7 @@ export function CanvasConfigNodePanel({ node, nodes, inputs, connectedNodes, isR
     </ConfigProvider>;
 }
 
-function ParameterMenu({ label, ariaLabel, value, disabled, wide, fixedZoom, onOpenChange, children }: { label: string; ariaLabel: string; value: string; disabled?: boolean; wide?: boolean; fixedZoom?: number; onOpenChange?: (open: boolean) => void; children: (close: () => void) => ReactNode }) {
+export function ParameterMenu({ label, ariaLabel, value, disabled, wide, fixedZoom, onOpenChange, children }: { label: string; ariaLabel: string; value: string; disabled?: boolean; wide?: boolean; fixedZoom?: number; onOpenChange?: (open: boolean) => void; children: (close: () => void) => ReactNode }) {
     const [open, setOpen] = useState(false);
     const { triggerRef, zoom } = useCanvasMenuZoom(open);
     const menuZoom = fixedZoom ?? zoom;

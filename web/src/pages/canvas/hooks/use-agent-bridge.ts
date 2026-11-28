@@ -118,7 +118,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
         const before = getSnapshot(), source = before.nodes.find((node) => node.id === nodeId);
         if (!source) throw new Error("节点不存在");
         if (source.type === LOCAL_FUSION_NODE_TYPE) return runLocalFusionNode(nodeId, getSnapshot, applyAgentOps, { signal, isCurrent: isActive });
-        if (source.type === "dxos:llm" || source.type === "dxos:concurrent") {
+        if (source.type === "dxos:concurrent") {
             const host = pluginHostRef.current;
             if (!host) throw new Error("工作流运行器尚未就绪");
             return runWorkflowNode(nodeId, { ...host, applyOps: applyAgentOps, getConfig: () => useConfigStore.getState().config, isActive }, { signal, prompt, projectId });

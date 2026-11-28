@@ -1,7 +1,6 @@
 import { FileText, Group, Image as ImageIcon, Music2, Settings2, Video } from "lucide-react";
 
 import { dxosNodeDefinitions } from "./dxos-workflow-nodes";
-import { llmNodeDefinition } from "./dxos-llm-node";
 import { localFusionNodeDefinition } from "./local-fusion-node";
 import { characterRecipeNodeDefinition } from "./character-recipe-node";
 import { directorStageNodeDefinition } from "./director-stage-node";
@@ -40,5 +39,5 @@ let registered = false;
 export function registerBuiltinNodes() {
     if (registered) return;
     registered = true;
-    registerNodeDefinitions([...BUILTIN_DEFINITIONS, ...dxosNodeDefinitions, llmNodeDefinition, localFusionNodeDefinition, characterRecipeNodeDefinition, directorStageNodeDefinition], "builtin");
+    registerNodeDefinitions([...BUILTIN_DEFINITIONS, ...dxosNodeDefinitions, localFusionNodeDefinition, characterRecipeNodeDefinition, directorStageNodeDefinition], "builtin");
 }

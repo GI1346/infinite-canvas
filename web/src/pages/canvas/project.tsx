@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
-import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { resolveModelForCapability, defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { ensureImagePreview, fetchImageBlob, getImageBlob, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
@@ -38,6 +38,8 @@ import { cloneDragSelection, expandDragNodeIds } from "@/lib/canvas/canvas-drag-
 import { connectionCurve, curvePath } from "@/lib/canvas/canvas-connection-geometry";
 import { CanvasConfigComposer } from "@/components/canvas/canvas-config-composer";
 import { CanvasConfigNodePanel } from "@/components/canvas/canvas-config-node-panel";
+import { CanvasTextNodePanel } from "@/components/canvas/canvas-text-node-panel";
+import { buildLlmPrompt, collectLlmInputs, llmTableSystemPrompt, materializeLlmTableOps } from "@/lib/canvas/dxos-llm";
 import { CanvasNodeContextMenu } from "@/components/canvas/canvas-context-menu";
 import { CanvasNodeAngleDialog, type CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
 import { CanvasExtractSelectionDialog } from "@/components/canvas/canvas-extract-selection-dialog";
@@ -1127,7 +1129,7 @@ function InfiniteCanvasPage() {
     const configInputsById = useMemo(() => {
         const map = new Map<string, NodeGenerationInput[]>();
         contentNodes.forEach((node) => {
-            if (node.type !== CanvasNodeType.Config && !showsGenerationPanel(node)) return;
+            if (node.type !== CanvasNodeType.Config && node.type !== CanvasNodeType.Text && !showsGenerationPanel(node)) return;
             map.set(node.id, buildNodeGenerationInputs(node.id, contentNodes, connections));
         });
         return map;
@@ -1190,13 +1192,13 @@ function InfiniteCanvasPage() {
     });
     pluginHostRef.current = pluginHost;
     const createNode = useCallback(
-        (type: CanvasNodeTypeId, position?: Position) => {
+        (type: CanvasNodeTypeId, position?: Position, anchor: "center" | "top-left" = "center") => {
             const targetPosition = position || getCanvasCenter();
             const configMetadata =
                 type === CanvasNodeType.Config || type === CanvasNodeType.Image
                     ? newGenerationMetadata(effectiveConfig)
                     : undefined;
-            const newNode = createCanvasNode(type, targetPosition, configMetadata);
+            const newNode = createCanvasNode(type, targetPosition, configMetadata, anchor);
 
             setNodes((prev) => [...prev, newNode]);
             setSelectedNodeIds(new Set([newNode.id]));
@@ -2702,32 +2704,33 @@ function InfiniteCanvasPage() {
 
             const gap = 96;
             const textSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
-            const configSpec = getNodeSpec("dxos:llm");
             const centerY = node.position.y + node.height / 2;
+            const reversePreset = t("canvas.projectPage.reversePreset");
             const textNode = {
-                ...createCanvasNode(CanvasNodeType.Text, { x: node.position.x + node.width + gap + textSpec.width / 2, y: centerY }, { content: t("canvas.projectPage.reversePreset"), prompt: t("canvas.projectPage.reversePreset"), status: NODE_STATUS_SUCCESS, fontSize: 20 }),
-                title: t("canvas.projectPage.reverseTitle"),
-            };
-            const configNode = {
                 ...createCanvasNode(
-                    "dxos:llm",
-                    { x: textNode.position.x + textNode.width + gap + configSpec.width / 2, y: centerY },
+                    CanvasNodeType.Text,
+                    { x: node.position.x + node.width + gap + textSpec.width / 2, y: centerY },
                     {
+                        content: "",
+                        composerContent: reversePreset,
+                        prompt: reversePreset,
                         llmOutputMode: "text",
-                        model: effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
+                        model: resolveModelForCapability(effectiveConfig, undefined, "text"),
+                        status: NODE_STATUS_IDLE,
+                        fontSize: 20,
                     },
                 ),
-                title: "LLM 多模态分析 · 图片反推",
+                title: t("canvas.projectPage.reverseTitle"),
             };
 
-            setNodes((prev) => [...prev, textNode, configNode]);
-            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: configNode.id }, { id: nanoid(), fromNodeId: textNode.id, toNodeId: configNode.id }]);
-            setSelectedNodeIds(new Set([configNode.id]));
+            setNodes((prev) => [...prev, textNode]);
+            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: textNode.id }]);
+            setSelectedNodeIds(new Set([textNode.id]));
             setSelectedConnectionId(null);
-            setDialogNodeId(null);
+            setDialogNodeId(textNode.id);
             setContextMenu(null);
         },
-        [effectiveConfig.model, effectiveConfig.textModel, message, t],
+        [effectiveConfig, message, t],
     );
 
     const extractSelectionNode = useCallback(async (node: CanvasNodeData, rect: import("@/types/canvas").CanvasCropRect, ratio?: string) => {
@@ -3300,7 +3303,8 @@ function InfiniteCanvasPage() {
             }
 
             const originalSourceNode = sourceNode;
-            const branch = createGenerationBranch(sourceNode, nodesRef.current, connectionsRef.current, generationConfig, mode, mode === "image" ? composerContent : prompt, { ...viewportRef.current, width: containerRef.current?.clientWidth || size.width, height: containerRef.current?.clientHeight || size.height });
+            const isTextTableOutput = sourceNode?.type === CanvasNodeType.Text && mode === "text" && sourceNode.metadata?.llmOutputMode === "list";
+            const branch = isTextTableOutput ? null : createGenerationBranch(sourceNode, nodesRef.current, connectionsRef.current, generationConfig, mode, mode === "image" ? composerContent : prompt, { ...viewportRef.current, width: containerRef.current?.clientWidth || size.width, height: containerRef.current?.clientHeight || size.height });
             if (branch) {
                 // Publish refs synchronously before resolving context; React may defer its state update.
                 nodesRef.current = [...nodesRef.current, branch.node];
@@ -3358,12 +3362,26 @@ function InfiniteCanvasPage() {
 
             const controllerForRun = beginRun();
             updateRunningNodeId(nodeId);
+            const originalBodyText = originalSourceNode?.type === CanvasNodeType.Text ? originalSourceNode.metadata?.content?.trim() || "" : "";
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
-            const editingTextNode = mode === "text" && Boolean(sourceTextContent);
+            const configPromptText = prompt.trim();
+            const hasSelfBranchEdge = Boolean(branch && originalSourceNode && branch.connections.some((edge) => edge.fromNodeId === originalSourceNode.id));
+            const editingTextNode = mode === "text" && !isTextTableOutput && Boolean(sourceTextContent || originalBodyText);
             let pendingChildIds: string[] = [];
-            let markSourceStatus = Boolean(branch);
+            let markSourceStatus = Boolean(branch) || isTextTableOutput;
             try {
-                const context = buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? t("canvas.projectPage.editTextPrompt", { source: sourceTextContent, prompt }) : prompt);
+                const resolvedTextInput = (() => {
+                    if (mode !== "text") return prompt;
+                    if (isTextTableOutput) return [originalBodyText, configPromptText].filter(Boolean).join("\n\n");
+                    if (originalBodyText && configPromptText) {
+                        return hasSelfBranchEdge ? configPromptText : t("canvas.projectPage.editTextPrompt", { source: originalBodyText, prompt: configPromptText });
+                    }
+                    if (originalBodyText && !configPromptText) {
+                        return hasSelfBranchEdge ? "" : originalBodyText;
+                    }
+                    return prompt;
+                })();
+                const context = buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, resolvedTextInput);
                 if (branch && originalSourceNode) {
                     // Prefer current direct inputs; Config-generated outputs also retain their original multimodal inputs.
                     const configSource = findRetrySourceNode(originalSourceNode.id, nodesRef.current, connectionsRef.current);
@@ -3385,19 +3403,20 @@ function InfiniteCanvasPage() {
                     if (originalSourceNode.metadata?.generationType === "edit" && !context.referenceImages.length) throw new Error(t("canvas.projectPage.referenceMissing"));
                 }
                 const generationContext = await hydrateNodeGenerationContext(context);
-                const effectivePrompt = generationContext.prompt.trim();
+                const rawEffectivePrompt = generationContext.prompt.trim();
+                const effectivePrompt = mode === "text" ? (rawEffectivePrompt || (generationContext.referenceImages.length ? "请分析输入图片。" : "")) : rawEffectivePrompt;
                 if (!active()) {
                     endRun();
                     updateRunningNodeId((current) => current === nodeId ? null : current);
                     return;
                 }
-                markSourceStatus = Boolean(branch) || (sourceNode?.type !== CanvasNodeType.Image && !editingTextNode);
+                markSourceStatus = Boolean(branch) || isTextTableOutput || (sourceNode?.type !== CanvasNodeType.Image && !editingTextNode);
                 if (!effectivePrompt && (mode === "text" || mode === "audio")) {
                     endRun();
                     updateRunningNodeId((current) => current === nodeId ? null : current);
                     return;
                 }
-                if (markSourceStatus) updateNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...(node.type === CanvasNodeType.Config ? {} : { prompt }), status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
+                if (markSourceStatus) updateNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...(node.type === CanvasNodeType.Config || node.type === CanvasNodeType.Text ? {} : { prompt }), status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
 
                 if (mode === "image") {
                     const count = getGenerationCount(generationConfig.count);
@@ -3645,6 +3664,38 @@ function InfiniteCanvasPage() {
                     return audioId;
                 }
 
+                if (isTextTableOutput && sourceNode) {
+                    const llmInputs = collectLlmInputs(sourceNode, nodesRef.current, connectionsRef.current);
+                    const tablePrompt = buildLlmPrompt({ ...llmInputs, text: "" }, effectivePrompt);
+                    const messages = [
+                        { role: "system" as const, content: llmTableSystemPrompt },
+                        ...buildNodeResponseMessages({ ...generationContext, prompt: tablePrompt }),
+                    ];
+                    let streamed = "";
+                    const answer = await requestImageQuestion(generationConfig, messages, (text) => { streamed = text; }, { signal: controllerForRun.signal });
+                    assertActive();
+                    const rawText = (answer || streamed).trim();
+                    if (!rawText) throw new Error("模型未返回多维表格内容");
+                    const currentNode = nodesRef.current.find((item) => item.id === nodeId) || sourceNode;
+                    const output = materializeLlmTableOps(currentNode, rawText, llmInputs, nodesRef.current, connectionsRef.current);
+                    updateNodes((prev) => [
+                        ...prev.map((node) => node.id === nodeId ? {
+                            ...node,
+                            metadata: {
+                                ...node.metadata,
+                                status: NODE_STATUS_SUCCESS,
+                                errorDetails: undefined,
+                                llmSummary: output.summary,
+                                llmOutputNodeId: output.outputId,
+                                model: generationConfig.model,
+                            },
+                        } : node),
+                        ...output.addedNodes,
+                    ]);
+                    if (output.addedConnections.length) updateConnections((prev) => [...prev, ...output.addedConnections]);
+                    return output.outputId;
+                }
+
                 const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
                 const textCount = getGenerationCount(String(sourceNode?.metadata?.textCount || 1));
                 const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : CanvasNodeType.Text];
@@ -3657,7 +3708,7 @@ function InfiniteCanvasPage() {
                 const rootNode: CanvasNodeData = {
                     id: rootId,
                     type: CanvasNodeType.Text,
-                    title: branch ? sourceNode!.title : effectivePrompt.slice(0, 32) || "Generated Text",
+                    title: reuseTextNode && sourceNode?.title && sourceNode.title !== t("canvas.nodeTypes.text") && sourceNode.title !== "文本" ? sourceNode.title : branch ? sourceNode!.title : effectivePrompt.slice(0, 32) || "Generated Text",
                     position: reuseTextNode ? sourceNode!.position : { x: parentPosition.x + parentConfig.width + 96, y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2 },
                     width: reuseTextNode ? sourceNode!.width : textConfig.width,
                     height: reuseTextNode ? sourceNode!.height : textConfig.height,
@@ -3900,9 +3951,12 @@ function InfiniteCanvasPage() {
             const updateNodes = guardGenerationSetter(task ? writeNodes : setNodes, active);
             const updateRunningNodeId = guardGenerationSetter(setRunningNodeId, () => !task && active());
             try {
-                const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || ""));
+                const retryInputText = sourceNode.type === CanvasNodeType.Text
+                    ? [sourceNode.metadata?.content?.trim(), sourceNode.metadata?.composerContent ?? sourceNode.metadata?.prompt].filter(Boolean).join("\n\n")
+                    : sourceNode.metadata?.prompt || node.metadata?.prompt || "";
+                const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryInputText));
                 if (!active()) return;
-                const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
+                const prompt = (savedImageMetadata?.prompt || context?.prompt || (node.type === CanvasNodeType.Text && context?.referenceImages.length ? "请分析输入图片。" : "")).trim();
                 if (!prompt) {
                     message.warning(t("canvas.projectPage.retryPromptMissing"));
                     return;
@@ -3925,6 +3979,36 @@ function InfiniteCanvasPage() {
 
                 if (node.type === CanvasNodeType.Text) {
                     if (!context) return;
+                    if (node.metadata?.llmOutputMode === "list") {
+                        const llmInputs = collectLlmInputs(sourceNode, nodesRef.current, connectionsRef.current);
+                        const tablePrompt = buildLlmPrompt({ ...llmInputs, text: "" }, prompt);
+                        const messages = [
+                            { role: "system" as const, content: llmTableSystemPrompt },
+                            ...buildNodeResponseMessages({ ...context, prompt: tablePrompt }),
+                        ];
+                        let streamed = "";
+                        const answer = await requestImageQuestion(generationConfig, messages, (text) => { streamed = text; }, { signal: controller.signal });
+                        const rawText = (answer || streamed).trim();
+                        if (!rawText) throw new Error("模型未返回多维表格内容");
+                        const currentNode = nodesRef.current.find((item) => item.id === node.id) || node;
+                        const output = materializeLlmTableOps(currentNode, rawText, llmInputs, nodesRef.current, connectionsRef.current);
+                        updateNodes((prev) => [
+                            ...prev.map((item) => item.id === node.id ? {
+                                ...item,
+                                metadata: {
+                                    ...item.metadata,
+                                    status: NODE_STATUS_SUCCESS,
+                                    errorDetails: undefined,
+                                    llmSummary: output.summary,
+                                    llmOutputNodeId: output.outputId,
+                                    model: generationConfig.model,
+                                },
+                            } : item),
+                            ...output.addedNodes,
+                        ]);
+                        if (output.addedConnections.length) setConnections((prev) => [...prev, ...output.addedConnections]);
+                        return;
+                    }
                     let streamed = "";
                     const answer = await requestImageQuestion(
                         generationConfig,
@@ -4252,10 +4336,36 @@ function InfiniteCanvasPage() {
         [addImageReference, configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, contentNodes, runningNodeId, startNodeReferenceSelection, imageTasks, projectId],
     );
 
+    const renderTextPanel = useCallback(
+        (contentNode: CanvasNodeData) => (
+            <CanvasTextNodePanel
+                node={contentNode}
+                isRunning={isImageRunning(contentNode.id) || runningNodeId === contentNode.id || generationRequestsRef.current.has(contentNode.id)}
+                nodes={contentNodes}
+                inputs={configInputsById.get(contentNode.id) || []}
+                onAddImageReference={addImageReference}
+                connectedNodes={connectedNodesByNodeId.get(contentNode.id) || []}
+                onDisconnectReference={disconnectNodeReference}
+                onStartReferenceSelection={startNodeReferenceSelection}
+                onConfigChange={handleConfigNodeChange}
+                onStop={confirmStopGeneration}
+                onGenerate={(nodeId, fromExpanded) => {
+                    const target = nodesRef.current.find((item) => item.id === nodeId);
+                    const body = (target?.metadata?.content || "").trim();
+                    const configValue = target?.metadata?.composerContent ?? (body ? "" : target?.metadata?.prompt ?? "");
+                    void handleGenerateNode(nodeId, "text", configValue, undefined, fromExpanded);
+                }}
+            />
+        ),
+        [addImageReference, configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, contentNodes, runningNodeId, startNodeReferenceSelection, imageTasks, projectId],
+    );
+
     const renderNodePanel = useCallback(
         (panelNode: CanvasNodeData) =>
             showsGenerationPanel(panelNode) ? (
                 renderGenerationPanel(panelNode)
+            ) : panelNode.type === CanvasNodeType.Text ? (
+                renderTextPanel(panelNode)
             ) : getNodeDefinition(panelNode.type)?.Panel ? (
                 renderPluginPanel(panelNode)
             ) : panelNode.type === CanvasNodeType.Config ? (
@@ -4292,7 +4402,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [addImageReference, configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, contentNodes, renderPluginPanel, runningNodeId, startNodeReferenceSelection, renderGenerationPanel, imageTasks, projectId],
+        [addImageReference, configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, contentNodes, renderPluginPanel, renderTextPanel, runningNodeId, startNodeReferenceSelection, renderGenerationPanel, imageTasks, projectId],
     );
 
     if (hydrationError) return <main className="flex h-full items-center justify-center bg-background p-6 text-foreground" role="alert">{hydrationError}</main>;
@@ -4442,7 +4552,7 @@ function InfiniteCanvasPage() {
                             position={nodeCreatePosition}
                             scale={viewport.k}
                             onCreate={(type) => {
-                                createNode(type, nodeCreatePosition);
+                                createNode(type, nodeCreatePosition, "top-left");
                                 setNodeCreatePosition(null);
                             }}
                             onClose={() => setNodeCreatePosition(null)}

@@ -9,7 +9,7 @@ import type { UploadedFile } from "@/services/file-storage";
 import type { ReferenceImage } from "@/types/image";
 import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type Position } from "@/types/canvas";
 
-export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
+export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata, anchor: "center" | "top-left" = "center"): CanvasNodeData {
     const spec = getNodeSpec(type);
     // 图片节点和生成节点共用同一份配置记忆：新建时沿用上一次在配置栏选好的项。
     const remembered = type === CanvasNodeType.Image || type === CanvasNodeType.Config ? useCanvasImageSettingsStore.getState().settings : undefined;
@@ -26,10 +26,13 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
         id,
         type,
         title: spec.title,
-        position: {
-            x: position.x - dimensions.width / 2,
-            y: position.y - dimensions.height / 2,
-        },
+        position:
+            anchor === "top-left"
+                ? { x: position.x, y: position.y }
+                : {
+                      x: position.x - dimensions.width / 2,
+                      y: position.y - dimensions.height / 2,
+                  },
         width: dimensions.width,
         height: dimensions.height,
         metadata: initialMetadata,

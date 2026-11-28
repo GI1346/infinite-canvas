@@ -12,8 +12,6 @@ const MAX_ASPECT_RATIO = 20;
 // 画布内所有节点的默认卡片尺寸统一到同一档，新建时看起来整齐一致。
 export const CANVAS_NODE_DEFAULT_SIZE = { width: UNIFIED_NODE_SQUARE_SIZE, height: UNIFIED_NODE_SQUARE_SIZE };
 export const CONFIG_NODE_DEFAULT_SIZE = CANVAS_NODE_DEFAULT_SIZE;
-/** LLM 多模态分析这类内容型面板用紧凑尺寸，避免大面积空白。 */
-export const LLM_NODE_DEFAULT_SIZE = { width: 330, height: 360 };
 export const TEXT_NODE_DEFAULT_SIZE = CANVAS_NODE_DEFAULT_SIZE;
 
 /**

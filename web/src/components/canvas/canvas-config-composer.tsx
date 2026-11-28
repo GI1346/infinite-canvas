@@ -37,6 +37,8 @@ type CanvasConfigComposerProps = {
     onAddImageReference?: (nodeId: string, item: GalleryImage) => Promise<NodeGenerationInput>;
     /** Ctrl/Cmd + Enter 直接运行节点；回车本身仍是换行。 */
     onRun?: () => void;
+    placeholder?: string;
+    ariaLabel?: string;
 };
 
 type Token =
@@ -49,7 +51,7 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], imageNumbers, embedded = false, expanded = false, compact = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences, onAddImageReference, onRun }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInputs, connectedNodes = [], imageNumbers, embedded = false, expanded = false, compact = false, fontSize, onChange, onClose, onDisconnectReference, onStartReferenceSelection, onReorderReferences, onAddImageReference, onRun, placeholder, ariaLabel }: CanvasConfigComposerProps) {
     const { t } = useTranslation();
     const { message } = App.useApp();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -180,11 +182,11 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs: sourceInput
                 <span key={sourceId + ":" + child.nodeId} title={child.text || child.title} className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs" style={{ background: theme.toolbar.activeBg, color: theme.node.text, fontSize, lineHeight: fontSize ? 1.5 : undefined }}><FileText size={fontSize || 12} /><span className="truncate">{child.title || "文本提示词"}</span>{onDisconnectReference && <button type="button" aria-label={`移除引用 ${child.title || "文本"}`} className="shrink-0 opacity-70 hover:opacity-100" onClick={() => onDisconnectReference(sourceId, nodeId)}><X size={12} /></button>}</span>
             )}</div>}
             <div data-config-composer className={embedded ? `relative z-10 overflow-hidden ${expanded ? expandedComposerInputSurface : composerInputSurface} ${compact ? "min-h-[72px] max-h-[120px] shrink-0" : "min-h-0 flex-1"}` : "relative rounded-lg"}>
-                {!value.trim() ? <div className="pointer-events-none absolute left-2.5 top-1.5 z-10 text-xs leading-5" style={{ color: theme.node.placeholder, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{t("canvas.composer.placeholder")}</div> : null}
+                {!value.trim() ? <div className="pointer-events-none absolute left-2.5 top-1.5 z-10 text-xs leading-5" style={{ color: theme.node.placeholder, fontSize, lineHeight: fontSize ? 1.5 : undefined }}>{placeholder || t("canvas.composer.placeholder")}</div> : null}
                 <div
                     ref={editorRef}
                     role="textbox"
-                    aria-label="生成配置提示词"
+                    aria-label={ariaLabel || "生成配置提示词"}
                     aria-multiline="true"
                     contentEditable
                     suppressContentEditableWarning

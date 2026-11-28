@@ -323,7 +323,6 @@ function toolLabel(id: string, t: (key: string) => string) {
     if (id === "tool-group") return t("canvas.toolbar.group");
     if (id === "tool-table") return "多维表格";
     if (id === "tool-concurrent") return "并发生成";
-    if (id === "tool-llm") return "LLM 多模态分析";
     if (id === "tool-extensions") return t("canvas.toolbar.extensions");
     if (id === "tool-upload") return t("canvas.toolbar.upload");
     if (id === "tool-style") return t("canvas.toolbar.appearance");

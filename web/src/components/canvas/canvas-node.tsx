@@ -88,6 +88,7 @@ type NodeContentRendererProps = {
     isBatchRoot: boolean;
     batchCount: number;
     batchExpanded: boolean;
+    showPanel?: boolean;
     scale: number;
     renderNodeContent?: (node: CanvasNodeData) => ReactNode;
     pluginContext?: CanvasNodeContext | null;
@@ -171,7 +172,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const isImage = data.type === CanvasNodeType.Image;
-    const largeTitle = ["config", "dxos:table", "dxos:llm", "dxos:concurrent", CanvasNodeType.Text, CanvasNodeType.Video, LOCAL_FUSION_NODE_TYPE, CHARACTER_RECIPE_NODE_TYPE, "blinkflow:director"].includes(data.type);
+    const largeTitle = ["config", "dxos:table", "dxos:concurrent", CanvasNodeType.Text, CanvasNodeType.Video, LOCAL_FUSION_NODE_TYPE, CHARACTER_RECIPE_NODE_TYPE, "blinkflow:director"].includes(data.type);
     const generationDuration = data.metadata?.status === "success" ? formatGenerationDuration(data.metadata.generationDurationMs) : null;
     const titleName = isImage ? canvasTitleWithoutExtension(data.title || "") : data.title || "";
     const [titleDraft, setTitleDraft] = useState(titleName);
@@ -377,6 +378,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         isBatchRoot={isBatchRoot}
                         batchCount={batchCount}
                         batchExpanded={batchExpanded}
+                        showPanel={showPanel}
                         scale={scale}
                         renderNodeContent={renderNodeContent}
                         pluginContext={pluginContext}
@@ -395,7 +397,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onStartTitleEdit={startTitleEditing}
                         groupChildCount={groupChildCount}
                     />
-    ), [contentNode, registryVersion, theme, isEditingContent, isBatchRoot, batchCount, batchExpanded, scale, renderNodeContent, pluginContext, mentionReferences, onContentChange, onRetry, onToggleBatch, onSetBatchPrimary, onDuplicateBatchImage, onDownloadBatchImage, onRetryBatchImage, onDeleteBatchImage, onViewImage, groupChildCount, onContextMenu]);
+    ), [contentNode, registryVersion, theme, isEditingContent, isBatchRoot, batchCount, batchExpanded, showPanel, scale, renderNodeContent, pluginContext, mentionReferences, onContentChange, onRetry, onToggleBatch, onSetBatchPrimary, onDuplicateBatchImage, onDownloadBatchImage, onRetryBatchImage, onDeleteBatchImage, onViewImage, groupChildCount, onContextMenu]);
 
     return (
         <div
@@ -593,7 +595,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     className="absolute left-1/2 top-full z-[70] overflow-hidden rounded-[20px] border shadow-2xl"
                     style={{
                         width: NODE_PANEL_WIDTH / scale,
-                        height: data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video ? undefined : NODE_PANEL_HEIGHT / scale,
+                        height: data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video || data.type === CanvasNodeType.Text ? undefined : NODE_PANEL_HEIGHT / scale,
                         marginTop: 16 / scale,
                         transform: "translateX(-50%)",
                         background: theme.node.panel,
@@ -604,7 +606,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     onMouseDown={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
                 >
-                    <div data-node-panel-content style={{ width: NODE_PANEL_CONTENT_WIDTH, height: data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video ? undefined : NODE_PANEL_CONTENT_HEIGHT, zoom: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH / scale }}>
+                    <div data-node-panel-content style={{ width: NODE_PANEL_CONTENT_WIDTH, height: data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video || data.type === CanvasNodeType.Text ? undefined : NODE_PANEL_CONTENT_HEIGHT, zoom: NODE_PANEL_WIDTH / NODE_PANEL_CONTENT_WIDTH / scale }}>
                         {renderPanel(data)}
                     </div>
                 </div>
@@ -616,7 +618,7 @@ export const CanvasNode = React.memo(function CanvasNode({
 function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot && props.node.type === CanvasNodeType.Image) return <ImageNodeContent {...props} />;
-    if (props.node.type === CanvasNodeType.Text && props.node.metadata?.texts?.length && (props.node.metadata.status !== "error" || props.node.metadata.texts.some((text) => text.content))) return <TextContent {...props} />;
+    if (props.node.type === CanvasNodeType.Text && (Boolean(props.node.metadata?.content) || (props.node.metadata?.texts?.length && (props.node.metadata.status !== "error" || props.node.metadata.texts.some((text) => text.content))))) return <TextContent {...props} />;
     const workflowDefinition = (props.node.type.startsWith("dxos:") || props.node.type === LOCAL_FUSION_NODE_TYPE || props.node.type === CHARACTER_RECIPE_NODE_TYPE) ? getNodeDefinition(props.node.type) : undefined;
     if (workflowDefinition?.Content && props.pluginContext) { const Content = workflowDefinition.Content; return <Content ctx={props.pluginContext} />; }
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} startedAt={props.node.metadata.generationStartedAt} showTimer={props.node.type === CanvasNodeType.Image || props.node.metadata.generationStartedAt !== undefined} />;
@@ -704,7 +706,7 @@ function TextBarAction({ icon, label, onClick, active, disabled }: { icon: React
     );
 }
 
-function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, batchExpanded, scale, onContentChange, onStopEditing, onToggleBatch, onSetBatchPrimary, onOpenMenu, onStartTitleEdit }: NodeContentRendererProps) {
+function TextContent({ node, theme, isEditingContent, showPanel, textareaRef, mentionReferences, batchExpanded, scale, onContentChange, onStopEditing, onToggleBatch, onSetBatchPrimary, onOpenMenu, onStartTitleEdit }: NodeContentRendererProps) {
     const { t } = useTranslation();
     const [expanded, setExpanded] = useState(false);
     // 和生成节点提示词框的字号对齐（11px / 行高 1.5），比之前的 12px 更紧凑。
@@ -730,6 +732,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                       .filter((text) => text.id !== primaryTextId)
                       .map((text, index) => <ExpandedTextCard key={text.id} node={node} text={text} index={index} onSetPrimary={() => onSetBatchPrimary?.(text.id)} />)
                 : null}
+            {!showPanel && !isEditingContent && (
             <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore data-node-no-drag className={`absolute left-1/2 top-full z-[70] -translate-x-1/2 transition-opacity ${promptLibraryOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0 group-hover/node:pointer-events-auto group-hover/node:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"}`} style={{ paddingTop: 16 / Math.max(scale, 0.01) }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
                 {/* 和信息栏一样固定屏幕像素：外层吃画布缩放，内层用 zoom 抵消回来，任何缩放级别下都同高同字号。 */}
                 <div className="bf-canvas-glass flex w-max items-center gap-1.5 whitespace-nowrap rounded-2xl p-1.5 text-[13px]" style={{ zoom: 1 / Math.max(scale, 0.01), background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
@@ -758,6 +761,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                     {savedPrompt ? <span role="status" className="sr-only">已加入提示词库</span> : null}
                 </div>
             </div>
+            )}
             <Modal title={<div className="flex items-center justify-between pr-8"><span>{node.title || "文本"}</span><span className="text-xs font-normal opacity-60">{content.length.toLocaleString()} 字符 · 实时同步</span></div>} open={expanded} onCancel={() => setExpanded(false)} footer={null} width="min(1000px, 94vw)" centered destroyOnHidden styles={{ container: { background: theme.node.panel, color: theme.node.text } }} modalRender={(modal) => <div data-canvas-overlay data-canvas-no-zoom data-canvas-shortcuts-ignore onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>{modal}</div>}>
                 <CanvasResourceMentionTextarea className="thin-scrollbar block h-[65vh] w-full resize-none overflow-y-auto rounded-xl border p-5 outline-none" style={{ ...textStyle, fontSize: 14, lineHeight: 1.65, background: theme.node.fill, borderColor: theme.node.stroke }} value={content} references={mentionReferences} highlightLabels={false} onChange={(value) => onContentChange(node.id, value)} />
             </Modal>
@@ -991,6 +995,7 @@ function ImageContent({
 }: {
     node: CanvasNodeData;
     batchExpanded: boolean;
+    showPanel?: boolean;
     scale: number;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: (imageId: string) => void;

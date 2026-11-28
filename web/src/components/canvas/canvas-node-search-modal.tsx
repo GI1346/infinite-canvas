@@ -13,7 +13,6 @@ const NODE_META: Record<string, { label: string; color: string }> = {
     [CanvasNodeType.Group]: { label: "分组", color: "#64748b" },
     "dxos:table": { label: "多维表格", color: "#0ea977" },
     "dxos:concurrent": { label: "并发生成", color: "#37d39b" },
-    "dxos:llm": { label: "AI 多模态", color: "#a78bfa" },
     "blinkflow:fusion": { label: "局部融合", color: "#f59e0b" },
     "blinkflow:director": { label: "3D 导演台", color: "#ec4899" },
     "character-recipe": { label: "角色合成", color: "#ec4899" },

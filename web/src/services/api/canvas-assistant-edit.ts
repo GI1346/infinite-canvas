@@ -8,7 +8,7 @@ import { extractImageSelection } from "@/lib/canvas/canvas-local-fusion";
 import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { uploadImage } from "@/services/image-storage";
 import { assistantImageParameters } from "@/lib/canvas/assistant-image-parameters";
-import { decodeChannelModel, modelCapabilityOf, type AiConfig } from "@/stores/use-config-store";
+import { modelCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasAssistantContext } from "@/stores/use-canvas-assistant-store";
 import { CanvasNodeType, type CanvasNodeMetadata } from "@/types/canvas";
 
@@ -32,8 +32,8 @@ export async function editAssistantCanvas(args: Record<string, unknown>, context
             if (!source) throw new Error(`节点不存在：${id}`);
             if (source.metadata?.status === "loading") throw new Error("请先停止节点生成再修改该节点");
             let metadata = parameters(item.parameters);
-            const mode = source.metadata?.generationMode || (source.type === "video" ? "video" : source.type === "audio" ? "audio" : source.type === "text" || source.type === "dxos:llm" ? "text" : "image");
-            if (item.model !== undefined) { if (typeof item.model !== "string" || modelCapabilityOf(config, item.model) !== mode) throw new Error("模型不存在或与节点能力不匹配"); metadata.model = item.model; if (source.type === "dxos:llm") metadata.llmChannelId = decodeChannelModel(item.model)?.channelId; }
+            const mode = source.metadata?.generationMode || (source.type === "video" ? "video" : source.type === "audio" ? "audio" : source.type === "text" ? "text" : "image");
+            if (item.model !== undefined) { if (typeof item.model !== "string" || modelCapabilityOf(config, item.model) !== mode) throw new Error("模型不存在或与节点能力不匹配"); metadata.model = item.model; }
             if (item.prompt !== undefined) { if (typeof item.prompt !== "string") throw new Error("prompt 必须是文字"); metadata.prompt = item.prompt; metadata.composerContent = item.prompt; }
             if (item.text !== undefined) { if (source.type !== "text" || typeof item.text !== "string") throw new Error("text 只适用于文本节点"); metadata.content = item.text; metadata.texts = []; metadata.primaryTextId = undefined; }
             if (mode === "image") metadata = assistantImageParameters(metadata, source.metadata || {}, config);

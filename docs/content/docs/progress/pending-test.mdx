@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- [ ] 单选文本节点验证下方配置框（生成节点样式、「文本 / 多维表格」切换、参考图与 `@` 引用、提示词库），验证双击文本卡片编辑正文不变，以及仅填正文、仅填配置框提示词或两者协同输出文本 / 拆解多维表格；确认新建菜单已移除独立「LLM 多模态分析」，空白画布右键新建节点时左上角精准对齐鼠标指针位置。
+
 - [ ] 打开「模型与接口」确认新增 65535 四个固定渠道（`65535 任务专用` `https://task-cn.65536.space`、`65535 OpenAI-Pro` / `65535 Gemini-Std` / `65535 Gemini-Ultra` `https://api.65536.space`），填入各自独立 Key 后验证「一键验证」、图片生成（含 `gpt-image-2/2.5/2.6`、`gemini-3-pro-image`、`seedvr2-7b`）、视频生成（`seedance` / `veo-omni` / `grok-imagine-video` 及固定 8s/10s 时长显示）及对话节点。
 
 - [ ] 在 `萤漫Video` 点击「更新模型」，确认以服务端最新列表为准覆盖候选并自动取消勾选服务端已下线的模型（如 `seedance-2.5-hlg`）。
